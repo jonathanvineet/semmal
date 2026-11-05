@@ -50,7 +50,6 @@ const ITEMS: Item[] = [
 ];
 const OPS: Item[] = [
   { id: "register", href: "/robots/new", label: "Register a robot", icon: "add" },
-  { id: "publish", href: "/publish", label: "Publish to Arkiv", icon: "publish" },
   { id: "admin", href: "/admin", label: "Your dashboard", icon: "admin" },
 ];
 

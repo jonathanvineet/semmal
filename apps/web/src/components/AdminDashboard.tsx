@@ -2,6 +2,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { useWallet } from "@/lib/wallet";
+import { Publisher } from "./Publisher";
 import { ARKIV_EXPLORER, type Status } from "@/lib/api";
 
 type AdminState = {
@@ -130,10 +131,17 @@ export function AdminDashboard() {
             <p className="t-small muted">Everything you publish is owned by this wallet on Arkiv. Each write is signed in your wallet after you approve the fee.</p>
             <div className="btn-row">
               <Link className="btn btn--primary" href="/robots/new">Register a robot</Link>
-              <Link className="btn btn--secondary" href="/publish">Publish agents</Link>
+              <a className="btn btn--secondary" href="#publish">Publish agents</a>
               <a className="btn btn--secondary" href={`${ARKIV_EXPLORER}/entity-explorer`} target="_blank" rel="noreferrer">Open entity explorer</a>
             </div>
             {w.me?.role === "owner" && <TransferOwner onTransfer={(a) => transfer("transfer_owner", a)} />}
+          </article>
+          <article id="publish" className="card integ span-12 publish-sec">
+            <div className="integ__head">
+              <h3 className="t-card">Publish specialist agents</h3>
+              <span className="t-small muted">Owner only · signed by your wallet</span>
+            </div>
+            <Publisher />
           </article>
           <article className="card integ span-12">
             <h3 className="t-card">Audit log</h3>

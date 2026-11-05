@@ -66,7 +66,7 @@ export function AgentDetail({ entry, onClose }: { entry: Entry<AgentListing>; on
                 Open the Rabdi entity explorer
               </a>
             ) : (
-              <span className="t-small muted">Publish it from the Publish to Arkiv page with your wallet.</span>
+              <span className="t-small muted">Not on Arkiv.</span>
             )}
           </div>
           <p className="t-small muted detail-note">Robots choose agents themselves. This page lists them; it does not assign them.</p>

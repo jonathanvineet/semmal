@@ -115,7 +115,7 @@ export function Chooser() {
                 </AnimatePresence>
               </ul>
             </LayoutGroup>
-            {data && data.items.length === 0 && <p className="choose__none">No agents are published on Arkiv yet, so there is nobody to hire. <a className="link" href="/publish">Publish one</a>.</p>}
+            {data && data.items.length === 0 && <p className="choose__none">No agents are published on Arkiv yet, so there is nobody to hire.</p>}
             {!hired && data && data.items.length > 0 && <p className="choose__none">No agent fits. The robot reports it cannot take this job instead of lowering the bar.</p>}
             <div className="choose__foot">
               <span className="t-small muted">Agents read live from Arkiv. The robot&apos;s master agent applies this same rule.</span>

@@ -127,6 +127,15 @@ export function RegisterRobot() {
     walletOk && !check?.takenByOther && !checking,
     Boolean(profile) && ark.onRabdi,
   ];
+  // what each finished step chose, shown under its name in the step list
+  const summary = [
+    name.trim(),
+    m.name,
+    skills.length ? `${skills.length} skill${skills.length === 1 ? "" : "s"}${area ? ` · ${area}` : ""}` : "",
+    policyOk ? `${norm(minFee)}–${norm(maxQuote)} USDC · ${margin}%` : "",
+    walletOk ? short(robotWallet) : "",
+    "",
+  ];
   const go = (n: number) => {
     setDir(n > step ? 1 : -1);
     setError(null);
@@ -179,7 +188,10 @@ export function RegisterRobot() {
           <li key={s}>
             <button type="button" className={`${i === step ? "is-on" : ""} ${i < step ? "is-done" : ""}`} disabled={i > step && !valid.slice(0, i).every(Boolean)} onClick={() => go(i)} aria-current={i === step ? "step" : undefined}>
               <span className="reg-rail__n">{i < step ? "✓" : i + 1}</span>
-              <span>{s}</span>
+              <span className="reg-rail__txt">
+                <span>{s}</span>
+                {i < step && summary[i] && <small>{summary[i]}</small>}
+              </span>
             </button>
           </li>
         ))}
@@ -187,6 +199,7 @@ export function RegisterRobot() {
 
       <div className="reg-body">
         <div className="reg-panel">
+          <div className="reg-scroll">
           <AnimatePresence mode="wait" custom={dir}>
             <motion.div
               key={step}
@@ -370,14 +383,18 @@ export function RegisterRobot() {
           </AnimatePresence>
 
           {error && <p className="soft-warn" role="status">{error}</p>}
+          </div>
 
           <div className="reg-nav">
-            {step > 0 ? <button type="button" className="btn btn--secondary" onClick={() => go(step - 1)} disabled={busy}>Back</button> : <span />}
+            <span className="reg-nav__count muted t-small">Step {step + 1} of {STEPS.length}</span>
+            <span className="reg-nav__btns">
+            {step > 0 && <button type="button" className="btn btn--secondary" onClick={() => go(step - 1)} disabled={busy}>Back</button>}
             {step < 5 ? (
               <button type="button" className="btn btn--primary" disabled={!valid[step]} onClick={() => go(step + 1)}>Continue</button>
             ) : (
               <button type="button" className="btn btn--primary" disabled={!valid[5] || busy} onClick={publish}>{busy ? "Publishing…" : "Publish robot"}</button>
             )}
+            </span>
           </div>
         </div>
 

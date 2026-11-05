@@ -28,7 +28,6 @@ export function Footer() {
               <p className="t-label muted">Operators</p>
               <Link href="/robots/new">Register a robot</Link>
               <Link href="/admin">Your dashboard</Link>
-              <Link href="/publish">Publish to Arkiv</Link>
             </div>
             <div>
               <p className="t-label muted">Built on</p>

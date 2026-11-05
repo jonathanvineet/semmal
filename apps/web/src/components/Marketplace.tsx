@@ -50,7 +50,6 @@ export function Marketplace({ limit, compact = false }: { limit?: number; compac
         <div className="empty">
           <h3 className="t-card">No agents on Arkiv yet</h3>
           <p className="muted">Specialist agents appear here as soon as their owners publish them.</p>
-          <a className="btn btn--primary" href="/publish">Publish an agent</a>
         </div>
       )}
       {data && data.items.length > 0 && (

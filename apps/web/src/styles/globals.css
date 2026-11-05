@@ -794,3 +794,117 @@ main > section.workbench > .wrap { height: auto; display: grid; gap: 18px; }
   .wq__head { grid-template-columns: 88px 1fr; }
   .wq__view { width: 88px; height: 80px; }
 }
+
+/* ------------------------------------------------------------- register workbench (/robots/new): fits one screen on desktop */
+.reg {
+  --reg-h: calc(100svh - 104px - 28px - 76px);
+  display: grid; grid-template-columns: 240px minmax(0, 1fr) 340px; gap: 16px;
+  height: max(600px, var(--reg-h));
+}
+.reg-body { display: contents; }
+
+/* vertical step list */
+.reg-rail { flex-direction: column; width: auto; max-width: none; height: 100%; padding: 10px; gap: 4px; border-radius: 28px; overflow-y: auto; align-self: stretch; background: color-mix(in oklab, #111215 94%, transparent); display: flex; }
+.reg-rail li { display: block; }
+.reg-rail button { width: 100%; height: auto; min-height: 58px; padding: 10px 12px; border-radius: 18px; align-items: center; gap: 12px; white-space: normal; }
+.reg-rail button.is-on { background: color-mix(in oklab, var(--p-accent) 10%, transparent); color: var(--p-ink); box-shadow: inset 0 0 0 1.5px color-mix(in oklab, var(--p-accent) 65%, transparent); }
+.reg-rail button.is-on .reg-rail__n { background: var(--p-accent); color: var(--p-bg); }
+.reg-rail button:hover:not(:disabled):not(.is-on) { background: var(--soft-fill); }
+.reg-rail__n { flex: none; width: 30px; height: 30px; font-size: 13px; font-weight: 600; }
+.reg-rail__txt { display: grid; gap: 2px; min-width: 0; text-align: left; }
+.reg-rail__txt > span { font-size: 15px; }
+.reg-rail__txt small { font-size: 12.5px; color: var(--p-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 400; }
+
+/* the step panel: content scrolls, the buttons stay pinned */
+.reg-panel { display: flex; flex-direction: column; min-height: 0; height: 100%; padding: 0; gap: 0; overflow: visible; overflow-x: clip; }
+.reg-scroll { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 30px 32px 24px; display: grid; align-content: start; gap: 18px; scrollbar-width: thin; scrollbar-color: #2a2c31 transparent; }
+.reg-step h2 { font-size: clamp(24px, 1vw + 16px, 30px); }
+.reg-nav { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 18px 14px 24px; border-top: 1px solid var(--soft-line); background: color-mix(in oklab, #111215 96%, transparent); border-radius: 0 0 32px 32px; }
+.reg-nav__btns { display: flex; gap: 10px; }
+
+/* model cards sized for the panel */
+.model-grid { grid-template-columns: repeat(auto-fill, minmax(168px, 1fr)); gap: 10px; }
+.model { padding: 10px 14px 14px; gap: 4px; }
+.model__view { aspect-ratio: 1 / 0.7; }
+.model b { font-size: 15px; }
+.model span { font-size: 13px; }
+.skill-grid { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
+
+/* preview column at full height */
+.reg-preview { position: static; top: auto; height: 100%; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
+.reg-preview > .t-label { padding-left: 6px; }
+.robot-card { flex: 1; min-height: 0; overflow-y: auto; align-content: start; padding: 20px; border-radius: 28px; }
+.robot-card__view { aspect-ratio: auto; height: clamp(170px, 30svh, 260px); }
+.robot-card h3 { font-size: 24px; }
+
+/* the published screen sits in the same frame */
+.reg-done { margin: 0 auto; }
+
+@media (max-width: 1279px) {
+  .reg { grid-template-columns: 200px minmax(0, 1fr); height: auto; }
+  .reg-preview { grid-column: 1 / -1; order: 0; height: auto; }
+  .reg-panel { height: auto; min-height: 560px; }
+  .robot-card__view { height: 200px; }
+}
+@media (max-width: 767px) {
+  .reg { grid-template-columns: 1fr; }
+  .reg-rail { flex-direction: row; overflow-x: auto; height: auto; border-radius: 999px; padding: 6px; }
+  .reg-rail button { min-height: 44px; padding: 6px 12px 6px 6px; white-space: nowrap; }
+  .reg-rail__txt small { display: none; }
+  .reg-preview { order: -1; }
+  .reg-scroll { padding: 22px 20px; }
+}
+
+/* =============================================================== glass (iOS-style frosted cards) */
+:root {
+  --glass-tint: rgb(22 23 28 / 0.46);
+  --glass-tint-strong: rgb(18 19 23 / 0.62);
+  --glass-blur: blur(24px) saturate(170%);
+  --glass-edge: rgb(255 255 255 / 0.09);
+  --glass-hi: rgb(255 255 255 / 0.14);
+  --glass-sheen: linear-gradient(180deg, rgb(255 255 255 / 0.07), rgb(255 255 255 / 0.015) 38%, rgb(255 255 255 / 0) 70%);
+  --well: rgb(0 0 0 / 0.34);
+}
+/* the network behind needs to show through, so the veil gets lighter */
+.backdrop__veil { background: radial-gradient(120% 90% at 50% 30%, rgb(13 13 16 / 0.28), rgb(13 13 16 / 0.6)); }
+.backdrop .world-canvas { opacity: 0.9; }
+
+:is(.dock, .wb__col, .reg-rail, .reg-panel, .robot-card, .chapter, .agent-card:not(.agent-card--skeleton), .choose__controls, .choose__result,
+    .apv, .sel__pop, .quote, .empty, .integ, .pub-step, .reg-done, .trust-card__panel, .app-frame, .tabs, .seg, .rb.is-on) {
+  background: var(--glass-sheen), var(--glass-tint) !important;
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  box-shadow: inset 0 0 0 1px var(--glass-edge), inset 0 1px 0 var(--glass-hi), 0 24px 60px -30px rgb(0 0 0 / 0.75) !important;
+}
+/* surfaces that sit over busy content read better a little denser */
+:is(.dock, .sel__pop, .apv, .app-frame) { background: var(--glass-sheen), var(--glass-tint-strong) !important; }
+.reg-nav { background: rgb(255 255 255 / 0.02); border-top-color: var(--glass-edge); }
+
+/* selection and state rings stay visible on glass */
+.rb.is-on, .reg-rail button.is-on { box-shadow: inset 0 0 0 1.5px color-mix(in oklab, var(--p-accent) 70%, transparent), inset 0 1px 0 var(--glass-hi) !important; }
+.wb__quote.is-ok { box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--ok) 38%, transparent), inset 0 1px 0 var(--glass-hi), 0 24px 60px -30px rgb(0 0 0 / 0.75) !important; }
+.wb__quote.is-declined { box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--warn) 45%, transparent), inset 0 1px 0 var(--glass-hi) !important; }
+.chapter.is-active { box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--p-accent) 40%, transparent), inset 0 1px 0 var(--glass-hi), 0 30px 80px -40px #000 !important; }
+.apv { box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--p-accent) 38%, transparent), inset 0 1px 0 var(--glass-hi), 0 30px 70px -40px color-mix(in oklab, var(--p-accent) 55%, #000) !important; }
+
+/* inputs and inner tiles become recessed wells in the glass */
+:is(.field input, .field select, .field__money, .sel__trigger, .sf__num, .sel__search, .fee-inline input, .pub-check, .model, .skill, .pick, .cx-card, .json-peek pre, .role-list li, .seg, .cap-list li) {
+  background: var(--well) !important;
+}
+.sel__group { background: transparent; -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); }
+.model.is-on { background: color-mix(in oklab, var(--p-accent) 10%, rgb(0 0 0 / 0.3)) !important; }
+.skill.is-on { background: color-mix(in oklab, var(--ok) 9%, rgb(0 0 0 / 0.3)) !important; }
+.apv__rows { background: var(--glass-edge); }
+.apv__rows > div { background: rgb(0 0 0 / 0.38); }
+.apv__fee { background: color-mix(in oklab, var(--p-accent) 10%, rgb(0 0 0 / 0.36)) !important; }
+:is(.model__view, .robot-card__view, .rb__view, .wq__view, .qt-robot__view) { background: radial-gradient(70% 70% at 50% 60%, rgb(255 255 255 / 0.05), rgb(0 0 0 / 0.35) 80%) !important; }
+
+/* no blur where it cannot render or when people ask for less */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  :is(.dock, .wb__col, .reg-rail, .reg-panel, .robot-card, .chapter, .agent-card, .apv, .sel__pop, .quote, .empty) { background: #141518 !important; }
+}
+@media (prefers-reduced-transparency: reduce) {
+  :is(.dock, .wb__col, .reg-rail, .reg-panel, .robot-card, .chapter, .agent-card, .apv, .sel__pop, .quote, .empty, .integ, .pub-step) { background: #141518 !important; -webkit-backdrop-filter: none; backdrop-filter: none; }
+}
+.publish-sec { gap: 18px; }
+.publish-sec .pub-steps { grid-template-columns: repeat(3, minmax(0, 1fr)); }
