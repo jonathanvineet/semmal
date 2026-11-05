@@ -101,5 +101,31 @@ export function useArkivWriter() {
     [reader],
   );
 
-  return { chainId, onRabdi: chainId === RABDI_CHAIN_ID, balance, refreshBalance, switchToRabdi, publish, approval };
+  /** Delete one entity the connected wallet owns. One-shot, journaled, approved in the page first. */
+  const remove = useCallback(
+    async (key: string, account: string, entityKey: string, maxFeeTglm: string) => {
+      const p = provider();
+      if (!p) throw new Error("No browser wallet found.");
+      const prior = readJournal().filter((e) => e.key === key);
+      if (prior.some((e) => e.txHash && !prior.some((f) => f.phase === "receipt_verified" && f.txHash === e.txHash)))
+        throw new Error("An earlier delete for this entity is unconfirmed. Check it on the explorer first.");
+      const w = guardedWalletClient({
+        publicClient: reader(),
+        signer: walletSigner(p, account),
+        accessKey: "",
+        maxCostWei: parseEther(maxFeeTglm),
+        journal: { record: (e) => record({ key, phase: String(e.phase), txHash: e.txHash as string | undefined, entityKey }) },
+        approve: (tx) =>
+          new Promise<boolean>((resolve) => setApproval({ key, gas: tx.gas, gasPrice: tx.gasPrice, maximumCostWei: tx.maximumCostWei, resolve })),
+      });
+      try {
+        return await w.deleteEntity(entityKey);
+      } finally {
+        setApproval(null);
+      }
+    },
+    [reader],
+  );
+
+  return { chainId, onRabdi: chainId === RABDI_CHAIN_ID, balance, refreshBalance, switchToRabdi, publish, remove, approval };
 }

@@ -9,19 +9,21 @@ import { agentJobPrice, AGENT_TOKENS, quoteTask, SKILL_NEEDS } from "@semmal/quo
 import { z } from "zod";
 import { arkivRpcProxy } from "./arkiv-rpc-proxy";
 import { AdminStore, readCookie, WalletAuth } from "./admin";
+import { AgentRunner } from "./runner";
 
-type Deps = { registry: ArkivRegistry; router: ZeroGRouter; config: ReturnType<typeof loadConfig>; admin: AdminStore; auth: WalletAuth };
+type Deps = { registry: ArkivRegistry; router: ZeroGRouter; config: ReturnType<typeof loadConfig>; admin: AdminStore; auth: WalletAuth; runner?: AgentRunner };
 
 export function defaultDeps(): Deps {
   const config = loadConfig();
   const admin = new AdminStore(config.ADMIN_STORE_PATH);
-  return {
-    config,
-    admin,
-    auth: new WalletAuth(new URL(config.WEB_ORIGIN).host),
-    registry: new ArkivRegistry(arkivConfigFromEnv()),
-    router: new ZeroGRouter(zeroGConfigFromEnv()),
-  };
+  const registry = new ArkivRegistry(arkivConfigFromEnv());
+  const router = new ZeroGRouter(zeroGConfigFromEnv());
+  const runner = new AgentRunner(
+    router,
+    async (agentId) => (await registry.listAgents({ agentId }))[0]?.data ?? null,
+    process.env.AGENT_JOBS_DB || "../../data/agent-jobs.db",
+  );
+  return { config, admin, auth: new WalletAuth(new URL(config.WEB_ORIGIN).host), registry, router, runner };
 }
 
 const SID = "semmal_sid";
@@ -40,7 +42,7 @@ function cached<T>(ttlMs: number, fn: (key: string) => Promise<T>) {
 }
 
 export function buildApp(deps: Deps = defaultDeps()) {
-  const { registry, router, config, admin, auth } = deps;
+  const { registry, router, config, admin, auth, runner } = deps;
   const app = Fastify({
     logger: {
       level: "info",
@@ -287,6 +289,22 @@ export function buildApp(deps: Deps = defaultDeps()) {
       return reply.code(502).send({ error: "could not read the 0G model list" });
     }
   });
+
+  // ---------------------------------------------------------------- agent runner
+  /**
+   * Run one job for a specialist agent listed on Arkiv. For now only the owner wallet may send jobs
+   * (the test console); robots will send them through the authenticated robot gateway next.
+   */
+  app.post<{ Params: { agentId: string } }>(
+    "/api/agents/:agentId/jobs",
+    { preHandler: requireAdmin, bodyLimit: 3 * 1024 * 1024 },
+    async (req, reply) => {
+      if (!runner) return reply.code(503).send({ error: "agent runner is not available" });
+      if (!/^[a-z0-9][a-z0-9-]{2,63}$/.test(req.params.agentId)) return reply.code(400).send({ error: "bad agent id" });
+      const result = await runner.run(req.params.agentId, req.body);
+      return reply.code(result.status === "rejected" ? 400 : 200).send(result);
+    },
+  );
 
   /** Public catalog subset: models that can serve private mode, and vision models. */
   app.get("/api/zerog/models", async (_req, reply) => {

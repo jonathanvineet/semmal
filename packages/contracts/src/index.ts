@@ -228,3 +228,86 @@ export const VisionInspectionOutput = z.object({
   recommended_action: z.enum(["continue_mission", "pause_and_request_inspection", "return_to_dock", "abort_mission"]),
 });
 export type VisionInspectionOutput = z.infer<typeof VisionInspectionOutput>;
+
+// ---------------------------------------------------------------- agent jobs (runner)
+/** A job a robot (or the owner's test console) sends to a specialist agent. CLAUDE.md 6.2. */
+export const AgentJob = z.object({
+  jobId: z.string().min(6).max(64),
+  parentTaskId: z.string().min(1).max(64),
+  requestingRobotId: z.string().min(1).max(64),
+  requestingAgentId: z.string().max(64).optional(),
+  targetAgentId: z.string().min(3).max(64),
+  capabilityId: z.string().max(64),
+  input: z.unknown(),
+  budgetLimit: z.string().regex(/^\d+(\.\d{1,6})?$/),
+  deadline: z.string().datetime(),
+  idempotencyKey: z.string().min(8).max(100),
+});
+export type AgentJob = z.infer<typeof AgentJob>;
+
+const dataImage = z.string().max(2_000_000).regex(/^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/, "a base64 data URL of a JPEG, PNG or WebP image");
+
+/** What each agent kind accepts. Anything else is rejected before 0G is called. */
+export const AGENT_INPUTS = {
+  vision: z.object({ image: dataImage, context: z.string().max(300).optional() }),
+  "delivery-verification": z.object({ image: dataImage, order: z.string().min(2).max(300) }),
+  maintenance: z.object({ faultCode: z.string().max(60).optional(), diagnostics: z.record(z.string().max(40), z.union([z.number(), z.string().max(80), z.boolean()])).refine((d) => Object.keys(d).length <= 30) }),
+  inspection: z.object({ target: z.string().min(2).max(200), stops: z.number().int().min(1).max(50), notes: z.string().max(400).optional() }),
+  navigation: z.object({ stops: z.array(z.string().min(1).max(60)).min(1).max(30), constraints: z.string().max(300).optional() }),
+} as const;
+
+/** What each agent kind must return. Model output that does not match is a failed job. */
+export const MaintenanceOutput = z.object({
+  likely_cause: z.string().max(120),
+  confidence: z.number().min(0).max(1),
+  checks: z.array(z.string().max(120)).max(6),
+  safe_to_resume: z.literal(false),
+});
+export const InspectionPlanOutput = z.object({
+  steps: z.array(z.object({ stop: z.number().int().min(1), look_for: z.string().max(120) })).min(1).max(50),
+  needs_vision: z.boolean(),
+});
+export const NavigationPlanOutput = z.object({
+  order: z.array(z.string().max(60)).min(1).max(30),
+  notes: z.string().max(200),
+});
+export const DeliveryCheckOutput = z.object({
+  matches_order: z.boolean(),
+  confidence: z.number().min(0).max(1),
+  issue: z.string().max(120).nullable(),
+});
+export const AGENT_OUTPUTS = {
+  vision: VisionInspectionOutput,
+  "delivery-verification": DeliveryCheckOutput,
+  maintenance: MaintenanceOutput,
+  inspection: InspectionPlanOutput,
+  navigation: NavigationPlanOutput,
+} as const;
+
+export type AgentReceipt = {
+  jobId: string;
+  agentId: string;
+  model: string;
+  requestedTrustMode: string;
+  trustEvidence: string;
+  providerRequestId?: string;
+  chatId?: string;
+  providerAddress?: string;
+  latencyMs: number;
+  inputSha256: string;
+  outputSha256: string;
+  completedAt: string;
+  /** sha256 of this receipt's canonical JSON (fields above). Not signed: no keys in SEMMAL. */
+  receiptHash: string;
+};
+
+export type AgentResult = {
+  jobId: string;
+  agentId: string;
+  status: "succeeded" | "failed" | "rejected";
+  reason?: string;
+  output?: unknown;
+  cost?: { amount: string; token: string };
+  receipt?: AgentReceipt;
+  evidenceRefs?: string[];
+};

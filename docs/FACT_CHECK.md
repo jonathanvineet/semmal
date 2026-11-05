@@ -70,3 +70,17 @@ while it is unset), plus an operating-time estimate per robot type (engineering 
 `OPERATING_MICRO_PER_MIN`, labelled "estimate" on every quote). Live check 2026-11-06: model
 `0gm-1.0-35b-a3b` priced from the catalog; 1 call x ~500 tokens = 0.000556 USDC at a test rate of 1.
 **Open:** a trusted 0G/USDC price source; token estimates per call are assumptions until measured from real calls.
+
+## Agent runner (added 2026-11-06)
+
+`apps/api/src/runner.ts`, route `POST /api/agents/:agentId/jobs` (the web app also serves the listed
+endpoint `/agents/:agentId/jobs` by rewrite). Loads the listing from Arkiv (owner-consistent), checks
+capability, budget >= listed price, deadline and the per-kind input schema before any 0G call; calls
+the listing's model with `X-0G-Provider-Trust-Mode` = the listing's trust mode and `verify_tee`;
+accepts only output matching the per-kind schema (`AGENT_OUTPUTS`); `tee_verified: false` is a
+failed job. Image input uses the OpenAI `image_url` content part as on the 0G image-inputs page.
+Idempotent by `idempotencyKey` (SQLite `data/agent-jobs.db`). Receipt = provider request ID, chat
+ID, provider, model, trust evidence, latency, input/output sha256 and a receipt hash; **unsigned**
+(no keys in SEMMAL). Jobs are owner-session only until the robot gateway authenticates robots.
+Payments are not executed (charge is reported only). Inspection delegation to vision is not run yet.
+**Not yet live-tested:** needs `ZEROG_ROUTER_API_KEY` (empty on this machine).

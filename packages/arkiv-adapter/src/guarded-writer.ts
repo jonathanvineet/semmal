@@ -96,6 +96,8 @@ export function guardedWalletClient(opts: {
   const chain = rabdi({ accessKey });
   const address = getAddress(signer.address);
   const state = { attempted: false, hash: null as string | null, reservedWei: 0n, phase: "ready" };
+  // the one operation this instance may sign: 1 = Create, 5 = Delete (SDK entity/params.ts OperationType)
+  let expectedOp = 0;
   let approved: Record<string, unknown> & { to: string; data: string; gas: bigint; gasPrice: bigint; nonce: number; type: string };
   let explicit: { nonce: number; gas: bigint; gasPrice: bigint };
 
@@ -125,8 +127,8 @@ export function guardedWalletClient(opts: {
             fail("Unexpected transaction fields");
           const decoded = decodeFunctionData({ abi: executeAbi, data: input!.data as Hex });
           const ops = decoded.args[0] as readonly { operation: number }[];
-          if (decoded.functionName !== "execute" || ops.length !== 1 || ops[0]!.operation !== 1)
-            fail("Exactly one Create operation is required");
+          if (decoded.functionName !== "execute" || ops.length !== 1 || ops[0]!.operation !== expectedOp)
+            fail("Exactly one operation of the approved kind is required");
           if ((await publicClient.getChainId()) !== RABDI_CHAIN_ID) fail("Expected Rabdi RPC");
           await signer.verify();
           const started = Date.now();
@@ -192,53 +194,64 @@ export function guardedWalletClient(opts: {
   });
 
   let invoked = false;
+
+  async function run<T extends { txHash: string }>(op: number, send: (explicitParams: { nonce: number; gas: bigint; gasPrice: bigint }) => Promise<T>): Promise<T> {
+    if (invoked) fail("This write adapter is one-shot");
+    invoked = true;
+    expectedOp = op;
+    let failureReason = "verification_failed";
+    try {
+      explicit = Object.freeze({
+        nonce: await publicClient.getTransactionCount({ address, blockTag: "latest" }),
+        gas: 1_000_000n,
+        gasPrice: await publicClient.getGasPrice(),
+      });
+      if (!Number.isSafeInteger(explicit.nonce) || explicit.nonce < 0 || explicit.gasPrice <= 0n)
+        fail("Invalid explicit transaction parameters");
+      const result = await send(explicit);
+      if (result.txHash?.toLowerCase() !== state.hash?.toLowerCase()) {
+        failureReason = "replacement_receipt";
+        fail("Receipt belongs to a replacement");
+      }
+      const mined = await publicClient.getTransactionReceipt({ hash: state.hash });
+      if (mined.status !== "success") fail("Transaction reverted");
+      const tx = await publicClient.getTransaction({ hash: state.hash });
+      if (
+        getAddress(tx.from) !== address ||
+        tx.to?.toLowerCase() !== REGISTRY ||
+        String(tx.input).toLowerCase() !== approved.data.toLowerCase() ||
+        tx.value !== 0n ||
+        tx.chainId !== RABDI_CHAIN_ID ||
+        tx.type !== approved.type ||
+        tx.nonce !== approved.nonce ||
+        tx.gas !== approved.gas ||
+        tx.gasPrice !== approved.gasPrice
+      ) {
+        failureReason = "transaction_mismatch";
+        fail("Submitted transaction differs from the approved request");
+      }
+      state.phase = "receipt_verified";
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await journal.record({ phase: "receipt_verified", txHash: state.hash, entityKey: (result as any).entityKey });
+      return result;
+    } catch {
+      await journal.record({ phase: "failed", at: state.phase, reason: failureReason, txHash: state.hash });
+      throw new Error(`Arkiv write not verified (${state.phase}; ${failureReason}); inspect the local journal, do not resend automatically`);
+    }
+  }
+
   return {
     getSubmission: () => ({ ...state, reservedWei: state.reservedWei.toString() }),
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    async createEntity(schema: any, values: any, options: any): Promise<{ entityKey: string; txHash: string; expiresAt?: bigint }> {
-      if (invoked) fail("This create adapter is one-shot");
-      invoked = true;
-      let failureReason = "verification_failed";
-      try {
-        explicit = Object.freeze({
-          nonce: await publicClient.getTransactionCount({ address, blockTag: "latest" }),
-          gas: 1_000_000n,
-          gasPrice: await publicClient.getGasPrice(),
-        });
-        if (!Number.isSafeInteger(explicit.nonce) || explicit.nonce < 0 || explicit.gasPrice <= 0n)
-          fail("Invalid explicit transaction parameters");
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const result: any = await (client as any).createEntity(schema, values, options, explicit);
-        if (result.txHash?.toLowerCase() !== state.hash?.toLowerCase()) {
-          failureReason = "replacement_receipt";
-          fail("Receipt belongs to a replacement");
-        }
-        const mined = await publicClient.getTransactionReceipt({ hash: state.hash });
-        if (mined.status !== "success") fail("Creation reverted");
-        const tx = await publicClient.getTransaction({ hash: state.hash });
-        if (
-          getAddress(tx.from) !== address ||
-          tx.to?.toLowerCase() !== REGISTRY ||
-          String(tx.input).toLowerCase() !== approved.data.toLowerCase() ||
-          tx.value !== 0n ||
-          tx.chainId !== RABDI_CHAIN_ID ||
-          tx.type !== approved.type ||
-          tx.nonce !== approved.nonce ||
-          tx.gas !== approved.gas ||
-          tx.gasPrice !== approved.gasPrice
-        ) {
-          failureReason = "transaction_mismatch";
-          fail("Submitted transaction differs from the approved request");
-        }
-        state.phase = "receipt_verified";
-        await journal.record({ phase: "receipt_verified", txHash: state.hash, entityKey: result.entityKey });
-        return result;
-      } catch {
-        await journal.record({ phase: "failed", at: state.phase, reason: failureReason, txHash: state.hash });
-        throw new Error(
-          `Arkiv create not verified (${state.phase}; ${failureReason}); inspect the local journal, do not resend automatically`,
-        );
-      }
+    createEntity(schema: any, values: any, options: any): Promise<{ entityKey: string; txHash: string; expiresAt?: bigint }> {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      return run(1, (p) => (client as any).createEntity(schema, values, options, p));
+    },
+    /** Delete one entity this wallet owns (only its owner can). */
+    deleteEntity(entityKey: string): Promise<{ entityKey: string; txHash: string }> {
+      if (!/^0x[0-9a-fA-F]{64}$/.test(entityKey)) fail("Not an entity key");
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      return run(5, (p) => (client as any).deleteEntity({ entityKey }, p));
     },
   };
 }

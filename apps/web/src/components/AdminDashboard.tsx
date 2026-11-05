@@ -1,8 +1,11 @@
 "use client";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
+import { useArkivWriter } from "@/lib/arkiv-writer";
+import { ApprovalCard } from "./ui/ApprovalCard";
 import { useWallet } from "@/lib/wallet";
 import { AgentBuilder } from "./AgentBuilder";
+import { AgentConsole } from "./AgentConsole";
 import { ARKIV_EXPLORER, type Status } from "@/lib/api";
 
 type AdminState = {
@@ -143,6 +146,13 @@ export function AdminDashboard() {
             </div>
             <AgentBuilder />
           </article>
+          <article id="run" className="card integ span-12">
+            <div className="integ__head">
+              <h3 className="t-card">Run an agent</h3>
+              <span className="t-small muted">A real job through the agent runner and 0G</span>
+            </div>
+            <AgentConsole owner={w.me!.address!} />
+          </article>
           <article className="card integ span-12">
             <h3 className="t-card">Audit log</h3>
             <ol className="audit">
@@ -159,29 +169,81 @@ export function AdminDashboard() {
   );
 }
 
+type MyRobot = { entityKey?: string; data: { robotId: string; robotWallet: string; displayName: string; model: string; capabilities: string[]; profileVersion: number } };
+
 function MyRobots({ owner }: { owner: string }) {
-  const [rows, setRows] = useState<{ entityKey?: string; data: { robotId: string; displayName: string; model: string; capabilities: string[]; profileVersion: number } }[] | null>(null);
-  useEffect(() => {
+  const ark = useArkivWriter();
+  const [rows, setRows] = useState<MyRobot[] | null>(null);
+  const [confirm, setConfirm] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+  const load = useCallback(() => {
     fetch(`/api/robots?owner=${owner}`).then((r) => r.json()).then((d) => setRows(d.items ?? [])).catch(() => setRows([]));
   }, [owner]);
+  useEffect(load, [load]);
+
+  /** Every version of this robot that this wallet owns, then one wallet-signed delete each. */
+  const remove = async (r: MyRobot) => {
+    setBusy(r.data.robotId);
+    setNote(null);
+    try {
+      const chk = await (await fetch(`/api/robots/check?wallet=${r.data.robotWallet}&owner=${owner}`)).json();
+      const mine: { entityKey: string; creator: string; profileVersion: number }[] = (chk.existing ?? []).filter((e: { creator: string }) => e.creator.toLowerCase() === owner.toLowerCase());
+      if (!mine.length) throw new Error("No entity owned by this wallet was found for this robot.");
+      for (const e of mine) await ark.remove(`delete:${e.entityKey}`, owner, e.entityKey, "0.01");
+      setNote(`${r.data.displayName} was deleted from Arkiv (${mine.length} version${mine.length === 1 ? "" : "s"}). The list refreshes in about 15 seconds.`);
+      setRows((cur) => (cur ?? []).filter((x) => x.data.robotId !== r.data.robotId));
+      setTimeout(load, 16_000);
+    } catch (e) {
+      setNote((e as Error).message);
+    } finally {
+      setBusy(null);
+      setConfirm(null);
+    }
+  };
+
   return (
     <article className="card integ span-12">
       <div className="integ__head">
         <h3 className="t-card">Your robots on Arkiv</h3>
         <Link className="btn btn--primary" href="/robots/new">Register a robot</Link>
       </div>
+      {!ark.onRabdi && rows && rows.length > 0 && <p className="t-small muted">Switch your wallet to Rabdi to delete a robot.</p>}
       {rows === null && <p className="t-small muted">Reading Arkiv…</p>}
-      {rows?.length === 0 && <p className="t-small muted">No robots owned by this wallet yet.</p>}
+      {rows?.length === 0 && <p className="t-small muted">No robots owned by this wallet.</p>}
       {rows && rows.length > 0 && (
         <ul className="role-list">
           {rows.map((r) => (
             <li key={r.data.robotId}>
               <span><b>{r.data.displayName}</b> <span className="muted">· {r.data.robotId} · v{r.data.profileVersion}</span></span>
-              <span className="mono muted">{r.entityKey ? `${r.entityKey.slice(0, 10)}…` : ""}</span>
+              <span className="robot-actions">
+                {confirm === r.data.robotId ? (
+                  <>
+                    <button type="button" className="btn btn--secondary btn--sm" onClick={() => setConfirm(null)} disabled={busy !== null}>Keep</button>
+                    <button type="button" className="btn btn--danger btn--sm" onClick={() => remove(r)} disabled={busy !== null || !ark.onRabdi}>
+                      {busy === r.data.robotId ? "Deleting…" : "Confirm delete"}
+                    </button>
+                  </>
+                ) : (
+                  <button type="button" className="btn btn--secondary btn--sm" onClick={() => setConfirm(r.data.robotId)} disabled={busy !== null}>Delete</button>
+                )}
+              </span>
             </li>
           ))}
         </ul>
       )}
+      {ark.approval && (
+        <ApprovalCard
+          what={`Delete · ${ark.approval.key.replace("delete:", "").slice(0, 18)}…`}
+          account={owner}
+          gas={ark.approval.gas}
+          gasPrice={ark.approval.gasPrice}
+          maximumCostWei={ark.approval.maximumCostWei}
+          onApprove={() => ark.approval!.resolve(true)}
+          onCancel={() => ark.approval!.resolve(false)}
+        />
+      )}
+      {note && <p className="notice">{note}</p>}
     </article>
   );
 }
