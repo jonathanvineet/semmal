@@ -1,49 +1,24 @@
-import Link from "next/link";
-import { HeroCanvas } from "@/components/HeroCanvas";
-import { MissionSection } from "@/components/MissionSection";
-import { Marketplace } from "@/components/Marketplace";
-import { RegistrySection, RobotsSection } from "@/components/Sections";
+import { WorldSection } from "@/components/world/WorldSection";
+import { Console } from "@/components/home/Console";
+import { Statement } from "@/components/home/Statement";
+import { Trust } from "@/components/home/Trust";
+import { Chooser } from "@/components/home/Chooser";
 
+/*
+  tasteskill deal (plan line 2): kind software/tech · palette graphite-safety-orange · type sora ·
+  radius soft · buttons tonal · nav nav-centre (nav-cards re-dealt: no photographs) · footer footer-dark ·
+  close close-word · rhythm dark-band · mark dots · big scene dot-becomes-the-full-stop (the page's
+  scroll beat) · hero: the user's own brief overrides the dealt collage with a 3D agent-network
+  world (tech: "a 3D hero, poster first"), which is the product's subject, not a mood.
+*/
 export default function Home() {
   return (
     <>
-      <section className="hero hero--stage" aria-labelledby="hero-h">
-        <div className="wrap hero-head">
-          <h1 id="hero-h">Inspection robots for warehouses, hired by the task</h1>
-          <div className="hero-side">
-            <p className="t-lead">
-              Book Rover 01 for a panel inspection. It hires its own vision and maintenance agents, runs private inference on 0G and
-              records every incident on Arkiv.
-            </p>
-            <p className="hero-fact mono">From 12.50 USDC a task · emergency stop works offline</p>
-            <div className="btn-row">
-              <Link className="btn btn--primary" href="/agents">See specialist agents</Link>
-              <Link className="btn btn--secondary" href="#mission">Watch the mission</Link>
-            </div>
-          </div>
-        </div>
-        <div className="hero-stage-3d">
-          <HeroCanvas />
-        </div>
-      </section>
-
-      <MissionSection />
-
-      <RobotsSection />
-
-      <section id="agents" className="section" style={{ ["--h" as string]: 1 }} aria-labelledby="agents-h">
-        <div className="wrap">
-          <div className="section-head section-head--split">
-            <div>
-              <h2 id="agents-h">Specialist agents <span className="muted">a robot can hire</span></h2>
-            </div>
-            <Link className="link" href="/agents">See all agents</Link>
-          </div>
-          <Marketplace limit={4} compact />
-        </div>
-      </section>
-
-      <RegistrySection />
+      <WorldSection />
+      <Console />
+      <Chooser />
+      <Statement />
+      <Trust />
     </>
   );
 }
