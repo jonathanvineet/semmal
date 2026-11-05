@@ -1,9 +1,9 @@
 /* Dealt by tasteskill start.mjs: palette graphite-safety-orange, type sora, radius soft (kept as printed). */
 :root {
-  --p-bg: #0b0c0e; --p-surface: #141518; --p-ink: #eff0f1; --p-muted: #9c9ea3;
-  --p-accent: #ff4a1f; --p-accent-ink: #0b0c0e; --p-action: #ff4a1f; --p-action-ink: #18191b;
-  --p-inv-bg: #eff0f1; --p-inv-surface: #dedfe0; --p-inv-ink: #0b0c0e; --p-inv-muted: #5b5c5e;
-  --p-inv-accent: #0b0c0e; --p-inv-accent-ink: #eff0f1; --p-inv-action: #18191b; --p-inv-action-ink: #eff0f1;
+  --p-bg: #0d0d10; --p-surface: #141518; --p-ink: #ecebe8; --p-muted: #a3a19c;
+  --p-accent: #ff4a1f; --p-accent-ink: #0d0d10; --p-action: #ff4a1f; --p-action-ink: #18191b;
+  --p-inv-bg: #eff0f1; --p-inv-surface: #dedfe0; --p-inv-ink: #0d0d10; --p-inv-muted: #5b5c5e;
+  --p-inv-accent: #0d0d10; --p-inv-accent-ink: #eff0f1; --p-inv-action: #18191b; --p-inv-action-ink: #eff0f1;
   /* dealt: manrope (Manrope + JetBrains Mono), radius round; tracking eased on request: softer words */
   --font-display: var(--f-text), "Manrope", system-ui, sans-serif;
   --font-text: var(--f-text), "Manrope", system-ui, sans-serif;
@@ -204,14 +204,14 @@ html, body { background: var(--p-bg); }
 .sheet .btn { margin-top: 24px; width: 100%; }
 
 /* ------------------------------------------------------------- the world: hero + 4 chapters, canvas held inside */
-main > section.world { position: relative; height: 500svh !important; padding: 0 !important; min-height: 0 !important; background: #0b0c0e; }
+main > section.world { position: relative; height: 500svh !important; padding: 0 !important; min-height: 0 !important; background: #0d0d10; }
 .world__stage { position: sticky; top: 0; height: 100svh; overflow: hidden; z-index: 0; }
 .world-canvas { position: absolute; inset: 0; }
 .world-canvas--poster { background: radial-gradient(38% 46% at 68% 52%, color-mix(in oklab, var(--ice) 10%, transparent), transparent 70%), radial-gradient(22% 28% at 74% 40%, color-mix(in oklab, var(--p-accent) 12%, transparent), transparent 70%); }
 .world__stage::after { /* a calm left field so words read at 4.5:1 or more over the network */
   content: ""; position: absolute; inset: 0; pointer-events: none;
-  background: linear-gradient(90deg, #0b0c0e 0%, color-mix(in oklab, #0b0c0e 82%, transparent) 30%, transparent 58%),
-              linear-gradient(0deg, #0b0c0e 0%, transparent 18%);
+  background: linear-gradient(90deg, #0d0d10 0%, color-mix(in oklab, #0d0d10 82%, transparent) 30%, transparent 58%),
+              linear-gradient(0deg, #0d0d10 0%, transparent 18%);
 }
 .world__ticks { position: absolute; right: max(24px, calc((100vw - 1280px) / 2)); top: 50%; translate: 0 -50%; z-index: 2; list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
 .world__ticks li { width: 2px; height: 28px; border-radius: 2px; background: color-mix(in oklab, var(--p-ink) 18%, transparent); transition: background 300ms var(--m-ease), height 300ms var(--m-ease); }
@@ -230,7 +230,7 @@ main > section.world { position: relative; height: 500svh !important; padding: 0
 .world__fact { margin: 4px 0 0; color: var(--p-accent); font-size: 12px; }
 @media (max-width: 767px) {
   .world__hero { align-items: flex-end; padding-bottom: 40px; }
-  .world__stage::after { background: linear-gradient(0deg, #0b0c0e 0%, #0b0c0e 38%, transparent 72%); }
+  .world__stage::after { background: linear-gradient(0deg, #0d0d10 0%, #0d0d10 38%, transparent 72%); }
   .world__hero .btn-row .btn { width: 100%; }
   .world__ticks { display: none; }
 }
@@ -238,7 +238,7 @@ main > section.world { position: relative; height: 500svh !important; padding: 0
 .world__chapter { height: 100svh; display: flex; align-items: center; }
 .chapter {
   max-width: 440px; display: grid; gap: 14px; padding: 28px;
-  border-radius: var(--r-lg); background: color-mix(in oklab, #0b0c0e 88%, transparent); border: 1px solid var(--hair);
+  border-radius: var(--r-lg); background: color-mix(in oklab, #0d0d10 88%, transparent); border: 1px solid var(--hair);
   opacity: 0.35; transform: translateY(8px); transition: opacity 420ms var(--m-ease), transform 420ms var(--m-ease), border-color 420ms var(--m-ease);
 }
 .chapter.is-active { opacity: 1; transform: none; border-color: color-mix(in oklab, var(--p-accent) 35%, var(--hair)); }
@@ -359,7 +359,7 @@ main > section.world { position: relative; height: 500svh !important; padding: 0
 .agent-card__glow { background: radial-gradient(380px circle at var(--mx) var(--my), color-mix(in oklab, var(--p-accent) 10%, transparent), transparent 50%); }
 .agent-card::after { background: radial-gradient(240px circle at var(--mx) var(--my), color-mix(in oklab, var(--p-accent) 75%, transparent), transparent 60%); }
 .agent-card__name { font-size: 22px; }
-.lanes__node rect { fill: #0b0c0e; }
+.lanes__node rect { fill: #0d0d10; }
 
 /* app pages (agents, admin, publish) grow with their content instead of the one-screen box */
 main > section.market { height: auto !important; min-height: 100svh; padding-bottom: 96px !important; }
@@ -465,7 +465,7 @@ h2 { font-weight: 500; letter-spacing: -0.02em; }
 .choose__controls { display: grid; gap: 26px; }
 .choose__controls fieldset { border: 0; margin: 0; padding: 0; display: grid; gap: 10px; }
 .choose__controls fieldset p { margin: 0; }
-.seg { display: flex; padding: 4px; border-radius: 999px; background: #0b0c0e; box-shadow: inset 0 0 0 1px var(--soft-line); }
+.seg { display: flex; padding: 4px; border-radius: 999px; background: #0d0d10; box-shadow: inset 0 0 0 1px var(--soft-line); }
 .seg__opt { position: relative; flex: 1; height: 40px; border: 0; background: none; color: var(--p-muted); font: 500 14px var(--font-text); cursor: pointer; border-radius: 999px; white-space: nowrap; padding: 0 10px; }
 .seg__opt[aria-checked="true"] { color: var(--p-bg); }
 .seg__opt:hover:not([aria-checked="true"]) { color: var(--p-ink); }
@@ -503,3 +503,8 @@ h2 { font-weight: 500; letter-spacing: -0.02em; }
 .ground-inverse-dark { border-color: var(--soft-line); }
 .lanes__node text, .dg__t, .dg__s { font-family: var(--font-text); font-weight: 500; }
 .market { padding-top: 140px !important; }
+
+/* softer reading: warm off-white on a lifted black, a touch more air */
+body { color: var(--p-ink); line-height: 1.6; }
+.world__hero h1, .chapter__title, h2 { color: #f1efea; }
+.t-lead, .hero__lead { line-height: 1.6; }
