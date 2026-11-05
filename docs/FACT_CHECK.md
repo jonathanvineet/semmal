@@ -156,3 +156,16 @@ master agent (Phase 3); outbox to Storage/Arkiv (Phases 5–7).
   shared topic names (a warehouse mission failed with "no progress"). The pattern now matches any world, and
   `run_sim.sh` refuses to start while a SEMMAL simulation is running. A house fault-check run made while the
   orphan was alive was discarded and repeated on a clean system (numbers above).
+## Robot gateway (added 2026-11-06)
+
+WebSocket `GET /api/gateway` on the API (`@fastify/websocket` 11, `ws` 8). The robot authenticates
+with a link token (`Authorization: Bearer slk_...`) its owner creates in the dashboard; only a
+sha256 is stored (`data/robot-links.json`), compared in constant time, revocable. Messages are the
+`RobotToPlatform` schemas (hello, heartbeat, mission_progress, incident_notice, task_ack), max 16 KiB,
+strictly increasing `seq` (replays rejected), hello within 5 s, offline after 15 s without a
+heartbeat, one session per robot. Public status (`/api/robots/live`) is online/availability only;
+owners see battery, safety state, zone and an event log. Tasks are refused unless the robot reports
+NORMAL. Live state is in memory (PostgreSQL/Redis later). `services/robot-link` is the robot-host
+side: it relays state written by the ROS 2 gateway node (`SEMMAL_STATE_FILE`) and reports DEGRADED,
+declining tasks, when that state is missing; battery falls back to the host's own reading.
+Tests: `apps/api/src/gateway.test.ts` against a real WebSocket server.

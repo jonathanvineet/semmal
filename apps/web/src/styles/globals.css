@@ -976,3 +976,21 @@ main > section.workbench > .wrap { height: auto; display: grid; gap: 18px; }
 .ac-res__receipt dt { font-size: 12.5px; color: var(--p-muted); }
 .ac-res__receipt dd { margin: 2px 0 0; font-size: 14px; overflow-wrap: anywhere; }
 @media (max-width: 1023px) { .ac { grid-template-columns: 1fr; } }
+
+/* ------------------------------------------------------------- robot link (dashboard) */
+.role-list li.my-robot { display: grid; grid-template-columns: 1fr auto; gap: 12px; padding: 14px 16px; }
+.my-robot > .rl { grid-column: 1 / -1; }
+.rl { display: grid; gap: 10px; padding-top: 10px; border-top: 1px solid var(--soft-line); }
+.rl__status { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.rl__status .dot { margin: 0; }
+.rl__actions { display: inline-flex; gap: 8px; margin-left: auto; flex-wrap: wrap; }
+.rl__token { display: grid; gap: 10px; justify-items: start; padding: 14px; border-radius: 16px; background: color-mix(in oklab, var(--warn) 8%, rgb(0 0 0 / 0.3)); box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--warn) 35%, transparent); }
+.rl__token p { margin: 0; }
+.rl__token pre { margin: 0; width: 100%; padding: 12px; border-radius: 12px; background: rgb(0 0 0 / 0.4); font-size: 12px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
+.rl__log { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; font-size: 13.5px; }
+.rl__log li { display: grid; grid-template-columns: 70px 80px 1fr; gap: 10px; align-items: baseline; }
+.rl__log .mono { font-size: 11.5px; }
+.rl__kind { font-size: 11.5px; padding: 2px 8px; border-radius: 999px; background: var(--soft-fill); color: var(--p-muted); justify-self: start; }
+.rl__kind--online, .rl__kind--task { color: var(--ok); background: color-mix(in oklab, var(--ok) 12%, transparent); }
+.rl__kind--incident, .rl__kind--offline { color: #f3cf6b; background: color-mix(in oklab, var(--warn) 12%, transparent); }
+.rl__kind--safety { color: var(--ice); background: color-mix(in oklab, var(--ice) 12%, transparent); }

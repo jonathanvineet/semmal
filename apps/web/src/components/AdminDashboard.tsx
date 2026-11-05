@@ -6,6 +6,7 @@ import { ApprovalCard } from "./ui/ApprovalCard";
 import { useWallet } from "@/lib/wallet";
 import { AgentBuilder } from "./AgentBuilder";
 import { AgentConsole } from "./AgentConsole";
+import { RobotLink } from "./RobotLink";
 import { ARKIV_EXPLORER, type Status } from "@/lib/api";
 
 type AdminState = {
@@ -214,7 +215,7 @@ function MyRobots({ owner }: { owner: string }) {
       {rows && rows.length > 0 && (
         <ul className="role-list">
           {rows.map((r) => (
-            <li key={r.data.robotId}>
+            <li key={r.data.robotId} className="my-robot">
               <span><b>{r.data.displayName}</b> <span className="muted">· {r.data.robotId} · v{r.data.profileVersion}</span></span>
               <span className="robot-actions">
                 {confirm === r.data.robotId ? (
@@ -228,6 +229,7 @@ function MyRobots({ owner }: { owner: string }) {
                   <button type="button" className="btn btn--secondary btn--sm" onClick={() => setConfirm(r.data.robotId)} disabled={busy !== null}>Delete</button>
                 )}
               </span>
+              <RobotLink robotId={r.data.robotId} capabilities={r.data.capabilities} />
             </li>
           ))}
         </ul>
