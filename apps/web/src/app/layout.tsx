@@ -5,6 +5,7 @@ import "../styles/kit/motion.css";
 import "../styles/globals.css";
 import { Footer } from "@/components/Chrome";
 import { Dock } from "@/components/Dock";
+import { AmbientBackdrop } from "@/components/world/AmbientBackdrop";
 
 const manrope = Manrope({ subsets: ["latin"], variable: "--f-text", display: "swap" });
 const mono = JetBrains_Mono({ subsets: ["latin"], variable: "--f-mono", display: "swap" });
@@ -20,6 +21,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en" data-type="software" data-radius="round" data-buttons="pill" data-tone="dark" className={`${manrope.variable} ${mono.variable}`}>
       <body>
+        <AmbientBackdrop />
         <Dock />
         <main id="main">{children}</main>
         <Footer />

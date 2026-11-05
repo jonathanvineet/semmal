@@ -105,7 +105,7 @@ const fresnelMat = () =>
       }`,
   });
 
-function World({ graph, progress, reduced, dense }: { graph: Graph; progress: React.MutableRefObject<number>; reduced: boolean; dense: boolean }) {
+function World({ graph, progress, reduced, dense, ambient }: { graph: Graph; progress: React.MutableRefObject<number>; reduced: boolean; dense: boolean; ambient: boolean }) {
   const { nodes, edges } = graph;
   const { camera, pointer, gl, size } = useThree();
   const group = useRef<THREE.Group>(null);
@@ -133,6 +133,7 @@ function World({ graph, progress, reduced, dense }: { graph: Graph; progress: Re
   // drag to turn, click to pin
   const drag = useRef({ down: false, moved: 0, x: 0, y: 0, yaw: 0, pitch: 0, auto: 0 });
   useEffect(() => {
+    if (ambient) return;
     const el = gl.domElement;
     const down = (e: PointerEvent) => { Object.assign(drag.current, { down: true, moved: 0, x: e.clientX, y: e.clientY }); el.style.cursor = "grabbing"; };
     const move = (e: PointerEvent) => {
@@ -150,7 +151,7 @@ function World({ graph, progress, reduced, dense }: { graph: Graph; progress: Re
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
     return () => { el.removeEventListener("pointerdown", down); window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up); };
-  }, [gl]);
+  }, [gl, ambient]);
 
   const shots = useMemo(() => {
     const hub = new THREE.Vector3(...nodes[graph.mainHub]!.p);
@@ -175,7 +176,7 @@ function World({ graph, progress, reduced, dense }: { graph: Graph; progress: Re
   useEffect(() => () => { links.geo.dispose(); links.mat.dispose(); }, [links]);
 
   // pulses and halos as soft points
-  const PULSES = dense ? 110 : 56;
+  const PULSES = ambient ? (dense ? 60 : 30) : dense ? 110 : 56;
   const pulses = useMemo(() => Array.from({ length: PULSES }, (_, i) => ({ e: (i * 7) % edges.length, t: Math.random(), speed: 0.35 + Math.random() * 0.55 })), [PULSES, edges.length]);
   const pulseGeo = useMemo(() => {
     const g = new THREE.BufferGeometry();
@@ -328,15 +329,15 @@ function World({ graph, progress, reduced, dense }: { graph: Graph; progress: Re
     if (group.current) {
       const g = group.current, d = drag.current;
       g.position.x = THREE.MathUtils.damp(g.position.x, shift, 4, dt);
-      if (!reduced && p < 0.1 && !d.down) d.auto += dt * 0.045;
+      if (!reduced && (ambient || (p < 0.1 && !d.down))) d.auto += dt * (ambient ? 0.025 : 0.045);
       else if (p >= 0.1) d.auto = THREE.MathUtils.damp(d.auto, Math.round(d.auto / (Math.PI * 2)) * Math.PI * 2, 2.5, dt);
       if (!d.down && p >= 0.1) d.yaw = THREE.MathUtils.damp(d.yaw, 0, 1.6, dt);
       if (!d.down) d.pitch = THREE.MathUtils.damp(d.pitch, 0, 1.2, dt);
       g.rotation.y = d.auto + d.yaw;
       g.rotation.x = d.pitch;
     }
-    cam.x += pointer.x * 0.5 * drift;
-    cam.y += pointer.y * 0.3 * drift;
+    cam.x += pointer.x * (ambient ? 0.25 : 0.5) * drift;
+    cam.y += pointer.y * (ambient ? 0.15 : 0.3) * drift;
     const k = 1 - Math.exp(-dt * (reduced ? 30 : 3.2));
     camera.position.lerp(cam, k);
     curLook.current.lerp(look, k);
@@ -344,7 +345,7 @@ function World({ graph, progress, reduced, dense }: { graph: Graph; progress: Re
     if (chapter !== chap) setChap(chapter);
   });
 
-  const labelled = graphNodes.filter((n) => n.label);
+  const labelled = ambient ? [] : graphNodes.filter((n) => n.label);
   const tipFor = hover ?? pinned;
   return (
     <group ref={group}>
@@ -352,11 +353,11 @@ function World({ graph, progress, reduced, dense }: { graph: Graph; progress: Re
       <instancedMesh
         ref={nodeMesh}
         args={[undefined, undefined, graphNodes.length]}
-        onPointerMove={(e) => { e.stopPropagation(); if (e.instanceId !== undefined) setHover(graphNodes[e.instanceId]!.id); }}
+        onPointerMove={(e) => { if (ambient) return; e.stopPropagation(); if (e.instanceId !== undefined) setHover(graphNodes[e.instanceId]!.id); }}
         onPointerOut={() => setHover(null)}
         onClick={(e) => {
           e.stopPropagation();
-          if (drag.current.moved > 6 || e.instanceId === undefined) return;
+          if (ambient || drag.current.moved > 6 || e.instanceId === undefined) return;
           const id = graphNodes[e.instanceId]!.id;
           setPinned((cur) => (cur === id ? null : id));
         }}
@@ -412,7 +413,18 @@ function World({ graph, progress, reduced, dense }: { graph: Graph; progress: Re
   );
 }
 
-export default function AgentWorld({ progress, robots, agents }: { progress: React.MutableRefObject<number>; robots: NamedEntry[]; agents: NamedEntry[] }) {
+export default function AgentWorld({
+  progress,
+  robots,
+  agents,
+  ambient = false,
+}: {
+  progress: React.MutableRefObject<number>;
+  robots: NamedEntry[];
+  agents: NamedEntry[];
+  /** Background mode for every other page: calm, dimmed, no interaction, one fixed viewpoint. */
+  ambient?: boolean;
+}) {
   const host = useRef<HTMLDivElement>(null);
   const [visible, setVisible] = useState(true);
   const [env, setEnv] = useState({ reduced: false, dense: true });
@@ -425,12 +437,12 @@ export default function AgentWorld({ progress, robots, agents }: { progress: Rea
   const graph = useMemo(() => buildGraph({ robots, agents, dense: env.dense }), [robots, agents, env.dense]);
   return (
     <div ref={host} className="world-canvas">
-      <Canvas dpr={[1, 1.75]} frameloop={visible ? "always" : "never"} camera={{ position: [0, 2.2, 17], fov: 42, near: 0.1, far: 80 }} gl={{ antialias: true, powerPreference: "high-performance" }}>
+      <Canvas dpr={ambient ? [1, 1.25] : [1, 1.75]} frameloop={visible ? "always" : "never"} camera={{ position: [0, 2.2, 17], fov: 42, near: 0.1, far: 80 }} gl={{ antialias: true, powerPreference: "high-performance" }}>
         <color attach="background" args={[BG]} />
         <fog attach="fog" args={[BG, 14, 34]} />
-        <World graph={graph} progress={progress} reduced={env.reduced} dense={env.dense} />
-        <EffectComposer multisampling={4}>
-          <Bloom mipmapBlur intensity={0.95} luminanceThreshold={0.5} luminanceSmoothing={0.35} radius={0.8} />
+        <World graph={graph} progress={progress} reduced={env.reduced} dense={env.dense} ambient={ambient} />
+        <EffectComposer multisampling={ambient ? 0 : 4}>
+          <Bloom mipmapBlur intensity={ambient ? 0.8 : 0.95} luminanceThreshold={0.5} luminanceSmoothing={0.35} radius={0.8} />
         </EffectComposer>
       </Canvas>
     </div>

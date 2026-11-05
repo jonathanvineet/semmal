@@ -581,3 +581,13 @@ body { color: var(--p-ink); line-height: 1.6; }
 .reg-done__ok { width: 52px; height: 52px; display: grid; place-items: center; border-radius: 50%; background: color-mix(in oklab, var(--ok) 18%, transparent); color: var(--ok); }
 .reg-done__ok svg { width: 26px; height: 26px; }
 @media (max-width: 1023px) { .reg-body { grid-template-columns: 1fr; } .reg-preview { position: static; order: -1; } .model-grid, .skill-grid { grid-template-columns: 1fr; } .reg-row { grid-template-columns: 1fr; } .reg-panel { padding: 24px; } }
+
+/* ------------------------------------------------------------- the network behind every other page */
+.backdrop { position: fixed; inset: 0; z-index: 0; pointer-events: none; }
+.backdrop .world-canvas { opacity: 0.75; }
+.backdrop__veil { /* keeps text at 4.5:1 or more over the network: a soft dim, heaviest where content sits */
+  position: absolute; inset: 0;
+  background: radial-gradient(120% 90% at 50% 30%, color-mix(in oklab, #0d0d10 55%, transparent), color-mix(in oklab, #0d0d10 80%, transparent));
+}
+main, footer.closing { position: relative; z-index: 1; }
+main > section.market { background: transparent; }
