@@ -1,0 +1,244 @@
+/**
+ * One-shot guarded Arkiv create, adapted from the Arkiv MCP "guides/quickstart" (SDK 1.0.1, Rabdi)
+ * guardedWalletClient + walletSigner (wallet signing mode). Rules kept from the guide:
+ *  - exactly one Create operation per adapter instance, never an automatic resend;
+ *  - gas >= max(1_000_000, 2 x estimate at latest) and gas <= latest block gasLimit / 2;
+ *  - fresh nonce/gasPrice from latest, explicit fee budget, approval before signing;
+ *  - the signed tx hash is journaled before broadcast; raw provider errors never leave this file.
+ * Signing is done ONLY by the user's own wallet (EIP-1193, e.g. MetaMask). No private key is read,
+ * stored or handled anywhere in SEMMAL.
+ */
+import { createWalletClient } from "@arkiv-network/sdk";
+import { rabdi } from "@arkiv-network/sdk/chains";
+import { custom, decodeFunctionData, getAddress, numberToHex, parseAbi, type Hex } from "viem";
+
+export const RABDI_CHAIN_ID = 7794095;
+const REGISTRY = "0x4400000000000000000000000000000000000044";
+const executeAbi = parseAbi([
+  "function execute((uint8 operation, bytes operationData)[] ops) external returns (bytes32[] keys)",
+]);
+const readMethods = new Set([
+  "eth_blockNumber",
+  "eth_chainId",
+  "eth_getTransactionReceipt",
+  "eth_getTransactionByHash",
+  "eth_getBlockByNumber",
+]);
+const fail = (message: string): never => {
+  throw new Error(message);
+};
+
+export type Journal = {
+  /** Durably record a public tx hash (before broadcast and after). Never key material. */
+  record(entry: Record<string, unknown>): Promise<void> | void;
+};
+
+export type Approval = (tx: {
+  from: string;
+  to: string;
+  chainId: number;
+  gas: bigint;
+  gasPrice: bigint;
+  nonce: number;
+  maximumCostWei: bigint;
+}) => Promise<boolean> | boolean;
+
+// viem's public client is typed loosely here on purpose: the Arkiv client decorates it.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type AnyPublicClient = any;
+
+export type Eip1193 = { request(args: { method: string; params?: unknown[] }): Promise<unknown> };
+
+/** Wallet mode (from the Arkiv quickstart): the wallet holds the key and shows its own confirmation. */
+export function walletSigner(provider: Eip1193, selectedAddress: string) {
+  const address = getAddress(selectedAddress);
+  return {
+    address,
+    async verify() {
+      const chain = await provider.request({ method: "eth_chainId" });
+      const accounts = (await provider.request({ method: "eth_accounts" })) as string[];
+      if (Number(chain) !== RABDI_CHAIN_ID || !accounts.some((a) => getAddress(a) === address))
+        throw new Error("Connect the selected account to Rabdi before signing");
+    },
+    async send(tx: Record<string, unknown> & { to: string; data: string; gas: bigint; gasPrice: bigint; nonce: number }) {
+      return (await provider.request({
+        method: "eth_sendTransaction",
+        params: [
+          {
+            from: address,
+            to: tx.to,
+            data: tx.data,
+            value: "0x0",
+            chainId: numberToHex(RABDI_CHAIN_ID),
+            type: "0x0",
+            gas: numberToHex(tx.gas),
+            gasPrice: numberToHex(tx.gasPrice),
+            nonce: numberToHex(tx.nonce),
+          },
+        ],
+      })) as string;
+    },
+  };
+}
+
+type Signer = ReturnType<typeof walletSigner>;
+
+export function guardedWalletClient(opts: {
+  publicClient: AnyPublicClient;
+  signer: Signer;
+  accessKey: string;
+  maxCostWei: bigint;
+  approve: Approval;
+  journal: Journal;
+}) {
+  const { publicClient, signer, accessKey, maxCostWei, approve, journal } = opts;
+  if (typeof maxCostWei !== "bigint" || maxCostWei <= 0n) fail("Explicit positive fee budget required");
+  const chain = rabdi({ accessKey });
+  const address = getAddress(signer.address);
+  const state = { attempted: false, hash: null as string | null, reservedWei: 0n, phase: "ready" };
+  let approved: Record<string, unknown> & { to: string; data: string; gas: bigint; gasPrice: bigint; nonce: number; type: string };
+  let explicit: { nonce: number; gas: bigint; gasPrice: bigint };
+
+  const client = createWalletClient({
+    chain,
+    account: address,
+    pollingInterval: 1000,
+    transport: custom(
+      {
+        request: async ({ method, params }: { method: string; params?: unknown[] }) => {
+          if (readMethods.has(method)) return publicClient.request({ method, params });
+          if (method !== "eth_sendTransaction" || state.attempted) fail("Only one create submission is permitted; do not retry");
+          state.attempted = true;
+          state.phase = "preflight";
+          const input = params?.[0] as Record<string, string> | undefined;
+          if (
+            !input ||
+            Object.keys(input).some((k) => !["from", "to", "data", "gas", "gasPrice", "nonce", "type"].includes(k)) ||
+            getAddress(input.from!) !== address ||
+            input.to?.toLowerCase() !== REGISTRY ||
+            typeof input.data !== "string" ||
+            BigInt(input.gas ?? 0) !== explicit.gas ||
+            BigInt(input.gasPrice ?? 0) !== explicit.gasPrice ||
+            Number(input.nonce) !== explicit.nonce ||
+            (input.type !== undefined && input.type !== "0x0")
+          )
+            fail("Unexpected transaction fields");
+          const decoded = decodeFunctionData({ abi: executeAbi, data: input!.data as Hex });
+          const ops = decoded.args[0] as readonly { operation: number }[];
+          if (decoded.functionName !== "execute" || ops.length !== 1 || ops[0]!.operation !== 1)
+            fail("Exactly one Create operation is required");
+          if ((await publicClient.getChainId()) !== RABDI_CHAIN_ID) fail("Expected Rabdi RPC");
+          await signer.verify();
+          const started = Date.now();
+          const call = { account: address, to: REGISTRY, data: input!.data, value: 0n };
+          await publicClient.call({ ...call, blockTag: "latest" });
+          const estimate: bigint = await publicClient.estimateGas({ ...call, blockTag: "latest" });
+          if (typeof estimate !== "bigint" || estimate <= 0n) fail("Invalid unsigned gas estimate");
+          const floor = 1_000_000n;
+          const gas = estimate * 2n > floor ? estimate * 2n : floor;
+          const head = await publicClient.getBlock({ blockTag: "latest", includeTransactions: false });
+          if (typeof head.gasLimit !== "bigint" || head.gasLimit <= 0n || gas * 2n > head.gasLimit)
+            fail("Gas exceeds half the current block limit");
+          const { gasPrice, nonce } = explicit;
+          const maximum = gas * gasPrice;
+          if (maximum > maxCostWei || (await publicClient.getBalance({ address, blockTag: "latest" })) < maximum)
+            fail("Fee budget or wallet balance is insufficient");
+          approved = Object.freeze({
+            from: address,
+            to: REGISTRY,
+            data: input!.data as string,
+            value: 0n,
+            chainId: RABDI_CHAIN_ID,
+            type: "legacy",
+            gas,
+            gasPrice,
+            nonce,
+          });
+          state.reservedWei = maximum;
+          if ((await approve({ from: address, to: REGISTRY, chainId: RABDI_CHAIN_ID, gas, gasPrice, nonce, maximumCostWei: maximum })) !== true)
+            fail("Creation was not approved");
+          if (
+            Date.now() - started > 60_000 ||
+            (await publicClient.getChainId()) !== RABDI_CHAIN_ID ||
+            (await publicClient.getTransactionCount({ address, blockTag: "latest" })) !== nonce ||
+            (await publicClient.getGasPrice()) !== gasPrice
+          )
+            fail("Quote, network or nonce changed; a new approval is required");
+          const freshEstimate: bigint = await publicClient.estimateGas({ ...call, blockTag: "latest" });
+          const freshHead = await publicClient.getBlock({ blockTag: "latest", includeTransactions: false });
+          if (
+            typeof freshEstimate !== "bigint" ||
+            freshEstimate <= 0n ||
+            gas < freshEstimate * 2n ||
+            typeof freshHead.gasLimit !== "bigint" ||
+            gas * 2n > freshHead.gasLimit ||
+            (await publicClient.getBalance({ address, blockTag: "latest" })) < maximum ||
+            (await publicClient.getTransactionCount({ address, blockTag: "latest" })) !== nonce ||
+            (await publicClient.getGasPrice()) !== gasPrice
+          )
+            fail("Signature bounds or fees changed; reconcile without signing");
+          await signer.verify();
+          state.phase = "submission_unknown";
+          const hash = await signer.send(approved);
+          if (!/^0x[0-9a-f]{64}$/i.test(hash)) fail("Invalid submitted hash");
+          state.hash = hash;
+          state.phase = "submitted";
+          await journal.record({ phase: "submitted", txHash: hash });
+          return hash;
+        },
+      },
+      { retryCount: 0 },
+    ),
+  });
+
+  let invoked = false;
+  return {
+    getSubmission: () => ({ ...state, reservedWei: state.reservedWei.toString() }),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    async createEntity(schema: any, values: any, options: any): Promise<{ entityKey: string; txHash: string; expiresAt?: bigint }> {
+      if (invoked) fail("This create adapter is one-shot");
+      invoked = true;
+      let failureReason = "verification_failed";
+      try {
+        explicit = Object.freeze({
+          nonce: await publicClient.getTransactionCount({ address, blockTag: "latest" }),
+          gas: 1_000_000n,
+          gasPrice: await publicClient.getGasPrice(),
+        });
+        if (!Number.isSafeInteger(explicit.nonce) || explicit.nonce < 0 || explicit.gasPrice <= 0n)
+          fail("Invalid explicit transaction parameters");
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const result: any = await (client as any).createEntity(schema, values, options, explicit);
+        if (result.txHash?.toLowerCase() !== state.hash?.toLowerCase()) {
+          failureReason = "replacement_receipt";
+          fail("Receipt belongs to a replacement");
+        }
+        const mined = await publicClient.getTransactionReceipt({ hash: state.hash });
+        if (mined.status !== "success") fail("Creation reverted");
+        const tx = await publicClient.getTransaction({ hash: state.hash });
+        if (
+          getAddress(tx.from) !== address ||
+          tx.to?.toLowerCase() !== REGISTRY ||
+          String(tx.input).toLowerCase() !== approved.data.toLowerCase() ||
+          tx.value !== 0n ||
+          tx.chainId !== RABDI_CHAIN_ID ||
+          tx.type !== approved.type ||
+          tx.nonce !== approved.nonce ||
+          tx.gas !== approved.gas ||
+          tx.gasPrice !== approved.gasPrice
+        ) {
+          failureReason = "transaction_mismatch";
+          fail("Submitted transaction differs from the approved request");
+        }
+        state.phase = "receipt_verified";
+        await journal.record({ phase: "receipt_verified", txHash: state.hash, entityKey: result.entityKey });
+        return result;
+      } catch {
+        await journal.record({ phase: "failed", at: state.phase, reason: failureReason, txHash: state.hash });
+        throw new Error(
+          `Arkiv create not verified (${state.phase}; ${failureReason}); inspect the local journal, do not resend automatically`,
+        );
+      }
+    },
+  };
+}

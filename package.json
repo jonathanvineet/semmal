@@ -1,0 +1,13 @@
+{
+  "name": "semmal",
+  "private": true,
+  "packageManager": "pnpm@10.34.5",
+  "engines": { "node": ">=22.5" },
+  "scripts": {
+    "dev:api": "pnpm --filter @semmal/api dev",
+    "dev:web": "pnpm --filter @semmal/web dev",
+    "test": "pnpm -r --if-present test",
+    "typecheck": "pnpm -r --if-present typecheck",
+    "zerog:preflight": "pnpm --filter @semmal/api zerog:preflight"
+  }
+}
