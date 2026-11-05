@@ -1,0 +1,6 @@
+# SIMULATION ONLY (/sim/fault_inject). Refused unless APP_MODE=simulation.
+string scenario_id
+---
+bool accepted
+string message
+string injection_id

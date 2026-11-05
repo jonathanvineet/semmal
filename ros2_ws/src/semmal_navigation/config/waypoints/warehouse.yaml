@@ -1,0 +1,40 @@
+# Named-waypoint allowlist and route graph for mission_executor.
+# The master agent may only request names listed under `waypoints`. Graph-only nodes
+# (listed under `nodes`) are internal routing points and cannot be requested directly.
+# Every edge is checked against semmal_gazebo/config/worlds/warehouse.yaml for robot clearance by tests/robot/test_layout.py.
+# Units: metres, radians (yaw), `map` frame (= Gazebo world frame). DiffDrive odometry starts at
+# zero at the spawn pose, so bringup publishes a static map->odom TF equal to the spawn pose.
+
+frame: map
+robot_radius: 0.27        # base diagonal half-length (0.25) + margin
+geofence: { min_x: -9.7, max_x: 9.7, min_y: -6.7, max_y: 6.7 }
+
+waypoints:
+  dock:               { x: -8.0, y: -5.5, yaw: 0.0 }
+  inspection_point_A: { x:  8.0, y:  1.5, yaw: 0.0 }      # faces machine_panel (east wall)
+  destination:        { x:  8.0, y: -5.2, yaw: 0.0 }
+
+nodes:
+  w_south:  { x: -7.0, y: -5.2 }
+  w_aisle1: { x: -7.0, y: -1.5 }
+  w_aisle2: { x: -7.0, y:  1.5 }
+  w_north:  { x: -7.0, y:  5.2 }
+  e_south:  { x:  4.5, y: -5.2 }
+  e_aisle1: { x:  4.5, y: -1.5 }
+  e_aisle2: { x:  4.5, y:  1.5 }
+  e_north:  { x:  4.5, y:  5.2 }
+
+edges:
+  - [dock, w_south]
+  - [w_south, w_aisle1]
+  - [w_aisle1, w_aisle2]
+  - [w_aisle2, w_north]
+  - [w_south, e_south]
+  - [w_aisle1, e_aisle1]
+  - [w_aisle2, e_aisle2]
+  - [w_north, e_north]
+  - [e_south, e_aisle1]
+  - [e_aisle1, e_aisle2]
+  - [e_aisle2, e_north]
+  - [e_aisle2, inspection_point_A]
+  - [e_south, destination]

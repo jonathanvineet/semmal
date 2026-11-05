@@ -1,0 +1,9 @@
+# SIMULATION VALUES ONLY. Never use as real hardware thresholds.
+scenario_id: left_motor_overcurrent
+trigger: immediate
+fault:
+  motor: left
+  current_a: 8.5
+  temperature_c: 105.0
+  encoder_state: normal
+duration_ms: 5000

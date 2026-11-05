@@ -15,3 +15,18 @@ pnpm dev:web                # http://localhost:3000 (proxies /api to the API)
 - `pnpm zerog:preflight`: checks the configured 0G models; with a key, makes one real private-mode call and prints the provider request ID.
 - **Publishing agents** happens only in the owner's dashboard (`/admin`, after wallet sign-in): each listing is signed by your own wallet; no private key is stored or entered anywhere. Fund the wallet at https://hub.arkiv.network/faucet.
 - `/admin` (web): sign in with your wallet (a free signed message, not a transaction). On first start the API terminal prints a one-time setup code; enter it to make your wallet the owner. The owner manages admins and trusted Arkiv publishers there. Roles are stored in `data/admin.json`.
+
+## Run (robot side: ROS 2 Jazzy + Gazebo Harmonic)
+
+```bash
+scripts/robot/check_env.sh          # toolchain versions
+scripts/robot/build.sh              # generate warehouse world/map + colcon build
+scripts/robot/fetch_models.sh       # once: furniture models for the house world (Gazebo Fuel, CC BY 4.0)
+scripts/robot/run_sim.sh world:=house   # or world:=warehouse (default); headless:=true, rviz:=true
+scripts/robot/mission.sh inspection_point_A
+scripts/robot/inject_fault.sh left_motor_overcurrent   # simulation only
+python3 tests/robot/sim_fault_check.py                  # live stop/latch/incident/recovery check
+scripts/robot/stop_sim.sh
+```
+
+ROS graph, worlds, topics, safety boundary and limitations: `docs/ROBOT.md`. Model credits: `docs/MODEL_CREDITS.md`.

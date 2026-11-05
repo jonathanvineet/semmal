@@ -1,0 +1,7 @@
+# SIMULATION VALUES ONLY. Holds the left encoder ticks stale; detected only while motion is commanded.
+scenario_id: left_encoder_dropout
+trigger: immediate
+fault:
+  motor: left
+  encoder_state: stale
+duration_ms: 4000

@@ -1,0 +1,13 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>semmal_gazebo</name>
+  <version>0.1.0</version>
+  <description>SEMMAL warehouse world (generated from layout.yaml) and ros_gz bridge config.</description>
+  <maintainer email="cvineetjonathan@gmail.com">semmal</maintainer>
+  <license>Apache-2.0</license>
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <exec_depend>ros_gz_sim</exec_depend>
+  <exec_depend>ros_gz_bridge</exec_depend>
+  <exec_depend>python3-yaml</exec_depend>
+  <export><build_type>ament_cmake</build_type></export>
+</package>

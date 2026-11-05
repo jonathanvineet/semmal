@@ -1,0 +1,113 @@
+# SEMMAL house world: single-storey house, 24 m x 18 m, nine rooms off a central hallway.
+# Single source of truth for worlds/house.sdf and semmal_navigation/maps/house.{pgm,yaml}.
+# Furniture comes from Gazebo Fuel (config/models.yaml, CC BY 4.0, OpenRobotics); footprints come from
+# config/model_catalog.yaml (measured by Gazebo). `facing` = compass direction the model's front points
+# (north = +y, east = +x) or degrees.
+# Units: metres, world frame, origin at the house centre.
+#
+#   y=9  +--------+--------+----------+------------+-----------+
+#        |Utility | Bath   | Office   | Bedroom    | Guest     |
+#   y=1  +--d-----+--d-----+---d------+----d-------+-----d-----+
+#        |                 Hallway                             |
+#  y=-1.5+----d---+---------d---------+----------d-------------+
+#        | Garage | Kitchen / Dining  :  Living room           |
+#  y=-9  +--------+-------------------:------------------------+
+#      x=-12    x=-5                 x=3                      x=12
+
+name: house
+floor: { size_x: 24.0, size_y: 18.0, rgba: [0.62, 0.60, 0.56, 1] }
+walls: { thickness: 0.2, height: 2.6, rgba: [0.93, 0.92, 0.88, 1] }
+interior_walls:
+  thickness: 0.15
+  rgba: [0.90, 0.89, 0.85, 1]
+  segments:
+    # Hallway south wall: doors to garage, kitchen, living room.
+    - { from: [-12.0, -1.5], to: [12.0, -1.5], doors: [{ at: -8.5, width: 1.6 }, { at: -1.0, width: 2.0 }, { at: 7.5, width: 2.0 }] }
+    # Hallway north wall: doors to utility, bathroom, office, bedroom, guest room.
+    - { from: [-12.0, 1.0], to: [12.0, 1.0], doors: [{ at: -10.0, width: 1.2 }, { at: -6.0, width: 1.2 }, { at: -1.0, width: 1.2 }, { at: 4.0, width: 1.2 }, { at: 9.5, width: 1.2 }] }
+    # South rooms.
+    - { from: [-5.0, -9.0], to: [-5.0, -1.5] }                                   # garage | kitchen
+    - { from: [3.0, -9.0], to: [3.0, -1.5], doors: [{ at: -5.0, width: 4.0 }] }  # kitchen | living (open plan)
+    # North rooms.
+    - { from: [-8.0, 1.0], to: [-8.0, 9.0] }
+    - { from: [-4.0, 1.0], to: [-4.0, 9.0] }
+    - { from: [1.0, 1.0], to: [1.0, 9.0] }
+    - { from: [7.0, 1.0], to: [7.0, 9.0] }
+
+# Visual floor finishes (no collision).
+rooms:
+  - { name: garage,   min: [-12.0, -9.0], max: [-5.0, -1.5], rgba: [0.55, 0.55, 0.55, 1] }
+  - { name: kitchen,  min: [-5.0, -9.0],  max: [3.0, -1.5],  rgba: [0.86, 0.84, 0.78, 1] }
+  - { name: living,   min: [3.0, -9.0],   max: [12.0, -1.5], rgba: [0.60, 0.43, 0.28, 1] }
+  - { name: hallway,  min: [-12.0, -1.5], max: [12.0, 1.0],  rgba: [0.68, 0.52, 0.36, 1] }
+  - { name: utility,  min: [-12.0, 1.0],  max: [-8.0, 9.0],  rgba: [0.58, 0.60, 0.62, 1] }
+  - { name: bathroom, min: [-8.0, 1.0],   max: [-4.0, 9.0],  rgba: [0.80, 0.86, 0.88, 1] }
+  - { name: office,   min: [-4.0, 1.0],   max: [1.0, 9.0],   rgba: [0.55, 0.40, 0.27, 1] }
+  - { name: bedroom,  min: [1.0, 1.0],    max: [7.0, 9.0],   rgba: [0.70, 0.62, 0.55, 1] }
+  - { name: guest,    min: [7.0, 1.0],    max: [12.0, 9.0],  rgba: [0.66, 0.58, 0.50, 1] }
+
+furniture:
+  # Garage (robot dock)
+  - { model: metalcabinet, x: -11.7,  y: -7.2,  facing: east }
+  - { model: metalcabinet, x: -11.7,  y: -6.2,  facing: east }
+  - { model: squareshelf,  x: -9.5,   y: -8.7,  facing: north }
+  - { model: squareshelf,  x: -8.5,   y: -8.7,  facing: north }
+  - { model: cabinet,      x: -5.4,   y: -8.6,  facing: west }
+  # Utility room: electrical box on a shelf against the west wall = inspection target
+  - { model: squareshelf,    x: -11.75, y: 5.0, facing: east }
+  - { model: electrical_box, x: -11.72, y: 5.0, z: 0.77, facing: east, name: electrical_box }
+  - { model: metalcabinet,   x: -11.7,  y: 7.6, facing: east }
+  - { model: cabinet,        x: -8.4,   y: 8.6, facing: south }
+  # Bathroom
+  - { model: bathtub,      x: -6.0,   y: 8.45, facing: east }
+  - { model: toilet,       x: -4.52,  y: 5.5,  facing: west }
+  - { model: bathroomsink, x: -7.92,  y: 4.0,  z: 0.5, facing: east }
+  # Office
+  - { model: desk,            x: -1.5,  y: 8.6,  facing: south }
+  - { model: officechairgrey, x: -1.5,  y: 7.7,  facing: north }
+  - { model: bookshelf,       x: -3.7,  y: 6.0,  facing: east }
+  - { model: bookshelf,       x: -3.7,  y: 4.9,  facing: east }
+  - { model: whitecabinet,    x: 0.7,   y: 6.5,  facing: west }
+  # Bedroom
+  - { model: normalbed,    x: 4.0,  y: 7.9,  facing: south }
+  - { model: bedsidetable, x: 2.6,  y: 8.6,  facing: south }
+  - { model: bedsidetable, x: 5.4,  y: 8.6,  facing: south }
+  - { model: whitecabinet, x: 6.7,  y: 4.5,  facing: west }
+  - { model: chair,        x: 1.6,  y: 2.0,  facing: east }
+  # Guest room
+  - { model: normalbed,    x: 10.95, y: 6.0, facing: west }
+  - { model: bedsidetable, x: 11.6,  y: 7.4, facing: west }
+  - { model: lampandstand, x: 7.5,   y: 8.5, facing: south }
+  - { model: cabinet,      x: 7.4,   y: 2.5, facing: east }
+  # Kitchen / dining
+  - { model: kitchencountertop, x: -4.5,  y: -7.0, facing: east }
+  - { model: fridge,            x: -4.6,  y: -8.55, facing: east }
+  - { model: oven,              x: -4.55, y: -5.2, facing: east }
+  - { model: kitchensink,       x: -2.5,  y: -8.55, facing: north }
+  - { model: refrigerator,      x: 2.55,  y: -8.55, facing: north }
+  - { model: table,             x: 0.5,   y: -5.2, facing: east }
+  - { model: dining_chair,      x: 0.0,   y: -4.5, facing: south }
+  - { model: dining_chair,      x: 1.0,   y: -4.5, facing: south }
+  - { model: dining_chair,      x: 0.0,   y: -5.9, facing: north }
+  - { model: dining_chair,      x: 1.0,   y: -5.9, facing: north }
+  # Living room
+  - { model: tvstand,     x: 8.0,   y: -8.7, facing: north }
+  - { model: sofa,        x: 8.0,   y: -5.0, facing: south }
+  - { model: coffeetable, x: 8.0,   y: -6.6, facing: north }
+  - { model: minisofa,    x: 5.8,   y: -6.6, facing: east }
+  - { model: minisofa,    x: 10.2,  y: -6.6, facing: west }
+  - { model: bookshelf,   x: 11.75, y: -4.2, facing: west }
+  - { model: bookshelf,   x: 11.75, y: -3.1, facing: west }
+  - { model: lampandstand, x: 11.4, y: -8.4, facing: north }
+  - { model: lampandstand, x: 4.6,  y: -8.4, facing: north }
+
+markers:
+  - { name: dock_zone,         x: -8.5,  y: -5.5, z: 0.003, sx: 1.2, sy: 1.2, sz: 0.002, rgba: [0.10, 0.60, 0.25, 1] }
+  - { name: inspection_marker, x: -10.0, y: 5.0,  z: 0.003, sx: 0.6, sy: 0.6, sz: 0.002, rgba: [0.95, 0.75, 0.10, 1] }
+
+robot_spawn: { x: -8.5, y: -5.5, yaw: 1.5708 }
+
+map:
+  resolution: 0.05
+  margin: 0.5
+  max_obstacle_z: 0.6   # geometry wholly above this height (wall-mounted, tabletops on tall legs) is not drawn

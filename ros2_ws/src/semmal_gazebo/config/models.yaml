@@ -1,0 +1,33 @@
+# Fuel models used by the house world. URIs are version-pinned for reproducibility.
+# All OpenRobotics models below are CC BY 4.0 (http://creativecommons.org/licenses/by/4.0/).
+# Fetch into the local Fuel cache with scripts/robot/fetch_models.sh; Gazebo then runs offline.
+# front_deg: direction (model frame, degrees) the model's usable front faces, read from top-down
+#            renders and verified by placing every model `facing: south` in front of a camera. Layouts say `facing: south` and the generator derives the yaw.
+# Dropped after inspection: Washer (collision mesh measures 3 cm), Shower (wall-mounted head only).
+models:
+  sofa: {uri: 'https://fuel.gazebosim.org/1.0/OpenRobotics/models/Sofa/3', front_deg: 0, author: OpenRobotics, license: CC-BY-4.0}
+  minisofa: {uri: 'https://fuel.gazebosim.org/1.0/OpenRobotics/models/MiniSofa/3', front_deg: 180, author: OpenRobotics, license: CC-BY-4.0}
+  coffeetable: {uri: 'https://fuel.gazebosim.org/1.0/OpenRobotics/models/CoffeeTable/2', front_deg: 0, author: OpenRobotics, license: CC-BY-4.0}
+  tvstand: {uri: 'https://fuel.gazebosim.org/1.0/OpenRobotics/models/TVStand/2', front_deg: -90, author: OpenRobotics, license: CC-BY-4.0}
+  bookshelf: {uri: 'https://fuel.gazebosim.org/1.0/OpenRobotics/models/Bookshelf/4', front_deg: -90, author: OpenRobotics, license: CC-BY-4.0}
+  lampandstand: {uri: 'https://fuel.gazebosim.org/1.0/OpenRobotics/models/LampAndStand/3', front_deg: 0, author: OpenRobotics, license: CC-BY-4.0}
+  kitchencountertop: {uri: 'https://fuel.gazebosim.org/1.0/OpenRobotics/models/KitchenCountertop/3', front_deg: 180, author: OpenRobotics, license: CC-BY-4.0}
+  kitchensink: {uri: 'https://fuel.gazebosim.org/1.0/OpenRobotics/models/KitchenSink/2', front_deg: 0, author: OpenRobotics, license: CC-BY-4.0}
+  refrigerator: {uri: 'https://fuel.gazebosim.org/1.0/OpenRobotics/models/Refrigerator/1', front_deg: 0, author: OpenRobotics, license: CC-BY-4.0}
+  oven: {uri: 'https://fuel.gazebosim.org/1.0/OpenRobotics/models/Oven/1', front_deg: 0, author: OpenRobotics, license: CC-BY-4.0}
+  table: {uri: 'https://fuel.gazebosim.org/1.0/OpenRobotics/models/Table/4', front_deg: 0, author: OpenRobotics, license: CC-BY-4.0}
+  dining_chair: {uri: 'https://fuel.gazebosim.org/1.0/OpenRobotics/models/Dining%20Chair/1', front_deg: -90, author: OpenRobotics, license: CC-BY-4.0}
+  normalbed: {uri: 'https://fuel.gazebosim.org/1.0/OpenRobotics/models/NormalBed/2', front_deg: 0, author: OpenRobotics, license: CC-BY-4.0}
+  bedsidetable: {uri: 'https://fuel.gazebosim.org/1.0/OpenRobotics/models/BedsideTable/2', front_deg: 0, author: OpenRobotics, license: CC-BY-4.0}
+  cabinet: {uri: 'https://fuel.gazebosim.org/1.0/OpenRobotics/models/Cabinet/3', front_deg: 180, author: OpenRobotics, license: CC-BY-4.0}
+  whitecabinet: {uri: 'https://fuel.gazebosim.org/1.0/OpenRobotics/models/WhiteCabinet/2', front_deg: -90, author: OpenRobotics, license: CC-BY-4.0}
+  desk: {uri: 'https://fuel.gazebosim.org/1.0/OpenRobotics/models/Desk/2', front_deg: 180, author: OpenRobotics, license: CC-BY-4.0}
+  officechairgrey: {uri: 'https://fuel.gazebosim.org/1.0/OpenRobotics/models/OfficeChairGrey/2', front_deg: -90, author: OpenRobotics, license: CC-BY-4.0}
+  toilet: {uri: 'https://fuel.gazebosim.org/1.0/OpenRobotics/models/Toilet/2', front_deg: 0, author: OpenRobotics, license: CC-BY-4.0}
+  bathroomsink: {uri: 'https://fuel.gazebosim.org/1.0/OpenRobotics/models/BathroomSink/2', front_deg: -90, author: OpenRobotics, license: CC-BY-4.0}
+  bathtub: {uri: 'https://fuel.gazebosim.org/1.0/OpenRobotics/models/Bathtub/1', front_deg: 0, author: OpenRobotics, license: CC-BY-4.0}
+  electrical_box: {uri: 'https://fuel.gazebosim.org/1.0/OpenRobotics/models/Electrical%20Box/4', front_deg: 0, author: OpenRobotics, license: CC-BY-4.0}
+  metalcabinet: {uri: 'https://fuel.gazebosim.org/1.0/OpenRobotics/models/MetalCabinet/2', front_deg: -90, author: OpenRobotics, license: CC-BY-4.0}
+  squareshelf: {uri: 'https://fuel.gazebosim.org/1.0/OpenRobotics/models/SquareShelf/3', front_deg: -90, author: OpenRobotics, license: CC-BY-4.0}
+  chair: {uri: 'https://fuel.gazebosim.org/1.0/OpenRobotics/models/Chair/3', front_deg: 0, author: OpenRobotics, license: CC-BY-4.0}
+  fridge: {uri: 'https://fuel.gazebosim.org/1.0/OpenRobotics/models/Fridge/2', front_deg: -90, author: OpenRobotics, license: CC-BY-4.0}

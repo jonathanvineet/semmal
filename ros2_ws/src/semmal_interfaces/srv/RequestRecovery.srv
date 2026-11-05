@@ -1,0 +1,9 @@
+# /safety/request_recovery. Accepted only from RECOVERY_REQUIRED (faults cleared, e-stop released)
+# with explicit operator approval. No AI output may call this.
+string operator_id
+bool operator_approved
+string reason
+---
+bool accepted
+string message
+string state

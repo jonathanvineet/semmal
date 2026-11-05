@@ -1,0 +1,71 @@
+# Named-waypoint allowlist and route graph for the house world (mission_executor).
+# Only names under `waypoints` may be requested; `nodes` are internal routing points
+# (hallway centreline and one point just inside each doorway).
+# Every edge is checked against semmal_gazebo/config/worlds/house.yaml (walls + measured furniture
+# footprints) for robot clearance by tests/robot/test_layout.py.
+# Units: metres, radians (yaw), `map` frame (= Gazebo world frame).
+
+frame: map
+robot_radius: 0.27
+geofence: { min_x: -11.8, max_x: 11.8, min_y: -8.8, max_y: 8.8 }
+
+waypoints:
+  dock:               { x: -8.5,  y: -5.5, yaw: 1.5708 }    # garage charging spot
+  inspection_point_A: { x: -10.0, y: 5.0,  yaw: 3.1416 }    # utility room, faces the electrical box
+  kitchen:            { x: -2.5,  y: -4.0, yaw: -1.5708 }
+  living_room:        { x: 5.5,   y: -3.5, yaw: -0.7854 }
+  bathroom:           { x: -6.0,  y: 4.0,  yaw: 1.5708 }
+  office:             { x: -1.0,  y: 4.5,  yaw: 1.5708 }
+  bedroom:            { x: 4.0,   y: 4.5,  yaw: 1.5708 }
+  guest_room:         { x: 9.5,   y: 3.8,  yaw: 1.5708 }
+
+nodes:
+  # hallway centreline (y = -0.25), one node per doorway column
+  h_utility: { x: -10.0, y: -0.25 }
+  h_garage:  { x: -8.5,  y: -0.25 }
+  h_bath:    { x: -6.0,  y: -0.25 }
+  h_mid:     { x: -1.0,  y: -0.25 }   # office (north) and kitchen (south) doors
+  h_bed:     { x: 4.0,   y: -0.25 }
+  h_living:  { x: 7.5,   y: -0.25 }
+  h_guest:   { x: 9.5,   y: -0.25 }
+  # just inside each doorway
+  g_door:  { x: -8.5,  y: -2.4 }
+  u_door:  { x: -10.0, y: 1.9 }
+  b_door:  { x: -6.0,  y: 1.9 }
+  o_door:  { x: -1.0,  y: 1.9 }
+  k_door:  { x: -1.0,  y: -2.4 }
+  bd_door: { x: 4.0,   y: 1.9 }
+  l_door:  { x: 7.5,   y: -2.4 }
+  gu_door: { x: 9.5,   y: 1.9 }
+
+edges:
+  # hallway spine
+  - [h_utility, h_garage]
+  - [h_garage, h_bath]
+  - [h_bath, h_mid]
+  - [h_mid, h_bed]
+  - [h_bed, h_living]
+  - [h_living, h_guest]
+  # garage
+  - [h_garage, g_door]
+  - [g_door, dock]
+  # utility
+  - [h_utility, u_door]
+  - [u_door, inspection_point_A]
+  # bathroom
+  - [h_bath, b_door]
+  - [b_door, bathroom]
+  # office / kitchen
+  - [h_mid, o_door]
+  - [o_door, office]
+  - [h_mid, k_door]
+  - [k_door, kitchen]
+  # bedroom
+  - [h_bed, bd_door]
+  - [bd_door, bedroom]
+  # living room
+  - [h_living, l_door]
+  - [l_door, living_room]
+  # guest room
+  - [h_guest, gu_door]
+  - [gu_door, guest_room]

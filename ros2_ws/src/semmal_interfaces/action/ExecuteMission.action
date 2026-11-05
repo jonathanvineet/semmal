@@ -1,0 +1,18 @@
+# /mission/execute. Waypoints must be names from the map allowlist (semmal_navigation/config/waypoints.yaml).
+string task_id
+string episode_id
+string[] waypoints
+float32 max_speed            # m/s, clamped by the executor's configured limit; 0 = default
+float32 dwell_s              # seconds to hold at each waypoint
+bool capture_keyframe        # save one camera frame (locally) at each waypoint
+---
+bool success
+string outcome               # COMPLETED | REJECTED | ABORTED_SAFETY | CANCELED | FAILED
+string message
+string[] reached
+string[] keyframe_paths      # local robot-host paths; never uploaded by the executor
+---
+string phase                 # NAVIGATING | DWELLING | CAPTURING
+string current_waypoint
+uint32 waypoint_index
+float32 distance_remaining

@@ -84,3 +84,75 @@ ID, provider, model, trust evidence, latency, input/output sha256 and a receipt 
 (no keys in SEMMAL). Jobs are owner-session only until the robot gateway authenticates robots.
 Payments are not executed (charge is reported only). Inspection delegation to vision is not run yet.
 **Not yet live-tested:** needs `ZEROG_ROUTER_API_KEY` (empty on this machine).
+
+## ROS 2 / Gazebo (checked 2026-11-06, on this host)
+
+Facts taken from the installed packages, not from memory: plugin parameter names from the gz-sim 8 plugin binaries,
+`gz_frame_id` from gz-sensors 8, bridge config format from `ros_gz_bridge`, launch args from `ros_gz_sim/launch/gz_sim.launch.py`.
+
+| Item | Value |
+|---|---|
+| OS | Ubuntu 24.04.5 LTS, x86_64, NVIDIA RTX 2050 (ogre2 sensor rendering works headless) |
+| ROS 2 | Jazzy (`/opt/ros/jazzy`) |
+| Gazebo | Harmonic, `gz sim` 8.15.0 (vendored `gz_sim_vendor`), sdformat 14 |
+| ros_gz | `ros-jazzy-ros-gz{,-sim,-bridge}` 1.0.24 |
+| robot_state_publisher / xacro | 3.3.4 / 2.1.1 |
+| Nav2 | **not installed** (`ros-jazzy-navigation2` 1.3.13 is available in apt; installing needs sudo) |
+| Systems used | `gz-sim-diff-drive-system`, `gz-sim-joint-state-publisher-system`, `-physics-`, `-user-commands-`, `-scene-broadcaster-`, `-sensors-system` (ogre2), `-imu-system` |
+| Install | `scripts/robot/setup_ubuntu.sh` (idempotent, sudo); check with `scripts/robot/check_env.sh` |
+
+**Simulation tuning found by measurement.** Comparing odometry against Gazebo ground truth (`gz model -m semmal -p`):
+- A four-point contact (2 wheels + 2 casters) and cylinder wheel collisions under-reported yaw by ~10% when turning in
+  place. The cylinder's edge contacts gave an effective track of ~0.32 m instead of 0.36 m, and missions ended ~0.9 m off target.
+- With one rear caster, the CoM 4 cm behind the axle and sphere wheel collisions, odometry matched ground truth
+  to < 1 mm after a 4 s turn and a 0.8 m drive. After a 25 m mission the true pose was (7.907, 1.500, yaw 0.0003)
+  against the target (8.0, 1.5, 0).
+- Gazebo's DiffDrive has no command timeout. It keeps the last `/cmd_vel`, so the supervisor publishes continuously
+  and the launch shuts everything down if the supervisor exits.
+- rclpy raises `ValueError: Logger severity cannot be changed between calls` when one call site logs at different
+  severities. This crashed the supervisor once during testing and is now fixed in both nodes.
+
+**Test evidence (2026-11-06, headless):**
+- `python3 -m pytest tests/robot`: 34 passed (safety state machine, diagnostics rules, spool idempotency and stage
+  rules, route graph, layout clearance, generated-file freshness, scenario validation, motor model).
+- Mission `dock → inspection_point_A`: COMPLETED in ~60 s. The keyframe shows the machine panel centred.
+- `tests/robot/sim_fault_check.py` (live, no network or AI in the path):
+  - `left_motor_overcurrent`: 15/15. Detection 227–256 ms, E_STOP 228–257 ms (deadline 0.5/0.6 s).
+  - `left_encoder_dropout`: 15/15. Detection 522 ms, E_STOP 523 ms (configured 0.5 s window, deadline 0.8/0.9 s).
+  - Both: `/cmd_vel` exactly zero, mission ABORTED_SAFETY, incident LOCAL_DURABLE with sequence number, no motion
+    after the sensor normalises, recovery rejected while active and without approval, accepted with approval.
+
+**Open:** Nav2/AMCL (needs sudo install); `launch_testing` version of the fault check for CI; robot gateway and
+master agent (Phase 3); outbox to Storage/Arkiv (Phases 5–7).
+
+
+## House world and Gazebo Fuel (checked 2026-11-06)
+
+| Item | Value / evidence |
+|---|---|
+| Fuel API | `https://fuel.gazebosim.org/1.0/models?q=<term>` (search), model URI `https://fuel.gazebosim.org/1.0/<Owner>/models/<Name>/<version>`. Reachable from this host. |
+| Download/cache | `gz fuel download -u <uri>` into `~/.gz/fuel/fuel.gazebosim.org/openrobotics/models/<name>/<version>`. 26 models ≈ 81 MB. |
+| Licence | All 26 OpenRobotics models: Creative Commons Attribution 4.0 International (`license_name` in the Fuel API response). Attribution in `docs/MODEL_CREDITS.md`. |
+| Offline | With `https_proxy` pointed at a dead port (network unreachable for the process), `measure_models.py` loaded all 26 versioned URIs from the cache and produced an identical catalog. |
+| Footprints | gz-sim 8 Python bindings: `gz.sim8.Link.compute_axis_aligned_box(ecm)` returns the AABB **in the link frame** (first version wrongly treated it as world frame; fixed by transforming the 8 corners with `Link.world_pose`). `import gz.math7` is required first or pybind11 cannot convert the return type. |
+| Rejected models | Washer v3 (collision mesh measures 0.03 m), Shower v2 (wall-mounted head only). Both confirmed visually. |
+| Rendering cameras | gz-sensors renders a camera only when its topic has a subscriber. `<save enabled>` alone produced no frames, so `render_views.py` subscribes over gz-transport (`gz.transport13`, `gz.msgs10`). |
+| Front directions | Read from top-down renders, then corrected by rendering every model `facing: south` toward a camera. Sofa, oven and Refrigerator were 180° or 90° off in the first reading. |
+
+**Test evidence (house, headless, single Gazebo server):**
+- `pytest tests/robot`: 44 passed. Layout checks run for both worlds, and the furniture-overlap check was mutation-tested (toilet pushed into a wall and sofa onto the coffee table were both caught).
+- `/clock` 1 kHz (real time), `/scan` 9.9 Hz, `/camera/image_raw` 9.8 Hz, `/odom` 49.6 Hz.
+- Mission `dock → inspection_point_A` (two doorways): COMPLETED in 38–39 s. Gazebo true pose (−10.00, 4.91) vs target (−10.0, 5.0). The keyframe shows the electrical box centred.
+- Tour `bathroom, office, bedroom, guest_room, living_room, kitchen, dock` (~85 m, every doorway): COMPLETED in 312 s, zero safety faults. Final true pose 9 cm from the dock target.
+- `sim_fault_check.py` in the house: overcurrent 15/15 (E_STOP 239 ms), encoder dropout 15/15 (detection 789 ms, deadline 0.8 s).
+- Warehouse regression after the launch refactor: inspection mission COMPLETED in 63 s, true pose (7.907, 1.500), unchanged.
+
+**Incidents found while testing (fixed):**
+- A Wi-Fi/IP change cut gz-transport/DDS multicast mid-run ("Network is unreachable"). Odom and scan stopped and the
+  supervisor latched E_STOP on heartbeat loss, which is correct behaviour. `scripts/robot/env.sh` now forces
+  `ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST` (Jazzy) and `GZ_IP=127.0.0.1`. The user's shell profile sets `SUBNET`,
+  so a `${VAR:-default}` default was not enough.
+- `stop_sim.sh` only matched `warehouse.sdf`, so house servers survived and two Gazebo servers ran at once with
+  shared topic names (a warehouse mission failed with "no progress"). The pattern now matches any world, and
+  `run_sim.sh` refuses to start while a SEMMAL simulation is running. A house fault-check run made while the
+  orphan was alive was discarded and repeated on a clean system (numbers above).
