@@ -104,6 +104,30 @@ export function estimateMinutes(plan: TaskPlan) {
   return Math.max(1, Math.ceil(plan.distanceM / 30 + plan.waypoints * 1.5));
 }
 
+/** Tokens one job of each agent kind typically uses (input incl. one image where relevant, output). */
+export const AGENT_TOKENS: Record<string, { tokensIn: number; tokensOut: number; needsImage: boolean }> = {
+  vision: { tokensIn: 1500, tokensOut: 200, needsImage: true },
+  inspection: { tokensIn: 1200, tokensOut: 400, needsImage: false },
+  maintenance: { tokensIn: 1000, tokensOut: 400, needsImage: false },
+  navigation: { tokensIn: 800, tokensOut: 200, needsImage: false },
+  "delivery-verification": { tokensIn: 1500, tokensOut: 150, needsImage: true },
+};
+
+/** 0G cost of `calls` inference calls in micro-USDC, rounded up. */
+export function inferenceCostMicro(price: { promptNeuron: string; completionNeuron: string }, tokensIn: number, tokensOut: number, calls: number, zerogUsdcRate: string) {
+  const neuron = BigInt(calls) * (BigInt(tokensIn) * BigInt(price.promptNeuron) + BigInt(tokensOut) * BigInt(price.completionNeuron));
+  return ceilDiv(neuron * toMicro(zerogUsdcRate), NEURON_PER_0G);
+}
+
+/** An agent's per-job price: its model's live cost for one job plus the owner's margin (at least 0.01 USDC). */
+export function agentJobPrice(kind: string, price: { promptNeuron: string; completionNeuron: string }, zerogUsdcRate: string, marginPct: number) {
+  const t = AGENT_TOKENS[kind] ?? { tokensIn: 1000, tokensOut: 300, needsImage: false };
+  const cost = inferenceCostMicro(price, t.tokensIn, t.tokensOut, 1, zerogUsdcRate);
+  const withMargin = cost + ceilDiv(cost * BigInt(Math.round(marginPct * 100)), 10_000n);
+  const floor = 10_000n; // 0.01 USDC
+  return { costMicro: cost, priceMicro: withMargin < floor ? floor : withMargin, tokensIn: t.tokensIn, tokensOut: t.tokensOut, cost: fromMicro(cost), price: fromMicro(withMargin < floor ? floor : withMargin) };
+}
+
 const strength = { private: 3, verified: 2, standard: 1, none: 0 } as const;
 
 /** The hiring rule (CLAUDE.md 6.3): right kind, trust at least the plan's, then strongest trust, then lowest price. */
@@ -146,10 +170,8 @@ export function quoteTask(input: QuoteInput): Quote {
   if (plan.checkpoints > 0) {
     if (!input.inference) return { status: "declined", reason: "0G model price not available; the robot will not guess it", lines, hired, notes };
     if (!input.zerogUsdcRate) return { status: "declined", reason: "No 0G to USDC rate configured; the robot will not guess it", lines, hired, notes };
-    const neuron =
-      BigInt(plan.checkpoints) * (BigInt(need.tokensIn) * BigInt(input.inference.promptNeuron) + BigInt(need.tokensOut) * BigInt(input.inference.completionNeuron));
     // neuron -> 0G -> micro-USDC, rounded up so the robot never under-recovers
-    inference = ceilDiv(neuron * toMicro(input.zerogUsdcRate), NEURON_PER_0G);
+    inference = inferenceCostMicro(input.inference, need.tokensIn, need.tokensOut, plan.checkpoints, input.zerogUsdcRate);
     lines.push({
       label: "0G private inference",
       detail: `${plan.checkpoints} call${plan.checkpoints === 1 ? "" : "s"} × ~${need.tokensIn + need.tokensOut} tokens · ${input.inference.model} · ${plan.privacy}`,

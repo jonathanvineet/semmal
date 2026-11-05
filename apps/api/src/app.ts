@@ -4,9 +4,8 @@ import cors from "@fastify/cors";
 import { ArkivRegistry, arkivConfigFromEnv } from "@semmal/arkiv-adapter";
 import { ZeroGError, ZeroGRouter, zeroGConfigFromEnv } from "@semmal/zerog-pc-adapter";
 import { loadConfig } from "./config";
-import { agentFixtures } from "./fixtures";
 import { PricingPolicy, RobotSkill, TrustMode, robotIdFromWallet } from "@semmal/contracts";
-import { quoteTask, SKILL_NEEDS } from "@semmal/quote";
+import { agentJobPrice, AGENT_TOKENS, quoteTask, SKILL_NEEDS } from "@semmal/quote";
 import { z } from "zod";
 import { arkivRpcProxy } from "./arkiv-rpc-proxy";
 import { AdminStore, readCookie, WalletAuth } from "./admin";
@@ -181,8 +180,6 @@ export function buildApp(deps: Deps = defaultDeps()) {
     }
   });
 
-  /** Draft profiles for the wallet publish page. Public data only; the browser sets ownerWallet. */
-  app.get("/api/registry/drafts", async () => ({ robots: [], agents: agentFixtures(), ttlDays: registry.config.profileTtlDays }));
 
   /** Read-only Arkiv JSON-RPC proxy: the browser never gets the access key and cannot send transactions here. */
   app.post("/api/arkiv/rpc", arkivRpcProxy(registry));
@@ -234,11 +231,60 @@ export function buildApp(deps: Deps = defaultDeps()) {
         const m = (await catalog("").catch(() => [])).find((x) => x.id === modelId);
         if (m?.pricing?.prompt && m.pricing.completion) inference = { model: m.id, promptNeuron: m.pricing.prompt, completionNeuron: m.pricing.completion };
       }
-      const rate = process.env.ZEROG_USDC_RATE && /^\d+(\.\d+)?$/.test(process.env.ZEROG_USDC_RATE) ? process.env.ZEROG_USDC_RATE : null;
+      const rate = usdcRate();
       const q = quoteTask({ robotType, policy, plan: { ...plan, checkpoints }, offers, inference, zerogUsdcRate: rate });
       return { robotId: robotId ?? null, robotName, plan: { ...plan, checkpoints }, policy, ...q, quotedAt: new Date().toISOString() };
     } catch {
       return reply.code(502).send({ error: "could not read Arkiv or the 0G catalog; try again" });
+    }
+  });
+
+  const usdcRate = () => (process.env.ZEROG_USDC_RATE && /^\d+(\.\d+)?$/.test(process.env.ZEROG_USDC_RATE) ? process.env.ZEROG_USDC_RATE : null);
+
+  /**
+   * The live 0G Router model list, normalised for the agent builder. Public data (no key needed).
+   * `verifiability` can be missing on some gateway instances: then trust is "unconfirmed".
+   */
+  app.get("/api/zerog/catalog", async (_req, reply) => {
+    if (!router.config.baseUrl) return reply.code(503).send({ error: "ZEROG_ROUTER_BASE_URL is not set" });
+    try {
+      const models = await catalog("");
+      return {
+        source: "ZEROG_ROUTER",
+        rateConfigured: usdcRate() !== null,
+        rate: usdcRate(),
+        models: models
+          .filter((m) => m.pricing?.prompt && m.pricing.completion && (m.architecture?.output_modalities ?? ["text"]).includes("text"))
+          .map((m) => ({
+            id: m.id,
+            name: m.name ?? m.id,
+            inputs: m.architecture?.input_modalities ?? ["text"],
+            verifiability: m.verifiability ?? null,
+            promptNeuron: m.pricing!.prompt!,
+            completionNeuron: m.pricing!.completion!,
+            contextLength: m.context_length ?? null,
+          }))
+          .sort((a, b) => Number(BigInt(a.promptNeuron) - BigInt(b.promptNeuron))),
+      };
+    } catch {
+      return reply.code(502).send({ error: "could not read the 0G model list" });
+    }
+  });
+
+  /** Suggested per-job price for an agent on a given 0G model: live model cost for one job + margin. */
+  app.post<{ Body: { model?: string; kind?: string; marginPct?: number } }>("/api/agents/price", async (req, reply) => {
+    const { model, kind, marginPct } = req.body ?? {};
+    if (!model || !kind || !(kind in AGENT_TOKENS) || typeof marginPct !== "number" || marginPct < 0 || marginPct > 500)
+      return reply.code(400).send({ error: "model, kind and marginPct (0-500) required" });
+    const rate = usdcRate();
+    if (!rate) return reply.code(409).send({ error: "No 0G to USDC rate configured (ZEROG_USDC_RATE); the price is not guessed" });
+    try {
+      const m = (await catalog("")).find((x) => x.id === model);
+      if (!m?.pricing?.prompt || !m.pricing.completion) return reply.code(404).send({ error: "model not in the 0G catalog right now" });
+      const p = agentJobPrice(kind, { promptNeuron: m.pricing.prompt, completionNeuron: m.pricing.completion }, rate, marginPct);
+      return { model, kind, rate, tokensIn: p.tokensIn, tokensOut: p.tokensOut, cost: p.cost, price: p.price };
+    } catch {
+      return reply.code(502).send({ error: "could not read the 0G model list" });
     }
   });
 

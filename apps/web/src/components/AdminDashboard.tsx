@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { useWallet } from "@/lib/wallet";
-import { Publisher } from "./Publisher";
+import { AgentBuilder } from "./AgentBuilder";
 import { ARKIV_EXPLORER, type Status } from "@/lib/api";
 
 type AdminState = {
@@ -138,10 +138,10 @@ export function AdminDashboard() {
           </article>
           <article id="publish" className="card integ span-12 publish-sec">
             <div className="integ__head">
-              <h3 className="t-card">Publish specialist agents</h3>
-              <span className="t-small muted">Owner only · signed by your wallet</span>
+              <h3 className="t-card">Build a specialist agent</h3>
+              <span className="t-small muted">On a live 0G model · signed by your wallet</span>
             </div>
-            <Publisher />
+            <AgentBuilder />
           </article>
           <article className="card integ span-12">
             <h3 className="t-card">Audit log</h3>

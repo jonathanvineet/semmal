@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { fromMicro, quoteTask, toMicro, type QuoteInput } from "@semmal/quote";
+import { agentJobPrice, fromMicro, quoteTask, toMicro, type QuoteInput } from "@semmal/quote";
 
 const base: QuoteInput = {
   robotType: "diff-drive-indoor",
@@ -69,4 +69,12 @@ test("the lines always add up to the quote", () => {
     const sum = q.lines.reduce((a, l) => a + toMicro(l.usdc.replace("-", "")) * (l.usdc.startsWith("-") ? -1n : 1n), 0n);
     assert.equal(fromMicro(sum), q.quote);
   }
+});
+
+test("agent price = one job's live model cost plus margin, never below 0.01", () => {
+  // vision: 1500*4.83e12 + 200*1.612e13 = 1.0469e16 neuron = 0.010469 0G x 2.5 = 0.0261725 -> 0.026173 ; +50% = 0.03926 (rounded up)
+  const p = agentJobPrice("vision", { promptNeuron: "4830000000000", completionNeuron: "16120000000000" }, "2.5", 50);
+  assert.equal(p.cost, "0.026173");
+  assert.equal(p.price, "0.03926");
+  assert.equal(agentJobPrice("navigation", { promptNeuron: "1", completionNeuron: "1" }, "1", 0).price, "0.01");
 });
