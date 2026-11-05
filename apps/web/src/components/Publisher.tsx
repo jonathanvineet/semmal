@@ -253,8 +253,7 @@ export function Publisher() {
       )}
 
       <p className="t-small muted">
-        The marketplace only shows entities from the owner, admins and trusted publishers set in the{" "}
-        <a className="link" href="/admin">admin dashboard</a>, because anyone can write a schema name.
+        Each listing is owned by the wallet that publishes it: Arkiv records it as the owner, and only that wallet can change it.
       </p>
     </div>
   );

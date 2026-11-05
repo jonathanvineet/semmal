@@ -65,7 +65,7 @@ export function useWallet() {
         uri: location.origin,
         version: "1",
         nonce,
-        statement: "Sign in to the SEMMAL admin dashboard. This is not a transaction and costs nothing.",
+        statement: "Sign in to your SEMMAL dashboard. This is not a transaction and costs nothing.",
         issuedAt: new Date(),
         expirationTime: new Date(Date.now() + 5 * 60 * 1000),
       });

@@ -28,6 +28,9 @@ const I = {
   publish: (
     <g><path d="M12 15V4.5M8 8.2l4-3.7 4 3.7" /><path d="M5 13.5v3a3 3 0 0 0 3 3h8a3 3 0 0 0 3-3v-3" /></g>
   ),
+  add: (
+    <g><rect x="4" y="4" width="16" height="16" rx="5" /><path d="M12 8.5v7M8.5 12h7" /></g>
+  ),
   admin: (
     <g><circle cx="12" cy="9" r="3.4" /><path d="M5.5 19.5c.9-3 3.5-4.6 6.5-4.6s5.6 1.6 6.5 4.6" /></g>
   ),
@@ -42,8 +45,9 @@ const ITEMS: Item[] = [
   { id: "agents", href: "/agents", label: "Agent market", icon: "agents" },
 ];
 const OPS: Item[] = [
+  { id: "register", href: "/robots/new", label: "Register a robot", icon: "add" },
   { id: "publish", href: "/publish", label: "Publish to Arkiv", icon: "publish" },
-  { id: "admin", href: "/admin", label: "Admin", icon: "admin" },
+  { id: "admin", href: "/admin", label: "Your dashboard", icon: "admin" },
 ];
 
 function DockIcon({ item, mouseX, active, magnify }: { item: Item; mouseX: MotionValue<number>; active: boolean; magnify: boolean }) {
@@ -116,7 +120,6 @@ export function Dock() {
         {OPS.map((it) => (
           <DockIcon key={it.id} item={it} mouseX={mouseX} active={isActive(it)} magnify={magnify} />
         ))}
-        <span className="dock__sim" title="Robots run in simulation; real and simulated data are labelled">Simulation</span>
         <Link href="/agents" className="btn btn--primary dock__cta">Browse agents</Link>
       </nav>
     </header>

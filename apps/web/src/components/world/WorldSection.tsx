@@ -107,7 +107,7 @@ export function WorldSection() {
         <div className="world__hero">
           <div className="wrap">
             <div className="world__hero-text">
-              <p className="world__eyebrow">Robot-as-a-service, running in simulation</p>
+              <p className="world__eyebrow">Robot-as-a-service on 0G and Arkiv</p>
               <h1 id="hero-h">A private network where robots hire AI agents</h1>
               <p className="hero__lead">
                 Book a robot for a task. It finds, hires and pays its own specialist agents, runs private inference on 0G and records

@@ -1,7 +1,7 @@
 "use client";
 /**
  * The operator console as live HTML (the product's own screen, taste-skill "app-frame").
- * It shows one simulated mission. Values that only exist after a live call (the 0G request ID,
+ * It shows one example mission (labelled Example). Values that only exist after a live call (the 0G request ID,
  * the Arkiv entity key) are shown as pending, never invented.
  */
 import { useEffect, useRef, useState } from "react";
@@ -45,7 +45,7 @@ export function Console() {
           <div className="app-frame__bar">
             <span className="app-frame__dots" aria-hidden="true"><i /><i /><i /></span>
             <span>Semmal console · Rover 01 · panel inspection</span>
-            <span className="app-frame__sim">SIMULATION</span>
+            <span className="app-frame__sim">Example</span>
           </div>
           <div className="app-frame__body">
             <nav className="cx-side" aria-hidden="true">

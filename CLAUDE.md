@@ -11,7 +11,7 @@
 3. Verify every vendor SDK/API against current official documentation and the installed package version. Never invent method names, endpoints, headers, model IDs, chain IDs, RPC URLs, or environment variables.
 4. Maintain `docs/FACT_CHECK.md` with verified facts, source URLs, date checked, assumptions, unresolved organiser/vendor questions, limitations, and test evidence.
 5. Put external integrations behind adapters. The simulator must run without external credentials.
-6. Every mock must be explicitly labelled `SIMULATED` in code, logs, and UI. Never present mock request IDs, signatures, payments, transaction hashes, or Storage roots as real.
+6. **No mock data in the product.** The UI shows only real records (Arkiv entities, real 0G responses) and plain empty states when there are none; it never uses the word "simulated". A teaching panel that is not live data is labelled `Example`. Never present mock request IDs, signatures, payments, transaction hashes, or Storage roots as real. Test doubles stay in tests. The robot runtime may still be Gazebo during development; that is an engineering detail, not product copy.
 7. Never expose private keys or API keys to an LLM or frontend. Never let model output directly command motor PWM, arbitrary ROS topics, shell commands, or unrestricted wallet signing.
 8. Emergency stop and safety interlocks must work without internet, 0G, Arkiv, or Storage.
 9. Do not claim a feature works without a test or live integration proving it.

@@ -9,7 +9,7 @@ import { z } from "zod";
 export const SCHEMA_VERSION = "1.0" as const;
 
 /** Where a value came from. The UI shows this next to every integration value. */
-export const Provenance = z.enum(["ARKIV", "ZEROG_ROUTER", "SIMULATED"]);
+export const Provenance = z.enum(["ARKIV", "ZEROG_ROUTER"]);
 export type Provenance = z.infer<typeof Provenance>;
 
 const id = z.string().min(3).max(64).regex(/^[a-z0-9][a-z0-9-]*$/);
@@ -19,18 +19,63 @@ const decimalAmount = z.string().regex(/^\d+(\.\d{1,18})?$/);
 // ---------------------------------------------------------------- robots
 export const RobotType = z.enum(["diff-drive-indoor"]);
 
+export const ROBOT_SKILLS = [
+  { id: "warehouse.inspection", label: "Inspection", hint: "Checks machines and panels at waypoints" },
+  { id: "warehouse.patrol", label: "Patrol", hint: "Drives routes and reports what changed" },
+  { id: "indoor.delivery", label: "Delivery", hint: "Carries small items between zones" },
+] as const;
+export const RobotSkill = z.enum(["warehouse.inspection", "warehouse.patrol", "indoor.delivery"]);
+
+/** Robot platforms SEMMAL can run. Only supported ones can be registered. */
+export const ROBOT_MODELS = [
+  {
+    id: "semmal-rover-sim",
+    name: "Semmal Rover",
+    robotType: "diff-drive-indoor",
+    base: "Differential drive, 0.36 m wheelbase",
+    sensors: ["lidar-2d", "rgb-camera", "imu", "wheel-encoders", "bumper", "battery"],
+    supported: true,
+    note: "Indoor rover with lidar, camera, IMU and bumper. Built for warehouse aisles.",
+  },
+  {
+    id: "custom-diff-drive",
+    name: "Your own diff-drive base",
+    robotType: "diff-drive-indoor",
+    base: "Differential drive, ROS 2 interface",
+    sensors: ["lidar-2d", "rgb-camera", "imu", "wheel-encoders", "battery"],
+    supported: true,
+    note: "Any indoor diff-drive base that speaks the SEMMAL ROS 2 interface.",
+  },
+  {
+    id: "quadruped",
+    name: "Quadruped",
+    robotType: "diff-drive-indoor",
+    base: "Legged base",
+    sensors: ["rgb-camera", "imu", "battery"],
+    supported: false,
+    note: "Not supported yet.",
+  },
+] as const;
+export const RobotModelId = z.enum(["semmal-rover-sim", "custom-diff-drive", "quadruped"]);
+
+/** The robot's unique id, derived from its own wallet so one robot cannot hold two ids. */
+export const robotIdFromWallet = (wallet: string) => `rbt-${wallet.toLowerCase().replace(/^0x/, "").slice(0, 10)}`;
+
 export const RobotProfile = z.object({
   schemaVersion: z.literal(SCHEMA_VERSION),
   robotId: id,
+  /** The robot's own identity wallet (public address only; no key ever enters SEMMAL). */
+  robotWallet: evmAddress,
+  /** The person or company wallet that registered it and signs its updates. */
   ownerWallet: evmAddress,
-  displayName: z.string().min(2).max(60),
+  displayName: z.string().min(2).max(40),
+  model: RobotModelId,
   robotType: RobotType,
   hardware: z.object({
     base: z.string().max(80),
     sensors: z.array(z.enum(["lidar-2d", "rgb-camera", "imu", "wheel-encoders", "bumper", "battery"])).max(8),
-    simulated: z.boolean(),
   }),
-  capabilities: z.array(z.enum(["warehouse.inspection", "warehouse.patrol", "indoor.delivery"])).min(1).max(6),
+  capabilities: z.array(RobotSkill).min(1).max(6),
   rosInterfaceVersion: z.string().max(16),
   profileVersion: z.number().int().min(1),
   /** Coarse only. Never an exact location. */

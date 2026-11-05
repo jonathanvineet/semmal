@@ -46,7 +46,14 @@ export function Marketplace({ limit, compact = false }: { limit?: number; compac
           ))}
         </ul>
       )}
-      {data && (
+      {data && data.items.length === 0 && (
+        <div className="empty">
+          <h3 className="t-card">No agents on Arkiv yet</h3>
+          <p className="muted">Specialist agents appear here as soon as their owners publish them.</p>
+          <a className="btn btn--primary" href="/publish">Publish an agent</a>
+        </div>
+      )}
+      {data && data.items.length > 0 && (
         <motion.ul className="agent-grid" layout>
           <AnimatePresence mode="popLayout">
             {items.map((e, i) => (
@@ -62,13 +69,11 @@ export function Marketplace({ limit, compact = false }: { limit?: number; compac
 
 export function RegistryLine({ listing }: { listing: Listing<unknown> | null }) {
   if (!listing) return null;
-  const real = listing.items.filter((i) => i.provenance === "ARKIV").length;
-  const sim = listing.items.length - real;
+  const real = listing.items.length;
   return (
     <p className="registry-line t-small">
       <span className={`dot ${listing.arkiv.ok ? "dot--ok" : "dot--bad"}`} aria-hidden="true" />
-      {listing.arkiv.ok ? `Arkiv Rabdi reachable · ${real} on-chain listing${real === 1 ? "" : "s"}` : "Arkiv unreachable"}
-      {sim > 0 && <span className="muted"> · {sim} SIMULATED seed listing{sim === 1 ? "" : "s"}</span>}
+      {listing.arkiv.ok ? `${real} listing${real === 1 ? "" : "s"} on Arkiv` : "Arkiv could not be reached"}
     </p>
   );
 }

@@ -6,7 +6,6 @@ const Env = z.object({
   WEB_ORIGIN: z.string().default("http://localhost:3000"),
   APP_MODE: z.enum(["simulation", "hardware"]).default("simulation"),
   ADMIN_STORE_PATH: z.string().default("../../data/admin.json"),
-  SHOW_SIMULATED_FIXTURES: z.enum(["true", "false"]).default("true"),
   ZEROG_ROUTER_BASE_URL: z.string().url().optional().or(z.literal("")),
   ZEROG_REQUIRED_TRUST_MODE: z.enum(["private", "verified", "standard"]).default("private"),
 });
@@ -17,7 +16,7 @@ export function loadConfig(env = process.env) {
   const report = {
     APP_MODE: parsed.APP_MODE,
     ARKIV_ACCESS_KEY: present("ARKIV_ACCESS_KEY"),
-    ADMIN: "wallet sign-in; roles in data/admin.json",
+    OWNER: "wallet sign-in; owner in data/admin.json",
     ARKIV_SIGNING: "wallet only",
     ZEROG_ROUTER_BASE_URL: present("ZEROG_ROUTER_BASE_URL"),
     ZEROG_ROUTER_API_KEY: present("ZEROG_ROUTER_API_KEY"),

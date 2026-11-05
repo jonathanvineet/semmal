@@ -25,7 +25,8 @@ export function Footer() {
             </div>
             <div>
               <p className="t-label muted">Operators</p>
-              <Link href="/admin">Admin</Link>
+              <Link href="/robots/new">Register a robot</Link>
+              <Link href="/admin">Your dashboard</Link>
               <Link href="/publish">Publish to Arkiv</Link>
             </div>
             <div>
@@ -35,7 +36,7 @@ export function Footer() {
               <a href="https://gazebosim.org/" target="_blank" rel="noreferrer">Gazebo</a>
             </div>
           </div>
-          <p className="legal t-small muted">© {new Date().getFullYear()} Semmal · Simulation build, no real payments · Product names are trademarks of their owners</p>
+          <p className="legal t-small muted">© {new Date().getFullYear()} Semmal · Payments are not live yet · Product names are trademarks of their owners</p>
         </div>
       </div>
     </footer>

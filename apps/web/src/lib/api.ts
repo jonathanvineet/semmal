@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 
 /** Shapes mirror @semmal/contracts; the browser only reads what the API returns. */
-export type Provenance = "ARKIV" | "ZEROG_ROUTER" | "SIMULATED";
+export type Provenance = "ARKIV" | "ZEROG_ROUTER";
 
 export type AgentListing = {
   agentId: string;
@@ -22,7 +22,10 @@ export type RobotProfile = {
   robotId: string;
   displayName: string;
   robotType: string;
-  hardware: { base: string; sensors: string[]; simulated: boolean };
+  robotWallet: string;
+  ownerWallet: string;
+  model: string;
+  hardware: { base: string; sensors: string[] };
   capabilities: string[];
   serviceArea: string;
   price: { amount: string; token: string; unit: string };

@@ -1,6 +1,6 @@
 import { ARKIV_EXPLORER, shortKey, type Provenance } from "@/lib/api";
 
-/** Every integration value says where it came from. SIMULATED is never styled like a real record. */
+/** Where a value came from: an Arkiv entity or a 0G Router response. */
 export function ProvenanceBadge({ provenance, entityKey }: { provenance: Provenance; entityKey?: string }) {
   if (provenance === "ARKIV")
     return (
@@ -16,11 +16,7 @@ export function ProvenanceBadge({ provenance, entityKey }: { provenance: Provena
         0G Router
       </span>
     );
-  return (
-    <span className="badge badge--sim" title="Seed listing shown until it is registered on Arkiv">
-      SIMULATED
-    </span>
-  );
+  return null;
 }
 
 /** Verified link (Arkiv MCP network_status): the Rabdi data explorer. Search the entity key there. */

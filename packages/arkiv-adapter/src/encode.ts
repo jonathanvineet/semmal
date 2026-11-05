@@ -1,6 +1,6 @@
 /** Browser-safe: builds the exact Arkiv create arguments for a profile. No I/O, no keys. */
 import { ExpirationTime } from "@arkiv-network/sdk";
-import { dec, i32 } from "@arkiv-network/sdk/schema";
+import { addr, bool, dec, i32 } from "@arkiv-network/sdk/schema";
 import { AgentListing, RobotProfile, type AgentListing as TAgent, type RobotProfile as TRobot } from "@semmal/contracts";
 import { AgentProfileSchema, RobotProfileSchema } from "./schemas";
 
@@ -13,13 +13,19 @@ export function canonicalJson(value: unknown): string {
 
 export function robotCreateArgs(input: TRobot, ttlDays = 30) {
   const p = RobotProfile.parse(input);
+  const has = (c: string) => bool(p.capabilities.includes(c as TRobot["capabilities"][number]));
   return {
     schema: RobotProfileSchema,
     values: {
       robot_id: p.robotId,
+      robot_wallet: addr(p.robotWallet),
+      owner_wallet: addr(p.ownerWallet),
+      model: p.model,
       robot_type: p.robotType,
       service_area: p.serviceArea,
-      primary_capability: p.capabilities[0]!,
+      can_inspect: has("warehouse.inspection"),
+      can_patrol: has("warehouse.patrol"),
+      can_deliver: has("indoor.delivery"),
       price: dec(p.price.amount),
       profile_version: i32(p.profileVersion),
       display_name: p.displayName,
@@ -35,6 +41,7 @@ export function agentCreateArgs(input: TAgent, ttlDays = 30) {
     schema: AgentProfileSchema,
     values: {
       agent_id: a.agentId,
+      owner_wallet: addr(a.ownerWallet),
       kind: a.kind,
       primary_capability: a.capabilities[0]!.capabilityId,
       trust_mode: a.inference?.trustMode ?? "none",

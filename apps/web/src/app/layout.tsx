@@ -11,7 +11,7 @@ const mono = JetBrains_Mono({ subsets: ["latin"], variable: "--f-mono", display:
 
 export const metadata: Metadata = {
   title: "Semmal · A private network where robots hire AI agents",
-  description: "Robot-as-a-service marketplace. Each robot hires specialist agents itself, uses 0G private inference and records incidents on Arkiv. Simulation build.",
+  description: "Robot-as-a-service marketplace. Each robot hires specialist agents itself, uses 0G private inference and records incidents on Arkiv.",
   other: { "page-type": "software", "site-kind": "tech" },
 };
 export const viewport: Viewport = { width: "device-width", initialScale: 1, viewportFit: "cover", themeColor: "#18191b" };

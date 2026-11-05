@@ -408,13 +408,6 @@ function World({ graph, progress, reduced, dense }: { graph: Graph; progress: Re
           <div className="node-tip"><b>{n.label}</b><span>{n.sub}</span></div>
         </Html>
       ))}
-      {tipFor !== null && !nodes[tipFor]!.label && (
-        <Html position={live[tipFor]!.toArray()} center zIndexRange={[5, 0]} style={{ pointerEvents: "none" }}>
-          <div className="node-tip node-tip--anon">
-            <span>{nodes[tipFor]!.kind === "robot" ? "Robot" : "Specialist agent"} · {graph.neighbors[tipFor]!.length} links · illustrative</span>
-          </div>
-        </Html>
-      )}
     </group>
   );
 }

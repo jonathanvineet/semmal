@@ -7,7 +7,6 @@ import { AnimatePresence, LayoutGroup, motion } from "motion/react";
 import { useMemo, useState } from "react";
 import { useApi, type AgentListing, type Listing } from "@/lib/api";
 import { kindIcon } from "../ui/Icons";
-import { ProvenanceBadge } from "../ui/Provenance";
 
 const TASKS = [
   { id: "vision", label: "Read the panel" },
@@ -116,10 +115,10 @@ export function Chooser() {
                 </AnimatePresence>
               </ul>
             </LayoutGroup>
-            {!hired && data && <p className="choose__none">No agent fits. The robot reports it cannot take this job instead of lowering the bar.</p>}
+            {data && data.items.length === 0 && <p className="choose__none">No agents are published on Arkiv yet, so there is nobody to hire. <a className="link" href="/publish">Publish one</a>.</p>}
+            {!hired && data && data.items.length > 0 && <p className="choose__none">No agent fits. The robot reports it cannot take this job instead of lowering the bar.</p>}
             <div className="choose__foot">
-              {data && <ProvenanceBadge provenance={data.items[0]?.provenance ?? "SIMULATED"} />}
-              <span className="t-small muted">Rule preview · the robot&apos;s master agent is the next build phase</span>
+              <span className="t-small muted">Agents read live from Arkiv. The robot&apos;s master agent applies this same rule.</span>
             </div>
           </div>
         </div>

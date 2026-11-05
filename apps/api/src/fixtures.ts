@@ -1,40 +1,16 @@
 /**
- * Seed profiles. Used two ways:
- *  1. `pnpm arkiv:seed` registers them on Arkiv (owner = ARKIV_SIGNER_ADDRESS).
- *  2. Until that has happened, the API can serve them labelled SIMULATED so the UI is usable.
- * They are never presented as Arkiv records.
+ * SEMMAL's first-party specialist agent listings, offered as drafts on /publish. They appear in
+ * the marketplace only after their owner publishes them to Arkiv with a wallet.
  */
 import type { AgentListing, RobotProfile } from "@semmal/contracts";
 
-export const SIMULATED_OWNER = "0x0000000000000000000000000000000000000001";
+export const DRAFT_OWNER = "0x0000000000000000000000000000000000000001";
 const VISION_MODEL = process.env.ZEROG_VISION_MODEL || "0gm-1.0-35b-a3b";
 const TEXT_MODEL = process.env.ZEROG_DEFAULT_MODEL || "0gm-1.0-35b-a3b";
 
 const diffDrive = ["diff-drive-indoor"] as const;
 
-export function robotFixtures(owner = SIMULATED_OWNER): RobotProfile[] {
-  return [
-    {
-      schemaVersion: "1.0",
-      robotId: "robot-demo-001",
-      ownerWallet: owner,
-      displayName: "Semmal Rover 01",
-      robotType: "diff-drive-indoor",
-      hardware: {
-        base: "Differential drive, 0.36 m wheelbase (Gazebo)",
-        sensors: ["lidar-2d", "rgb-camera", "imu", "wheel-encoders", "bumper", "battery"],
-        simulated: true,
-      },
-      capabilities: ["warehouse.inspection", "warehouse.patrol"],
-      rosInterfaceVersion: "0.1.0",
-      profileVersion: 1,
-      serviceArea: "sim-warehouse-a",
-      price: { amount: "12.50", token: "USDC", unit: "task" },
-    },
-  ];
-}
-
-export function agentFixtures(owner = SIMULATED_OWNER): AgentListing[] {
+export function agentFixtures(owner = DRAFT_OWNER): AgentListing[] {
   const cap = (capabilityId: string, tasks: string[]) => ({
     capabilityId,
     inputSchemaVersion: "1.0",

@@ -4,7 +4,8 @@ import cors from "@fastify/cors";
 import { ArkivRegistry, arkivConfigFromEnv } from "@semmal/arkiv-adapter";
 import { ZeroGError, ZeroGRouter, zeroGConfigFromEnv } from "@semmal/zerog-pc-adapter";
 import { loadConfig } from "./config";
-import { agentFixtures, robotFixtures } from "./fixtures";
+import { agentFixtures } from "./fixtures";
+import { robotIdFromWallet } from "@semmal/contracts";
 import { arkivRpcProxy } from "./arkiv-rpc-proxy";
 import { AdminStore, readCookie, WalletAuth } from "./admin";
 
@@ -17,7 +18,7 @@ export function defaultDeps(): Deps {
     config,
     admin,
     auth: new WalletAuth(new URL(config.WEB_ORIGIN).host),
-    registry: new ArkivRegistry(arkivConfigFromEnv(process.env, () => admin.trustedPublishers())),
+    registry: new ArkivRegistry(arkivConfigFromEnv()),
     router: new ZeroGRouter(zeroGConfigFromEnv()),
   };
 }
@@ -50,11 +51,11 @@ export function buildApp(deps: Deps = defaultDeps()) {
   app.register(cors, { origin: config.WEB_ORIGIN });
 
   const sessionAddress = (req: FastifyRequest) => auth.addressFor(readCookie(req.headers.cookie, SID));
-  /** Owner or admin wallet, signed in with SIWE. */
+  /** The instance owner's wallet, signed in with SIWE. */
   const requireAdmin = async (req: FastifyRequest, reply: FastifyReply) => {
     const address = sessionAddress(req);
     if (!address) return reply.code(401).send({ error: "Sign in with your wallet first" });
-    if (admin.roleOf(address) === "none") return reply.code(403).send({ error: "This wallet is not an owner or admin" });
+    if (admin.roleOf(address) !== "owner") return reply.code(403).send({ error: "Only the owner wallet can do this" });
   };
 
   // ---------------------------------------------------------------- wallet sign-in (EIP-4361)
@@ -100,20 +101,17 @@ export function buildApp(deps: Deps = defaultDeps()) {
 
   app.get("/api/admin/state", { preHandler: requireAdmin }, async () => admin.snapshot);
 
-  app.post<{ Body: { action?: string; address?: string } }>("/api/admin/roles", { preHandler: requireAdmin }, async (req, reply) => {
-    const actions = ["add_admin", "remove_admin", "add_publisher", "remove_publisher", "transfer_owner"] as const;
-    const action = actions.find((a) => a === req.body?.action);
-    if (!action) return reply.code(400).send({ error: "unknown action" });
+  app.post<{ Body: { address?: string } }>("/api/admin/transfer", { preHandler: requireAdmin }, async (req, reply) => {
     try {
-      admin.update(sessionAddress(req)!, action, String(req.body?.address ?? ""));
+      admin.update(sessionAddress(req)!, "transfer_owner", String(req.body?.address ?? ""));
       return admin.snapshot;
     } catch (e) {
       return reply.code(403).send({ error: (e as Error).message });
     }
   });
 
-  const showSim = config.SHOW_SIMULATED_FIXTURES === "true";
-  const robotsFromArkiv = cached(15_000, () => registry.listRobots());
+
+  const robotsFromArkiv = cached(15_000, (owner) => registry.listRobots(owner ? { owner } : {}));
   const agentsFromArkiv = cached(15_000, (kind) => registry.listAgents(kind ? { kind } : {}));
 
   app.get("/api/health", async () => ({ ok: true, mode: config.APP_MODE }));
@@ -138,32 +136,51 @@ export function buildApp(deps: Deps = defaultDeps()) {
     return { mode: config.APP_MODE, arkiv, zerog };
   });
 
-  async function listing<T>(load: () => Promise<{ provenance: string; data: T }[]>, sim: T[]) {
+  /** Only what is on Arkiv. An outage returns an empty list and says so; nothing is filled in. */
+  async function listing<T>(load: () => Promise<{ provenance: string; data: T }[]>) {
     try {
       const items = await load();
-      if (items.length === 0 && showSim) return { arkiv: { ok: true, count: 0 }, items: sim.map((data) => ({ provenance: "SIMULATED", data })) };
       return { arkiv: { ok: true, count: items.length }, items };
     } catch (e) {
       app.log.warn({ err: (e as Error).name }, "arkiv read failed");
-      return {
-        arkiv: { ok: false, error: "Arkiv read failed (check ARKIV_ACCESS_KEY / network)" },
-        items: showSim ? sim.map((data) => ({ provenance: "SIMULATED", data })) : [],
-      };
+      return { arkiv: { ok: false, error: "Arkiv could not be reached" }, items: [] };
     }
   }
 
-  app.get("/api/robots", async () => listing(() => robotsFromArkiv(""), robotFixtures()));
+  app.get<{ Querystring: { owner?: string } }>("/api/robots", async (req) => {
+    const owner = req.query.owner && /^0x[0-9a-fA-F]{40}$/.test(req.query.owner) ? req.query.owner.toLowerCase() : "";
+    return listing(() => robotsFromArkiv(owner));
+  });
 
   app.get<{ Querystring: { kind?: string } }>("/api/agents", async (req) => {
     const kind = req.query.kind && /^[a-z-]{2,30}$/.test(req.query.kind) ? req.query.kind : "";
-    return listing(
-      () => agentsFromArkiv(kind),
-      agentFixtures().filter((a) => !kind || a.kind === kind),
-    );
+    return listing(() => agentsFromArkiv(kind));
+  });
+
+  /**
+   * Before registering: is this robot wallet already on Arkiv, and by whom?
+   * Same creator -> the next profile version (an update). Another creator -> taken.
+   */
+  app.get<{ Querystring: { wallet?: string; owner?: string } }>("/api/robots/check", async (req, reply) => {
+    const { wallet, owner } = req.query;
+    if (!wallet || !/^0x[0-9a-fA-F]{40}$/.test(wallet)) return reply.code(400).send({ error: "wallet must be a 0x address" });
+    try {
+      const found = await registry.robotsByWallet(wallet);
+      const mine = owner ? found.filter((f) => f.creator.toLowerCase() === owner.toLowerCase()) : [];
+      const others = found.filter((f) => !mine.includes(f));
+      return {
+        robotId: robotIdFromWallet(wallet),
+        takenByOther: others.length > 0,
+        existing: found,
+        nextVersion: Math.max(0, ...mine.map((m) => m.profileVersion)) + 1,
+      };
+    } catch {
+      return reply.code(502).send({ error: "Arkiv read failed; try again" });
+    }
   });
 
   /** Draft profiles for the wallet publish page. Public data only; the browser sets ownerWallet. */
-  app.get("/api/registry/drafts", async () => ({ robots: robotFixtures(), agents: agentFixtures(), ttlDays: registry.config.profileTtlDays }));
+  app.get("/api/registry/drafts", async () => ({ robots: [], agents: agentFixtures(), ttlDays: registry.config.profileTtlDays }));
 
   /** Read-only Arkiv JSON-RPC proxy: the browser never gets the access key and cannot send transactions here. */
   app.post("/api/arkiv/rpc", arkivRpcProxy(registry));

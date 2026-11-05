@@ -6,8 +6,6 @@ import { ARKIV_EXPLORER, type Status } from "@/lib/api";
 
 type AdminState = {
   owner: string | null;
-  admins: string[];
-  trustedPublishers: string[];
   updatedAt: string;
   audit: { at: string; by: string; action: string; target?: string }[];
 };
@@ -27,7 +25,7 @@ export function AdminDashboard() {
   const [status, setStatus] = useState<Status | null>(null);
   const [code, setCode] = useState("");
   const [msg, setMsg] = useState<string | null>(null);
-  const isAdmin = w.me?.role === "owner" || w.me?.role === "admin";
+  const isAdmin = w.me?.role === "owner";
 
   const load = useCallback(async () => {
     if (!isAdmin) return setState(null);
@@ -49,9 +47,10 @@ export function AdminDashboard() {
     }
   };
 
-  const role = async (action: string, address: string) => {
+  const transfer = async (action: string, address: string) => {
     try {
-      setState(await post<AdminState>("/api/admin/roles", { action, address }));
+      setState(await post<AdminState>("/api/admin/transfer", { address }));
+      void action;
       setMsg(null);
     } catch (e) {
       setMsg((e as Error).message);
@@ -94,7 +93,7 @@ export function AdminDashboard() {
               {w.me?.ownerSet
                 ? state?.owner
                   ? <>Owner <span className="mono">{short(state.owner)}</span></>
-                  : "Only the owner and admins can open this dashboard."
+                  : "This dashboard belongs to the owner wallet."
                 : "Enter the one-time setup code printed in the API terminal."}
             </p>
           </div>
@@ -110,27 +109,12 @@ export function AdminDashboard() {
       {(w.error || msg) && <p className="notice" role="status">{w.error ?? msg}</p>}
 
       {w.me?.address && !w.mismatch && w.me.ownerSet && !isAdmin && (
-        <p className="notice">This wallet is not an owner or admin. Ask the owner to add it.</p>
+        <p className="notice">This wallet is not the owner of this Semmal instance.</p>
       )}
 
       {isAdmin && state && !w.mismatch && (
         <div className="grid admin-grid">
-          <RoleList
-            title="Admins"
-            note={w.me?.role === "owner" ? "Admins can manage publishers and run the 0G probe." : "Only the owner can change admins."}
-            items={state.admins}
-            canEdit={w.me?.role === "owner"}
-            onAdd={(a) => role("add_admin", a)}
-            onRemove={(a) => role("remove_admin", a)}
-          />
-          <RoleList
-            title="Trusted Arkiv publishers"
-            note="The marketplace only shows Arkiv entities created by the owner, admins and these wallets."
-            items={state.trustedPublishers}
-            canEdit
-            onAdd={(a) => role("add_publisher", a)}
-            onRemove={(a) => role("remove_publisher", a)}
-          />
+          <MyRobots owner={w.me!.address!} />
           <article className="card integ span-6">
             <h3 className="t-card">Integrations</h3>
             <dl>
@@ -143,12 +127,13 @@ export function AdminDashboard() {
           </article>
           <article className="card integ span-6">
             <h3 className="t-card">Registry</h3>
-            <p className="t-small muted">Publish the robot and agent profiles with this wallet. Each write is signed in your wallet after you approve the fee.</p>
+            <p className="t-small muted">Everything you publish is owned by this wallet on Arkiv. Each write is signed in your wallet after you approve the fee.</p>
             <div className="btn-row">
-              <Link className="btn btn--primary" href="/publish">Publish to Arkiv</Link>
+              <Link className="btn btn--primary" href="/robots/new">Register a robot</Link>
+              <Link className="btn btn--secondary" href="/publish">Publish agents</Link>
               <a className="btn btn--secondary" href={`${ARKIV_EXPLORER}/entity-explorer`} target="_blank" rel="noreferrer">Open entity explorer</a>
             </div>
-            {w.me?.role === "owner" && <TransferOwner onTransfer={(a) => role("transfer_owner", a)} />}
+            {w.me?.role === "owner" && <TransferOwner onTransfer={(a) => transfer("transfer_owner", a)} />}
           </article>
           <article className="card integ span-12">
             <h3 className="t-card">Audit log</h3>
@@ -166,26 +151,28 @@ export function AdminDashboard() {
   );
 }
 
-function RoleList({ title, note, items, canEdit, onAdd, onRemove }: { title: string; note: string; items: string[]; canEdit: boolean; onAdd: (a: string) => void; onRemove: (a: string) => void }) {
-  const [v, setV] = useState("");
+function MyRobots({ owner }: { owner: string }) {
+  const [rows, setRows] = useState<{ entityKey?: string; data: { robotId: string; displayName: string; model: string; capabilities: string[]; profileVersion: number } }[] | null>(null);
+  useEffect(() => {
+    fetch(`/api/robots?owner=${owner}`).then((r) => r.json()).then((d) => setRows(d.items ?? [])).catch(() => setRows([]));
+  }, [owner]);
   return (
-    <article className="card integ span-6">
-      <h3 className="t-card">{title}</h3>
-      <p className="t-small muted">{note}</p>
-      <ul className="role-list">
-        {items.length === 0 && <li className="muted t-small">None yet</li>}
-        {items.map((a) => (
-          <li key={a}>
-            <span className="mono">{a}</span>
-            {canEdit && <button className="link" type="button" onClick={() => onRemove(a)}>Remove</button>}
-          </li>
-        ))}
-      </ul>
-      {canEdit && (
-        <form className="claim" onSubmit={(e) => { e.preventDefault(); onAdd(v.trim()); setV(""); }}>
-          <input aria-label={`Add to ${title}`} placeholder="0x… wallet address" value={v} onChange={(e) => setV(e.target.value)} />
-          <button className="btn btn--secondary" type="submit">Add wallet</button>
-        </form>
+    <article className="card integ span-12">
+      <div className="integ__head">
+        <h3 className="t-card">Your robots on Arkiv</h3>
+        <Link className="btn btn--primary" href="/robots/new">Register a robot</Link>
+      </div>
+      {rows === null && <p className="t-small muted">Reading Arkiv…</p>}
+      {rows?.length === 0 && <p className="t-small muted">No robots owned by this wallet yet.</p>}
+      {rows && rows.length > 0 && (
+        <ul className="role-list">
+          {rows.map((r) => (
+            <li key={r.data.robotId}>
+              <span><b>{r.data.displayName}</b> <span className="muted">· {r.data.robotId} · v{r.data.profileVersion}</span></span>
+              <span className="mono muted">{r.entityKey ? `${r.entityKey.slice(0, 10)}…` : ""}</span>
+            </li>
+          ))}
+        </ul>
       )}
     </article>
   );
