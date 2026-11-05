@@ -49,7 +49,12 @@ function Model({ asset, active, tilt = 0.18 }: { asset: string; active: boolean;
     const box = new THREE.Box3().setFromObject(wrap);
     const c = box.getCenter(new THREE.Vector3());
     root.position.set(-c.x, -box.min.y, -c.z);
-    const h = box.max.y - box.min.y;
+    // fit by every dimension, not just the largest: tall robots (humanoid, arm) get the most room
+    // to spare so the hover lift and pointer tilt never reach the frame's edge
+    const dim = box.getSize(new THREE.Vector3());
+    const fit = Math.min(0.74 / dim.y, 0.95 / Math.max(dim.x, dim.z));
+    wrap.scale.setScalar(fit);
+    const h = dim.y * fit;
     return { root: wrap, h };
   }, [scene, asset]);
 
@@ -58,8 +63,8 @@ function Model({ asset, active, tilt = 0.18 }: { asset: string; active: boolean;
     if (!g) return;
     const reduced = typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     if (!reduced) g.rotation.y += dt * (active ? 0.55 : 0.22);
-    g.rotation.x = THREE.MathUtils.damp(g.rotation.x, -state.pointer.y * tilt * 0.4, 4, dt);
-    g.position.y = THREE.MathUtils.damp(g.position.y, active ? 0.04 : 0, 5, dt) + (reduced ? 0 : Math.sin(state.clock.elapsedTime * 1.4) * 0.004);
+    g.rotation.x = THREE.MathUtils.damp(g.rotation.x, -state.pointer.y * tilt * 0.2, 4, dt);
+    g.position.y = THREE.MathUtils.damp(g.position.y, active ? 0.015 : 0, 5, dt) + (reduced ? 0 : Math.sin(state.clock.elapsedTime * 1.4) * 0.003);
   });
 
   return (
