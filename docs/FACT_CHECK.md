@@ -58,3 +58,15 @@ at their home keyframe, visual geoms only, merged by colour, simplified, meshopt
 total). Licences are copied to `public/models/LICENSES/` and listed on `/credits`:
 skydio_x2, shadow_hand, google_robot, pal_tiago (Apache-2.0); unitree_go2, unitree_g1, universal_robots_ur5e (BSD-3-Clause style).
 The rover is TIAGo's mobile base only. Types are shown by category; the app does not claim to support those vendors' products.
+
+## Task pricing (added 2026-11-06)
+
+Owners do not set task prices. They set a `pricing` policy on the robot's Arkiv profile (min fee, max
+quote, margin %, spend cap per task). `packages/quote` prices each task deterministically (no model output):
+specialists at their live Arkiv listing price (hired by the 6.3 rule), 0G inference at the live Router
+`/v1/models` `pricing.prompt`/`pricing.completion` (neuron per token, 1e18 neuron = 1 0G) x estimated tokens
+per call, converted at `ZEROG_USDC_RATE` (configured by the operator; quotes needing inference are declined
+while it is unset), plus an operating-time estimate per robot type (engineering estimates in
+`OPERATING_MICRO_PER_MIN`, labelled "estimate" on every quote). Live check 2026-11-06: model
+`0gm-1.0-35b-a3b` priced from the catalog; 1 call x ~500 tokens = 0.000556 USDC at a test rate of 1.
+**Open:** a trusted 0G/USDC price source; token estimates per call are assumptions until measured from real calls.

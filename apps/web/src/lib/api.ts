@@ -28,7 +28,8 @@ export type RobotProfile = {
   hardware: { base: string; sensors: string[] };
   capabilities: string[];
   serviceArea: string;
-  price: { amount: string; token: string; unit: string };
+  pricing?: { token: string; minFee: string; maxQuote: string; marginPct: number; maxSpendPerTask: string };
+  price?: { amount: string; token: string; unit: string };
   profileVersion: number;
 };
 

@@ -19,6 +19,9 @@ importers:
       '@semmal/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@semmal/quote':
+        specifier: workspace:*
+        version: link:../../packages/quote
       '@semmal/zerog-pc-adapter':
         specifier: workspace:*
         version: link:../../packages/zerog-pc-adapter
@@ -123,6 +126,8 @@ importers:
       zod:
         specifier: ^4.6.7
         version: 4.6.7
+
+  packages/quote: {}
 
   packages/zerog-pc-adapter:
     dependencies:

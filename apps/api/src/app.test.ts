@@ -118,3 +118,24 @@ test("ownership claim needs the one-time code; roles are enforced", () => {
   store.update(other, "add_publisher", "0x00000000000000000000000000000000000000cc");
   assert.equal(store.trustedPublishers().length, 3);
 });
+
+test("quote: no agents on Arkiv means an inspection is declined, not invented", async () => {
+  const res = await app().inject({
+    method: "POST", url: "/api/quote",
+    payload: { preview: { robotType: "diff-drive-indoor", policy: { token: "USDC", minFee: "5", maxQuote: "40", marginPct: 25, maxSpendPerTask: "10" } },
+      plan: { skill: "warehouse.inspection", waypoints: 3, distanceM: 120, privacy: "private" } },
+  });
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.json().status, "declined");
+});
+
+test("quote: a delivery needs no specialist and is priced inside the policy", async () => {
+  const res = await app().inject({
+    method: "POST", url: "/api/quote",
+    payload: { preview: { robotType: "diff-drive-indoor", policy: { token: "USDC", minFee: "2", maxQuote: "40", marginPct: 20, maxSpendPerTask: "10" } },
+      plan: { skill: "indoor.delivery", waypoints: 1, distanceM: 60, privacy: "private" } },
+  });
+  // the test router has no catalog, so the one inference call has no price: declined rather than guessed
+  assert.equal(res.json().status, "declined");
+  assert.match(res.json().reason, /0G model price/);
+});

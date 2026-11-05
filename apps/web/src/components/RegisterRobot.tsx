@@ -8,20 +8,24 @@ import Link from "next/link";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useMemo, useState } from "react";
 import { formatEther, getAddress, isAddress } from "viem";
-import { ROBOT_MODELS, ROBOT_SKILLS, RobotProfile, robotIdFromWallet, type RobotProfile as TRobot } from "@semmal/contracts";
+import { ROBOT_MODELS, ROBOT_SKILLS, RobotProfile, SERVICE_AREAS, robotIdFromWallet, type RobotProfile as TRobot } from "@semmal/contracts";
+import { Select } from "./ui/Select";
 import { robotCreateArgs } from "@semmal/arkiv-adapter/browser";
 import { useWallet } from "@/lib/wallet";
 import { useArkivWriter } from "@/lib/arkiv-writer";
 import { ARKIV_EXPLORER } from "@/lib/api";
+import { QuoteBreakdown, type QuoteResult } from "./QuoteBreakdown";
 import { RobotCanvas, RobotView, preloadRobots } from "./robots3d/Robot3D";
 
 preloadRobots(ROBOT_MODELS.map((x) => x.asset));
 
-const STEPS = ["Nickname", "Model", "Skills", "Robot wallet", "Publish"] as const;
-const AREAS = ["warehouse-a", "warehouse-b"] as const;
+const STEPS = ["Nickname", "Model", "Skills", "Pricing", "Robot wallet", "Publish"] as const;
 type Check = { robotId: string; takenByOther: boolean; existing: { entityKey: string; creator: string; profileVersion: number }[]; nextVersion: number };
 
 const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
+
+const isAmount = (v: string) => /^\d+(\.\d{1,6})?$/.test(v.trim());
+const norm = (v: string) => (isAmount(v) ? String(Number(v.trim())) : "");
 
 export function RegisterRobot() {
   const w = useWallet();
@@ -32,8 +36,12 @@ export function RegisterRobot() {
   const [model, setModel] = useState<string>("rover");
   const [hoverModel, setHoverModel] = useState<string | null>(null);
   const [skills, setSkills] = useState<string[]>(["warehouse.inspection"]);
-  const [price, setPrice] = useState(12.5);
-  const [area, setArea] = useState<string>(AREAS[0]);
+  const [minFee, setMinFee] = useState("5");
+  const [maxQuote, setMaxQuote] = useState("60");
+  const [margin, setMargin] = useState(25);
+  const [spendCap, setSpendCap] = useState("15");
+  const [example, setExample] = useState<QuoteResult | null>(null);
+  const [area, setArea] = useState<string>("");
   const [robotWallet, setRobotWallet] = useState("");
   const [check, setCheck] = useState<Check | null>(null);
   const [checking, setChecking] = useState(false);
@@ -83,16 +91,38 @@ export function RegisterRobot() {
       rosInterfaceVersion: "0.1.0",
       profileVersion: check?.nextVersion ?? 1,
       serviceArea: area,
-      price: { amount: price.toFixed(2), token: "USDC", unit: "task" as const },
+      pricing: { token: "USDC" as const, minFee: norm(minFee), maxQuote: norm(maxQuote), marginPct: margin, maxSpendPerTask: norm(spendCap) },
     };
     const r = RobotProfile.safeParse(draft);
     return r.success ? r.data : null;
-  }, [walletOk, w.account, robotId, robotWallet, name, model, m, skills, check, area, price]);
+  }, [walletOk, w.account, robotId, robotWallet, name, model, m, skills, check, area, minFee, maxQuote, margin, spendCap]);
+
+  const policyOk = isAmount(minFee) && isAmount(maxQuote) && isAmount(spendCap) && Number(maxQuote) >= Number(minFee) && Number(minFee) > 0;
+  // a live example quote for the first chosen skill, so the owner sees what their limits do
+  useEffect(() => {
+    if (step !== 3 || !policyOk || !skills[0]) return;
+    setExample(null);
+    const t = setTimeout(() => {
+      fetch("/api/quote", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          preview: { robotType: m.robotType, policy: { token: "USDC", minFee: norm(minFee), maxQuote: norm(maxQuote), marginPct: margin, maxSpendPerTask: norm(spendCap) } },
+          plan: { skill: skills[0], waypoints: 4, distanceM: 160, privacy: "private" },
+        }),
+      })
+        .then((r) => r.json())
+        .then((d) => setExample(d.status ? d : null))
+        .catch(() => setExample(null));
+    }, 300);
+    return () => clearTimeout(t);
+  }, [step, policyOk, skills, m.robotType, minFee, maxQuote, margin, spendCap]);
 
   const valid = [
     /^[\p{L}\p{N} .'-]{2,40}$/u.test(name.trim()),
     true,
-    skills.length > 0,
+    skills.length > 0 && area !== "",
+    policyOk,
     walletOk && !check?.takenByOther && !checking,
     Boolean(profile) && ark.onRabdi,
   ];
@@ -226,22 +256,58 @@ export function RegisterRobot() {
                     })}
                   </div>
                   <div className="reg-row">
-                    <label className="range">
-                      <span className="t-label muted">Price per task</span>
-                      <span className="range__val">{price.toFixed(2)} <small>USDC</small></span>
-                      <input type="range" min={1} max={60} step={0.5} value={price} onChange={(e) => setPrice(Number(e.target.value))} />
-                    </label>
-                    <label className="field">
-                      <span className="t-label muted">Service area (coarse, never an exact location)</span>
-                      <select value={area} onChange={(e) => setArea(e.target.value)}>
-                        {AREAS.map((a) => <option key={a} value={a}>{a}</option>)}
-                      </select>
-                    </label>
+                    <Select
+                      label="Where it works (city or region, never an exact site)"
+                      value={area}
+                      onChange={setArea}
+                      groups={SERVICE_AREAS.map((g) => ({ label: g.region, options: g.areas }))}
+                      placeholder="Choose a city or region"
+                      searchPlaceholder="Search 88 cities and regions"
+                    />
                   </div>
                 </>
               )}
 
               {step === 3 && (
+                <>
+                  <h2>How should it price its work?</h2>
+                  <p className="muted">
+                    You don&apos;t set a price. For every task the robot adds up what the job really costs (the agents it hires, the 0G
+                    inference it needs, its own running time), adds your margin, and stays inside these limits or turns the job down.
+                  </p>
+                  <div className="policy-grid">
+                    <label className="field">
+                      <span className="t-label muted">Minimum fee per task</span>
+                      <span className="field__money"><input inputMode="decimal" value={minFee} onChange={(e) => setMinFee(e.target.value)} /><small>USDC</small></span>
+                      <span className="field__hint">It never works for less than this.</span>
+                    </label>
+                    <label className="field">
+                      <span className="t-label muted">Maximum quote</span>
+                      <span className="field__money"><input inputMode="decimal" value={maxQuote} onChange={(e) => setMaxQuote(e.target.value)} /><small>USDC</small></span>
+                      <span className="field__hint">Jobs that cost more than this are declined.</span>
+                    </label>
+                    <label className="field">
+                      <span className="t-label muted">Spend cap per task</span>
+                      <span className="field__money"><input inputMode="decimal" value={spendCap} onChange={(e) => setSpendCap(e.target.value)} /><small>USDC</small></span>
+                      <span className="field__hint">The most it may pay agents and 0G for one job.</span>
+                    </label>
+                    <label className="range">
+                      <span className="t-label muted">Margin on cost</span>
+                      <span className="range__val">{margin}<small>%</small></span>
+                      <input type="range" min={0} max={100} step={1} value={margin} onChange={(e) => setMargin(Number(e.target.value))} />
+                    </label>
+                  </div>
+                  {!policyOk && <p className="soft-warn">Use amounts like 5 or 12.50, with the maximum at least the minimum.</p>}
+                  {policyOk && (
+                    <div className="example-quote">
+                      <span className="t-label muted">Example: {ROBOT_SKILLS.find((x) => x.id === skills[0])?.label.toLowerCase()}, 4 stops, 160 m, private inference</span>
+                      <QuoteBreakdown q={example} />
+                    </div>
+                  )}
+                </>
+              )}
+
+              {step === 4 && (
                 <>
                   <h2>The robot&apos;s own wallet</h2>
                   <p className="muted">
@@ -259,7 +325,7 @@ export function RegisterRobot() {
                 </>
               )}
 
-              {step === 4 && (
+              {step === 5 && (
                 <>
                   <h2>Publish to Arkiv</h2>
                   <p className="muted">Your owner wallet signs one Arkiv entity. You approve the fee here, then confirm in your wallet.</p>
@@ -305,10 +371,10 @@ export function RegisterRobot() {
 
           <div className="reg-nav">
             {step > 0 ? <button type="button" className="btn btn--secondary" onClick={() => go(step - 1)} disabled={busy}>Back</button> : <span />}
-            {step < 4 ? (
+            {step < 5 ? (
               <button type="button" className="btn btn--primary" disabled={!valid[step]} onClick={() => go(step + 1)}>Continue</button>
             ) : (
-              <button type="button" className="btn btn--primary" disabled={!valid[4] || busy} onClick={publish}>{busy ? "Publishing…" : "Publish robot"}</button>
+              <button type="button" className="btn btn--primary" disabled={!valid[5] || busy} onClick={publish}>{busy ? "Publishing…" : "Publish robot"}</button>
             )}
           </div>
         </div>
@@ -324,8 +390,9 @@ export function RegisterRobot() {
               {skills.length === 0 && <span className="chip">No skills yet</span>}
             </div>
             <dl>
-              <div><dt>Price</dt><dd>{price.toFixed(2)} USDC per task</dd></div>
-              <div><dt>Area</dt><dd>{area}</dd></div>
+              <div><dt>Pricing</dt><dd>Quoted per task, {norm(minFee) || "…"} to {norm(maxQuote) || "…"} USDC</dd></div>
+              <div><dt>Margin</dt><dd>{margin}% on cost</dd></div>
+              <div><dt>Area</dt><dd>{area || "—"}</dd></div>
               <div><dt>Robot id</dt><dd className="mono">{robotId || "from its wallet"}</dd></div>
               <div><dt>Robot wallet</dt><dd className="mono">{walletOk ? short(robotWallet) : "—"}</dd></div>
               <div><dt>Owner</dt><dd className="mono">{w.account ? short(w.account) : "connect at the last step"}</dd></div>

@@ -28,6 +28,9 @@ const I = {
   publish: (
     <g><path d="M12 15V4.5M8 8.2l4-3.7 4 3.7" /><path d="M5 13.5v3a3 3 0 0 0 3 3h8a3 3 0 0 0 3-3v-3" /></g>
   ),
+  quote: (
+    <g><rect x="5" y="3.5" width="14" height="17" rx="3.5" /><path d="M9 8.5h6M9 12h6M9 15.5h3.5" /></g>
+  ),
   add: (
     <g><rect x="4" y="4" width="16" height="16" rx="5" /><path d="M12 8.5v7M8.5 12h7" /></g>
   ),
@@ -43,6 +46,7 @@ const ITEMS: Item[] = [
   { id: "choose", href: "/#choose", label: "How robots choose", icon: "choose", section: "choose" },
   { id: "trust", href: "/#trust", label: "Privacy and safety", icon: "trust", section: "trust" },
   { id: "agents", href: "/agents", label: "Agent market", icon: "agents" },
+  { id: "quote", href: "/quote", label: "Get a quote", icon: "quote" },
 ];
 const OPS: Item[] = [
   { id: "register", href: "/robots/new", label: "Register a robot", icon: "add" },

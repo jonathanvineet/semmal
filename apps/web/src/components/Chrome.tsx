@@ -22,6 +22,7 @@ export function Footer() {
               <Link href="/#chapters">Network</Link>
               <Link href="/#console">Console</Link>
               <Link href="/agents">Agents</Link>
+              <Link href="/quote">Get a quote</Link>
             </div>
             <div>
               <p className="t-label muted">Operators</p>

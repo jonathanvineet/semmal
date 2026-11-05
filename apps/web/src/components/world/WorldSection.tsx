@@ -48,7 +48,7 @@ export function WorldSection() {
     ])
       .then(([r, a]) =>
         setNames({
-          robots: r.items.map((e) => ({ label: e.data.displayName, sub: `Robot · ${e.data.price.amount} ${e.data.price.token} per ${e.data.price.unit} · ${e.provenance}`, kind: "robot" })),
+          robots: r.items.map((e) => ({ label: e.data.displayName, sub: e.data.pricing ? `Robot · quotes ${e.data.pricing.minFee}–${e.data.pricing.maxQuote} USDC a task` : `Robot · ${e.data.price?.amount ?? "?"} USDC a task`, kind: "robot" })),
           agents: a.items.map((e) => ({
             label: e.data.displayName,
             sub: `${e.data.kind} · ${e.data.price.amount} ${e.data.price.token} · ${e.data.inference?.trustMode ?? "no inference"} · ${e.provenance}`,

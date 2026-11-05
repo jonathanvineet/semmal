@@ -66,8 +66,43 @@ export const ROBOT_MODELS = [
 /** Older ids stay valid so profiles already on Arkiv still parse. */
 export const RobotModelId = z.enum(["rover", "drone", "quadruped", "arm", "hand", "humanoid", "manipulator", "semmal-rover-sim", "custom-diff-drive"]);
 
+/**
+ * Where a robot works, at city or metro level only (never an exact site or live location).
+ * Grouped by region for the picker; the stored value is the label itself.
+ */
+export const SERVICE_AREAS: { region: string; areas: string[] }[] = [
+  { region: "India", areas: ["Chennai", "Bengaluru", "Hyderabad", "Mumbai", "Pune", "Delhi NCR", "Kolkata", "Ahmedabad", "Coimbatore", "Kochi", "Jaipur", "Chandigarh", "Visakhapatnam", "Madurai", "Tiruchirappalli", "Sriperumbudur industrial belt", "Hosur industrial belt"] },
+  { region: "Middle East", areas: ["Dubai", "Abu Dhabi", "Riyadh", "Jeddah", "Doha", "Muscat", "Tel Aviv"] },
+  { region: "South-east Asia", areas: ["Singapore", "Kuala Lumpur", "Penang", "Bangkok", "Jakarta", "Ho Chi Minh City", "Manila"] },
+  { region: "East Asia", areas: ["Tokyo", "Osaka", "Seoul", "Busan", "Shenzhen", "Shanghai", "Hong Kong", "Taipei"] },
+  { region: "Europe", areas: ["London", "Manchester", "Amsterdam", "Rotterdam", "Berlin", "Munich", "Hamburg", "Paris", "Lyon", "Madrid", "Barcelona", "Milan", "Zurich", "Stockholm", "Copenhagen", "Warsaw", "Dublin"] },
+  { region: "North America", areas: ["San Francisco Bay Area", "Los Angeles", "Seattle", "Austin", "Dallas", "Chicago", "Detroit", "Boston", "New York", "Atlanta", "Toronto", "Montreal", "Vancouver", "Mexico City", "Monterrey"] },
+  { region: "South America", areas: ["São Paulo", "Rio de Janeiro", "Buenos Aires", "Santiago", "Bogotá", "Lima"] },
+  { region: "Africa", areas: ["Johannesburg", "Cape Town", "Nairobi", "Lagos", "Cairo", "Casablanca"] },
+  { region: "Oceania", areas: ["Sydney", "Melbourne", "Brisbane", "Auckland"] },
+  { region: "Anywhere", areas: ["Remote or on request"] },
+];
+export const ALL_SERVICE_AREAS = SERVICE_AREAS.flatMap((g) => g.areas);
+
 /** The robot's unique id, derived from its own wallet so one robot cannot hold two ids. */
 export const robotIdFromWallet = (wallet: string) => `rbt-${wallet.toLowerCase().replace(/^0x/, "").slice(0, 10)}`;
+
+/**
+ * The owner's guardrails. The owner never sets the price of a task: the robot's quote engine
+ * prices each task from its real costs (specialists, 0G inference, its own operating time) plus
+ * the margin, then keeps the result inside these limits or declines the task.
+ */
+export const PricingPolicy = z
+  .object({
+    token: z.literal("USDC"),
+    minFee: decimalAmount,
+    maxQuote: decimalAmount,
+    marginPct: z.number().min(0).max(200),
+    /** The most the robot may spend on specialists and inference for one task. */
+    maxSpendPerTask: decimalAmount,
+  })
+  .refine((p) => Number(p.maxQuote) >= Number(p.minFee), { message: "maxQuote must be at least minFee" });
+export type PricingPolicy = z.infer<typeof PricingPolicy>;
 
 export const RobotProfile = z.object({
   schemaVersion: z.literal(SCHEMA_VERSION),
@@ -88,9 +123,11 @@ export const RobotProfile = z.object({
   profileVersion: z.number().int().min(1),
   /** Coarse only. Never an exact location. */
   serviceArea: z.string().max(40),
-  /** Pricing the robot charges a customer. */
-  price: z.object({ amount: decimalAmount, token: z.string().max(12), unit: z.enum(["task", "hour"]) }),
-});
+  /** The owner's limits; the robot quotes each task inside them. */
+  pricing: PricingPolicy.optional(),
+  /** Older profiles carried a fixed price; still readable, no longer written. */
+  price: z.object({ amount: decimalAmount, token: z.string().max(12), unit: z.enum(["task", "hour"]) }).optional(),
+}).refine((r) => r.pricing || r.price, { message: "a pricing policy is required" });
 export type RobotProfile = z.infer<typeof RobotProfile>;
 
 // ---------------------------------------------------------------- agents

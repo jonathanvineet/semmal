@@ -5,7 +5,9 @@ import { ArkivRegistry, arkivConfigFromEnv } from "@semmal/arkiv-adapter";
 import { ZeroGError, ZeroGRouter, zeroGConfigFromEnv } from "@semmal/zerog-pc-adapter";
 import { loadConfig } from "./config";
 import { agentFixtures } from "./fixtures";
-import { robotIdFromWallet } from "@semmal/contracts";
+import { PricingPolicy, RobotSkill, TrustMode, robotIdFromWallet } from "@semmal/contracts";
+import { quoteTask, SKILL_NEEDS } from "@semmal/quote";
+import { z } from "zod";
 import { arkivRpcProxy } from "./arkiv-rpc-proxy";
 import { AdminStore, readCookie, WalletAuth } from "./admin";
 
@@ -184,6 +186,61 @@ export function buildApp(deps: Deps = defaultDeps()) {
 
   /** Read-only Arkiv JSON-RPC proxy: the browser never gets the access key and cannot send transactions here. */
   app.post("/api/arkiv/rpc", arkivRpcProxy(registry));
+
+  // ---------------------------------------------------------------- task quotes
+  const catalog = cached(5 * 60_000, () => router.listModels());
+  const QuoteBody = z.object({
+    robotId: z.string().max(64).optional(),
+    preview: z.object({ robotType: z.string().max(40), policy: PricingPolicy }).optional(),
+    plan: z.object({ skill: RobotSkill, waypoints: z.number().int().min(1).max(50), distanceM: z.number().min(0).max(20000), privacy: TrustMode }),
+  });
+  /**
+   * The robot's quote for one task: live specialist prices from Arkiv, live 0G token prices from the
+   * Router catalog, the robot's operating estimate, the owner's margin and limits. Deterministic.
+   */
+  app.post("/api/quote", async (req, reply) => {
+    const body = QuoteBody.safeParse(req.body);
+    if (!body.success) return reply.code(400).send({ error: "invalid quote request", issues: body.error.issues });
+    const { robotId, preview, plan } = body.data;
+    let robotType: string, policy: z.infer<typeof PricingPolicy>, robotName: string | undefined;
+    try {
+      if (robotId) {
+        const robot = (await registry.listRobots({ robotId }))[0];
+        if (!robot) return reply.code(404).send({ error: "robot not found on Arkiv" });
+        if (!robot.data.pricing) return reply.code(409).send({ error: "this robot has an old fixed-price profile; publish a new version with a pricing policy" });
+        if (!robot.data.capabilities.includes(plan.skill)) return reply.code(409).send({ error: "this robot does not offer that skill" });
+        robotType = robot.data.robotType;
+        policy = robot.data.pricing;
+        robotName = robot.data.displayName;
+      } else if (preview) {
+        robotType = preview.robotType;
+        policy = preview.policy;
+      } else return reply.code(400).send({ error: "robotId or preview required" });
+
+      const agents = await registry.listAgents().catch(() => []);
+      const offers = agents.map((a) => ({
+        agentId: a.data.agentId,
+        name: a.data.displayName,
+        kind: a.data.kind,
+        price: a.data.price.amount,
+        trustMode: (a.data.inference?.trustMode ?? "none") as "private" | "verified" | "standard" | "none",
+      }));
+      // inference calls the plan needs: one check per waypoint for looking jobs, one call otherwise
+      const looks = (SKILL_NEEDS[plan.skill]?.kinds.length ?? 0) > 0;
+      const checkpoints = looks ? plan.waypoints : 1;
+      const modelId = process.env.ZEROG_VISION_MODEL || router.config.defaultModel;
+      let inference = null;
+      if (modelId && router.config.baseUrl) {
+        const m = (await catalog("").catch(() => [])).find((x) => x.id === modelId);
+        if (m?.pricing?.prompt && m.pricing.completion) inference = { model: m.id, promptNeuron: m.pricing.prompt, completionNeuron: m.pricing.completion };
+      }
+      const rate = process.env.ZEROG_USDC_RATE && /^\d+(\.\d+)?$/.test(process.env.ZEROG_USDC_RATE) ? process.env.ZEROG_USDC_RATE : null;
+      const q = quoteTask({ robotType, policy, plan: { ...plan, checkpoints }, offers, inference, zerogUsdcRate: rate });
+      return { robotId: robotId ?? null, robotName, plan: { ...plan, checkpoints }, policy, ...q, quotedAt: new Date().toISOString() };
+    } catch {
+      return reply.code(502).send({ error: "could not read Arkiv or the 0G catalog; try again" });
+    }
+  });
 
   /** Public catalog subset: models that can serve private mode, and vision models. */
   app.get("/api/zerog/models", async (_req, reply) => {

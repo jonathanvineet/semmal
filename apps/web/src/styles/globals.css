@@ -601,3 +601,76 @@ main > section.market { padding-top: 176px !important; }
 .robot-card__view { width: 100%; aspect-ratio: 1 / 0.86; border-radius: 22px; background: radial-gradient(70% 70% at 50% 60%, #1b1c21, #0d0d10 75%); }
 .credits-list li { flex-wrap: wrap; }
 @media (max-width: 1023px) { .model-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+/* ------------------------------------------------------------- pricing policy + quotes */
+.policy-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px 20px; align-items: start; }
+.field__money { display: flex; align-items: center; gap: 10px; height: 56px; padding: 0 18px; border-radius: 18px; background: #0b0b0d; box-shadow: inset 0 0 0 1px var(--soft-line); }
+.field__money:focus-within { box-shadow: inset 0 0 0 2px color-mix(in oklab, var(--p-accent) 70%, transparent); }
+.field__money input { flex: 1; min-width: 0; height: 100%; border: 0; background: none; padding: 0; box-shadow: none !important; font: 500 18px var(--font-text); color: var(--p-ink); }
+.field__money input:focus { outline: none; }
+.field__money small { color: var(--p-muted); font-size: 13px; }
+.example-quote { display: grid; gap: 10px; }
+.quote { display: grid; gap: 14px; padding: 22px; border-radius: 24px; background: #0b0b0d; box-shadow: inset 0 0 0 1px var(--soft-line); }
+.quote.is-ok { box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--ok) 35%, transparent); }
+.quote.is-declined { box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--warn) 40%, transparent); }
+.quote--empty { min-height: 120px; place-items: center; }
+.quote__head { display: grid; gap: 4px; }
+.quote__total { font: 600 40px/1.05 var(--font-text); letter-spacing: -0.03em; }
+.quote__total small { font-size: 15px; font-weight: 500; color: var(--p-muted); letter-spacing: 0; }
+.quote__reason { font-size: 17px; color: #f3cf6b; }
+.quote__lines { list-style: none; margin: 0; padding: 0; display: grid; }
+.quote__lines li { display: grid; grid-template-columns: 1fr auto 90px; gap: 14px; align-items: center; padding: 12px 0; border-top: 1px solid var(--soft-line); }
+.quote__lines li > span:first-child { display: grid; gap: 2px; min-width: 0; }
+.quote__lines li b { font-weight: 600; font-size: 15px; }
+.quote__lines li .muted { font-size: 13px; overflow-wrap: anywhere; }
+.quote__src { font-size: 11.5px; padding: 4px 9px; border-radius: 999px; background: var(--soft-fill); color: var(--p-muted); white-space: nowrap; }
+.quote__src--arkiv, .quote__src--0g-router { color: var(--ok); background: color-mix(in oklab, var(--ok) 10%, transparent); }
+.quote__amt { text-align: right; font: 500 15px var(--font-text); font-variant-numeric: tabular-nums; }
+.quote__sum { padding-top: 10px; border-top: 1px solid var(--soft-line); }
+.quote__note { margin: 0; }
+.qt { display: grid; gap: 24px; }
+.qt__robots { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
+.qt-robot { display: grid; justify-items: start; gap: 4px; padding: 12px 16px 16px; border: 0; border-radius: 22px; background: #111215; box-shadow: inset 0 0 0 1px var(--soft-line); color: var(--p-ink); text-align: left; font: inherit; cursor: pointer; }
+.qt-robot.is-on { box-shadow: inset 0 0 0 2px var(--p-accent); }
+.qt-robot__view { width: 100%; aspect-ratio: 1 / 0.75; border-radius: 16px; background: radial-gradient(70% 70% at 50% 60%, #191a1f, #0b0b0d 75%); }
+.qt__body { display: grid; grid-template-columns: 5fr 7fr; gap: 24px; align-items: start; }
+.qt__foot { margin: 12px 4px 0; }
+.chip-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.pill-opt { height: 40px; padding: 0 16px; border: 0; border-radius: 999px; background: #0b0c0e; box-shadow: inset 0 0 0 1px var(--soft-line); color: var(--p-muted); font: 500 14px var(--font-text); cursor: pointer; }
+.pill-opt.is-on { background: var(--p-ink); color: var(--p-bg); box-shadow: none; }
+@media (max-width: 1023px) { .qt__body, .policy-grid { grid-template-columns: 1fr; } }
+@media (max-width: 639px) { .quote__lines li { grid-template-columns: 1fr 80px; } .quote__src { display: none; } }
+
+/* ------------------------------------------------------------- dropdown (Select) */
+.sel { position: relative; display: grid; gap: 8px; }
+.sel__trigger {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; height: 56px; padding: 0 16px 0 18px;
+  border: 0; border-radius: 18px; background: #0b0b0d; box-shadow: inset 0 0 0 1px var(--soft-line);
+  color: var(--p-ink); font: 500 17px var(--font-text); text-align: left; cursor: pointer;
+  transition: box-shadow var(--m-in) var(--m-ease), background var(--m-in) var(--m-ease);
+}
+.sel__trigger:hover { background: #0f0f12; }
+.sel__trigger:focus-visible, .sel__trigger.is-open { outline: none; box-shadow: inset 0 0 0 2px color-mix(in oklab, var(--p-accent) 70%, transparent); }
+.sel__trigger > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sel__chev { width: 20px; height: 20px; flex: none; color: var(--p-muted); transition: transform 180ms var(--m-ease); }
+.sel__trigger.is-open .sel__chev { transform: rotate(180deg); }
+.sel__pop {
+  position: absolute; top: calc(100% + 8px); left: 0; right: 0; z-index: 40; transform-origin: top center;
+  border-radius: 22px; background: #141518; padding: 8px;
+  box-shadow: 0 0 0 1px rgb(255 255 255 / 0.07), 0 30px 70px -20px rgb(0 0 0 / 0.95);
+}
+.sel__search { display: flex; align-items: center; gap: 10px; height: 46px; padding: 0 14px; margin-bottom: 6px; border-radius: 14px; background: #0b0b0d; color: var(--p-muted); }
+.sel__search svg { width: 18px; height: 18px; flex: none; }
+.sel__search input { flex: 1; min-width: 0; height: 100%; border: 0; background: none; color: var(--p-ink); font: 500 15px var(--font-text); }
+.sel__search input:focus { outline: none; }
+.sel__list { list-style: none; margin: 0; padding: 0 2px 2px; max-height: 300px; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: #2a2c31 transparent; }
+.sel__list ul { list-style: none; margin: 0; padding: 0; }
+.sel__group { display: block; padding: 12px 12px 6px; font: 600 11.5px var(--font-text); letter-spacing: 0.02em; color: var(--p-muted); position: sticky; top: 0; background: #141518; z-index: 1; }
+.sel__opt { display: flex; align-items: center; justify-content: space-between; gap: 10px; height: 40px; padding: 0 12px; border-radius: 12px; font-size: 15px; cursor: pointer; color: color-mix(in oklab, var(--p-ink) 88%, transparent); }
+.sel__opt.is-active { background: color-mix(in oklab, var(--p-ink) 7%, transparent); color: var(--p-ink); }
+.sel__opt.is-picked { color: var(--p-ink); font-weight: 600; }
+.sel__opt svg { width: 18px; height: 18px; color: var(--p-accent); flex: none; }
+.sel__none { padding: 14px 12px; font-size: 14px; }
+@media (prefers-reduced-motion: reduce) { .sel__chev { transition: none; } }
+/* let the dropdown hang below the panel; still clip the sideways step slide */
+.reg-panel { overflow: visible; overflow-x: clip; }

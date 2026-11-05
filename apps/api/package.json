@@ -7,13 +7,14 @@
     "dev": "tsx watch --env-file-if-exists=../../.env src/server.ts",
     "start": "tsx --env-file-if-exists=../../.env src/server.ts",
     "zerog:preflight": "tsx --env-file-if-exists=../../.env src/scripts/zerog-preflight.ts",
-    "test": "node --import tsx --test src/app.test.ts",
+    "test": "node --import tsx --test src/app.test.ts src/quote.test.ts",
     "typecheck": "tsc --noEmit -p ."
   },
   "dependencies": {
     "@fastify/cors": "^11.4.1",
     "@semmal/arkiv-adapter": "workspace:*",
     "@semmal/contracts": "workspace:*",
+    "@semmal/quote": "workspace:*",
     "@semmal/zerog-pc-adapter": "workspace:*",
     "fastify": "^5.12.8",
     "viem": "^2.57.16",
