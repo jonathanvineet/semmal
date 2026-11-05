@@ -31,6 +31,7 @@ export function Nav() {
           ))}
         </nav>
         <div className="nav__actions">
+          <Link className="nav__link" href="/admin">Admin</Link>
           <Link className="btn btn--primary" href="/agents">See specialist agents</Link>
         </div>
         <button className="nav__toggle" type="button" aria-expanded={menu} aria-label="Menu" onClick={() => setMenu((m) => !m)}>
@@ -73,6 +74,7 @@ export function Footer() {
               <Link href="/agents">Agents</Link>
               <Link href="/#mission">Mission</Link>
               <Link href="/publish">Publish to Arkiv</Link>
+              <Link href="/admin">Admin</Link>
             </div>
             <div>
               <p className="t-label muted">Built on</p>

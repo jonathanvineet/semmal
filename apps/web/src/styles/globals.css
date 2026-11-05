@@ -280,3 +280,21 @@ body { background: var(--p-bg); color: var(--p-ink); font-family: var(--font-tex
 .journal summary { cursor: pointer; }
 .journal ol { margin: 12px 0 0; padding-left: 18px; display: grid; gap: 6px; }
 @media (max-width: 1023px) { .pub-steps { grid-template-columns: 1fr; } }
+
+/* ------------------------------------------------------------- admin */
+.admin { display: grid; gap: 24px; }
+.admin-grid { row-gap: 24px; }
+.admin-grid .span-6 { grid-column: span 6; }
+.admin-grid .span-12 { grid-column: 1 / -1; }
+@media (max-width: 1023px) { .admin-grid .span-6 { grid-column: 1 / -1; } }
+.claim { display: flex; gap: 8px; flex-wrap: wrap; }
+.claim input { flex: 1; min-width: 180px; height: 44px; padding: 0 14px; border-radius: var(--r-sm); border: 1px solid var(--hair); background: var(--p-bg); color: var(--p-ink); font: 15px var(--font-mono); }
+.claim input:focus-visible { outline: 2px solid var(--p-accent); outline-offset: 2px; }
+.role-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.role-list li { display: flex; justify-content: space-between; gap: 12px; align-items: center; padding: 10px 12px; border-radius: var(--r-sm); background: var(--p-bg); border: 1px solid var(--hair); font-size: 13px; overflow-wrap: anywhere; }
+.role-list .link { background: none; border: 0; color: var(--bad); cursor: pointer; font: inherit; }
+.audit { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.probe { display: grid; gap: 8px; }
+.probe p { margin: 0; overflow-wrap: anywhere; }
+.transfer { margin-top: 8px; }
+.transfer summary { cursor: pointer; color: var(--p-muted); }

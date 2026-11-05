@@ -16,7 +16,7 @@
 8. Emergency stop and safety interlocks must work without internet, 0G, Arkiv, or Storage.
 9. Do not claim a feature works without a test or live integration proving it.
 10. At the end of each phase, report changed files, commands run, tests, failures, and next steps.
-11. **No private keys anywhere.** No wallet private key, mnemonic, or signer key is read, stored, generated, or entered in code, `.env`, config, scripts, tests, logs, or docs. Every on-chain write (Arkiv entities, Storage uploads, payments) is signed by the user's own wallet (EIP-1193, e.g. MetaMask) in the browser, after an in-app approval that shows the maximum fee. The backend is read-only toward chains; its Arkiv RPC proxy allowlists read methods and refuses every send/sign method. Only public wallet addresses appear in config (e.g. `ARKIV_TRUSTED_PUBLISHERS`). Service API keys that have no wallet alternative (0G Router `sk-` key) stay server-side only.
+11. **No private keys anywhere.** No wallet private key, mnemonic, or signer key is read, stored, generated, or entered in code, `.env`, config, scripts, tests, logs, or docs. Every on-chain write (Arkiv entities, Storage uploads, payments) is signed by the user's own wallet (EIP-1193, e.g. MetaMask) in the browser, after an in-app approval that shows the maximum fee. The backend is read-only toward chains; its Arkiv RPC proxy allowlists read methods and refuses every send/sign method. Admin access is wallet sign-in (EIP-4361); the owner wallet is claimed once with a setup code the API prints, and roles/trusted publishers live in `data/admin.json`, managed from `/admin`, never in `.env`. Service API keys that have no wallet alternative (0G Router `sk-` key) stay server-side only.
 
 ## 1. Product architecture and boundaries
 
@@ -550,8 +550,7 @@ ZEROG_REQUEST_TIMEOUT_MS=30000
 
 # Arkiv Rabdi (chain 7794095): the SDK builds the RPC URL from the access key.
 ARKIV_ACCESS_KEY=
-# Public addresses only. Writes are signed by these wallets in the browser.
-ARKIV_TRUSTED_PUBLISHERS=
+# Trusted publishers and admins are managed in /admin (wallet sign-in), not here.
 
 ZEROG_STORAGE_RPC_URL=
 ZEROG_STORAGE_INDEXER_URL=

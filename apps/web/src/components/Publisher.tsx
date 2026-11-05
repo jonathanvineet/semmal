@@ -253,8 +253,8 @@ export function Publisher() {
       )}
 
       <p className="t-small muted">
-        After publishing, add your wallet address to <span className="mono">ARKIV_TRUSTED_PUBLISHERS</span> in the API&apos;s .env. The
-        marketplace only shows entities from trusted publishers, because anyone can write a schema name.
+        The marketplace only shows entities from the owner, admins and trusted publishers set in the{" "}
+        <a className="link" href="/admin">admin dashboard</a>, because anyone can write a schema name.
       </p>
     </div>
   );

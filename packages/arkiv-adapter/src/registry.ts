@@ -17,19 +17,15 @@ export type RegistryEntry<T> = {
 
 export type ArkivConfig = {
   accessKey: string; // "" = public endpoint (heavily rate limited). Server-side only.
-  /** Only entities created by these PUBLIC addresses are shown. Anyone can write a schema name. */
-  trustedPublishers: string[];
+  /** Only entities created by these PUBLIC addresses are shown (live: read from the admin store). */
+  trustedPublishers: () => string[];
   profileTtlDays: number;
 };
 
-export function arkivConfigFromEnv(env = process.env): ArkivConfig {
-  const trusted = (env.ARKIV_TRUSTED_PUBLISHERS ?? "")
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
+export function arkivConfigFromEnv(env = process.env, trustedPublishers: () => string[] = () => []): ArkivConfig {
   return {
     accessKey: env.ARKIV_ACCESS_KEY ?? "",
-    trustedPublishers: [...new Set(trusted.map((a) => getAddress(a)))],
+    trustedPublishers,
     profileTtlDays: Number(env.ARKIV_PROFILE_TTL_DAYS || 30),
   };
 }
@@ -68,14 +64,14 @@ export class ArkivRegistry {
       reachable,
       accessKeyConfigured: this.config.accessKey !== "",
       signing: "wallet only (no server key)",
-      trustedPublishers: this.config.trustedPublishers,
+      trustedPublisherCount: this.config.trustedPublishers().length,
     };
   }
 
   private trusted(creator: string | undefined) {
     if (!creator) return false;
     try {
-      return this.config.trustedPublishers.includes(getAddress(creator));
+      return this.config.trustedPublishers().includes(getAddress(creator));
     } catch {
       return false;
     }

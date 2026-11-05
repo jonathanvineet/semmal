@@ -6,6 +6,10 @@ import { agentFixtures } from "./fixtures";
 import { AgentListing, RobotProfile, VisionInspectionOutput } from "@semmal/contracts";
 import { robotFixtures } from "./fixtures";
 import { ZeroGRouter } from "@semmal/zerog-pc-adapter";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { AdminStore, WalletAuth } from "./admin";
 
 // Fakes only for unit tests; never used by the running server.
 const failingRegistry = {
@@ -19,7 +23,9 @@ const unconfiguredRouter = new ZeroGRouter({ baseUrl: "", apiKey: "", defaultMod
 
 function app(env: Record<string, string> = {}) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return buildApp({ config: loadConfig({ OPERATOR_TOKEN: "op-secret-123", ...env }), registry: failingRegistry as any, router: unconfiguredRouter as any });
+  const admin = new AdminStore(join(mkdtempSync(join(tmpdir(), "semmal-")), "admin.json"));
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return buildApp({ config: loadConfig({ ...env }), registry: failingRegistry as any, router: unconfiguredRouter as any, admin, auth: new WalletAuth("localhost:3000") });
 }
 
 test("fixtures satisfy the v1 contracts", () => {
@@ -59,12 +65,52 @@ test("no server-side registry write route exists", async () => {
 });
 
 test("0G probe without configuration fails closed, no fabricated result", async () => {
-  const res = await app().inject({ method: "POST", url: "/api/zerog/probe", headers: { authorization: "Bearer op-secret-123" } });
-  assert.equal(res.statusCode, 502);
-  assert.equal(res.json().code, "not_configured");
+  const res = await app().inject({ method: "POST", url: "/api/zerog/probe" });
+  assert.equal(res.statusCode, 401); // admin wallet session required before any call
   assert.equal(res.json().providerRequestId, undefined);
 });
 
 test("vision output schema rejects unsupported actions", () => {
   assert.equal(VisionInspectionOutput.safeParse({ observation: "panel", anomaly_detected: true, anomaly_type: null, confidence: 0.9, recommended_action: "set_motor_pwm" }).success, false);
+});
+
+test("admin routes need a wallet session", async () => {
+  const a = app();
+  for (const [method, url] of [["GET", "/api/admin/state"], ["POST", "/api/admin/roles"], ["POST", "/api/admin/claim"]] as const) {
+    const res = await a.inject({ method, url, payload: method === "POST" ? {} : undefined });
+    assert.equal(res.statusCode, 401, url);
+  }
+});
+
+test("forged session cookie is rejected", async () => {
+  const res = await app().inject({ method: "GET", url: "/api/admin/state", headers: { cookie: "semmal_sid=not-a-session" } });
+  assert.equal(res.statusCode, 401);
+});
+
+test("sign-in rejects an unknown nonce and junk signature", async () => {
+  const a = app();
+  const msg = "localhost:3000 wants you to sign in with your Ethereum account:\n0x0000000000000000000000000000000000000001\n\nURI: http://localhost:3000\nVersion: 1\nChain ID: 7794095\nNonce: abcdefgh12345678\nIssued At: 2026-11-06T00:00:00.000Z";
+  const res = await a.inject({ method: "POST", url: "/api/auth/verify", payload: { message: msg, signature: "0x1234" } });
+  assert.equal(res.statusCode, 401);
+});
+
+test("me reports no owner on a fresh store", async () => {
+  const res = await app().inject({ method: "GET", url: "/api/auth/me" });
+  assert.deepEqual(res.json(), { address: null, role: "none", ownerSet: false });
+});
+
+test("ownership claim needs the one-time code; roles are enforced", () => {
+  const store = new AdminStore(join(mkdtempSync(join(tmpdir(), "semmal-")), "admin.json"));
+  const owner = "0x00000000000000000000000000000000000000aa";
+  const other = "0x00000000000000000000000000000000000000bb";
+  const code = store.bootstrapCode()!;
+  assert.throws(() => store.claimOwnership(owner, "WRONG"));
+  store.claimOwnership(owner, code);
+  assert.equal(store.bootstrapCode(), null);
+  assert.throws(() => store.claimOwnership(other, code));
+  assert.throws(() => store.update(other, "add_publisher", other)); // not an admin
+  store.update(owner, "add_admin", other);
+  assert.throws(() => store.update(other, "add_admin", owner)); // admins cannot manage admins
+  store.update(other, "add_publisher", "0x00000000000000000000000000000000000000cc");
+  assert.equal(store.trustedPublishers().length, 3);
 });

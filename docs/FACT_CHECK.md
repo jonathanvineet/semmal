@@ -21,7 +21,7 @@ Every vendor fact the code depends on: source, date checked, and what is still o
 
 **Signing (decision 2026-11-06):** wallet mode only, as the Arkiv guide prefers. No private key exists in SEMMAL. The browser wallet signs and broadcasts; reads go through the API's allowlisted read-only proxy (`eth_*` reads plus `arkiv_query`, `arkiv_getEntity`, `arkiv_getBlockTiming`, the only Arkiv methods in SDK 1.0.1 source). Wallet network params come from SDK `src/chains/rabdi.ts`.
 
-**Design decisions:** anyone can write any schema name, so the API only shows entities whose `$creator` is in `ARKIV_SIGNER_ADDRESS` / `ARKIV_TRUSTED_PUBLISHERS`, and parses every entity body with the v1 Zod contract. Only public profile data goes on Arkiv; availability and live state stay off-chain.
+**Design decisions:** anyone can write any schema name, so the API only shows entities whose `$creator` is the owner, an admin or a trusted publisher from `data/admin.json` (managed in `/admin`), and parses every entity body with the v1 Zod contract. Only public profile data goes on Arkiv; availability and live state stay off-chain.
 
 **Open:** exact entity URL path on the explorer (only the data-explorer root is used); expiry/renewal scheduler not built yet.
 

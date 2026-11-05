@@ -1,4 +1,4 @@
-import { randomUUID, timingSafeEqual } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
 import cors from "@fastify/cors";
 import { ArkivRegistry, arkivConfigFromEnv } from "@semmal/arkiv-adapter";
@@ -6,16 +6,23 @@ import { ZeroGError, ZeroGRouter, zeroGConfigFromEnv } from "@semmal/zerog-pc-ad
 import { loadConfig } from "./config";
 import { agentFixtures, robotFixtures } from "./fixtures";
 import { arkivRpcProxy } from "./arkiv-rpc-proxy";
+import { AdminStore, readCookie, WalletAuth } from "./admin";
 
-type Deps = { registry: ArkivRegistry; router: ZeroGRouter; config: ReturnType<typeof loadConfig> };
+type Deps = { registry: ArkivRegistry; router: ZeroGRouter; config: ReturnType<typeof loadConfig>; admin: AdminStore; auth: WalletAuth };
 
 export function defaultDeps(): Deps {
+  const config = loadConfig();
+  const admin = new AdminStore(config.ADMIN_STORE_PATH);
   return {
-    config: loadConfig(),
-    registry: new ArkivRegistry(arkivConfigFromEnv()),
+    config,
+    admin,
+    auth: new WalletAuth(new URL(config.WEB_ORIGIN).host),
+    registry: new ArkivRegistry(arkivConfigFromEnv(process.env, () => admin.trustedPublishers())),
     router: new ZeroGRouter(zeroGConfigFromEnv()),
   };
 }
+
+const SID = "semmal_sid";
 
 /** Tiny TTL cache so the dashboard does not hammer the (rate-limited) Arkiv RPC. */
 function cached<T>(ttlMs: number, fn: (key: string) => Promise<T>) {
@@ -31,7 +38,7 @@ function cached<T>(ttlMs: number, fn: (key: string) => Promise<T>) {
 }
 
 export function buildApp(deps: Deps = defaultDeps()) {
-  const { registry, router, config } = deps;
+  const { registry, router, config, admin, auth } = deps;
   const app = Fastify({
     logger: {
       level: "info",
@@ -42,12 +49,68 @@ export function buildApp(deps: Deps = defaultDeps()) {
   });
   app.register(cors, { origin: config.WEB_ORIGIN });
 
-  const requireOperator = async (req: FastifyRequest, reply: FastifyReply) => {
-    const token = config.OPERATOR_TOKEN;
-    const given = (req.headers.authorization ?? "").replace(/^Bearer\s+/i, "");
-    const ok = token && given.length === token.length && timingSafeEqual(Buffer.from(given), Buffer.from(token));
-    if (!ok) return reply.code(401).send({ error: "operator token required" });
+  const sessionAddress = (req: FastifyRequest) => auth.addressFor(readCookie(req.headers.cookie, SID));
+  /** Owner or admin wallet, signed in with SIWE. */
+  const requireAdmin = async (req: FastifyRequest, reply: FastifyReply) => {
+    const address = sessionAddress(req);
+    if (!address) return reply.code(401).send({ error: "Sign in with your wallet first" });
+    if (admin.roleOf(address) === "none") return reply.code(403).send({ error: "This wallet is not an owner or admin" });
   };
+
+  // ---------------------------------------------------------------- wallet sign-in (EIP-4361)
+  app.get("/api/auth/nonce", async () => ({ nonce: auth.issueNonce() }));
+
+  app.post<{ Body: { message?: string; signature?: string } }>("/api/auth/verify", async (req, reply) => {
+    const { message, signature } = req.body ?? {};
+    if (typeof message !== "string" || typeof signature !== "string" || !/^0x[0-9a-fA-F]+$/.test(signature) || message.length > 2000)
+      return reply.code(400).send({ error: "message and signature required" });
+    try {
+      const { sid, address } = await auth.verify(message, signature as `0x${string}`);
+      const secure = config.WEB_ORIGIN.startsWith("https://") ? "; Secure" : "";
+      reply.header("set-cookie", `${SID}=${sid}; HttpOnly; SameSite=Strict; Path=/; Max-Age=28800${secure}`);
+      return { address, role: admin.roleOf(address), ownerSet: Boolean(admin.snapshot.owner) };
+    } catch (e) {
+      return reply.code(401).send({ error: (e as Error).message });
+    }
+  });
+
+  app.post("/api/auth/logout", async (req, reply) => {
+    auth.end(readCookie(req.headers.cookie, SID));
+    reply.header("set-cookie", `${SID}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0`);
+    return { ok: true };
+  });
+
+  app.get("/api/auth/me", async (req) => {
+    const address = sessionAddress(req);
+    return { address, role: address ? admin.roleOf(address) : "none", ownerSet: Boolean(admin.snapshot.owner) };
+  });
+
+  // ---------------------------------------------------------------- admin
+  app.post<{ Body: { code?: string } }>("/api/admin/claim", async (req, reply) => {
+    const address = sessionAddress(req);
+    if (!address) return reply.code(401).send({ error: "Sign in with your wallet first" });
+    try {
+      admin.claimOwnership(address, String(req.body?.code ?? ""));
+      app.log.info({ owner: address }, "ownership claimed");
+      return { address, role: admin.roleOf(address) };
+    } catch (e) {
+      return reply.code(403).send({ error: (e as Error).message });
+    }
+  });
+
+  app.get("/api/admin/state", { preHandler: requireAdmin }, async () => admin.snapshot);
+
+  app.post<{ Body: { action?: string; address?: string } }>("/api/admin/roles", { preHandler: requireAdmin }, async (req, reply) => {
+    const actions = ["add_admin", "remove_admin", "add_publisher", "remove_publisher", "transfer_owner"] as const;
+    const action = actions.find((a) => a === req.body?.action);
+    if (!action) return reply.code(400).send({ error: "unknown action" });
+    try {
+      admin.update(sessionAddress(req)!, action, String(req.body?.address ?? ""));
+      return admin.snapshot;
+    } catch (e) {
+      return reply.code(403).send({ error: (e as Error).message });
+    }
+  });
 
   const showSim = config.SHOW_SIMULATED_FIXTURES === "true";
   const robotsFromArkiv = cached(15_000, () => registry.listRobots());
@@ -122,7 +185,7 @@ export function buildApp(deps: Deps = defaultDeps()) {
    * Operator-only live probe: one real, tiny, non-sensitive inference in the required trust mode.
    * Returns the provider request ID and metadata. Never fabricates a result.
    */
-  app.post("/api/zerog/probe", { preHandler: requireOperator }, async (_req, reply) => {
+  app.post("/api/zerog/probe", { preHandler: requireAdmin }, async (_req, reply) => {
     const correlationId = randomUUID();
     const model = router.config.defaultModel;
     if (!model) return reply.code(400).send({ error: "ZEROG_DEFAULT_MODEL is not set" });

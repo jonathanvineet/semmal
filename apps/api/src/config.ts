@@ -5,7 +5,7 @@ const Env = z.object({
   API_PORT: z.coerce.number().int().default(3001),
   WEB_ORIGIN: z.string().default("http://localhost:3000"),
   APP_MODE: z.enum(["simulation", "hardware"]).default("simulation"),
-  OPERATOR_TOKEN: z.string().optional(),
+  ADMIN_STORE_PATH: z.string().default("../../data/admin.json"),
   SHOW_SIMULATED_FIXTURES: z.enum(["true", "false"]).default("true"),
   ZEROG_ROUTER_BASE_URL: z.string().url().optional().or(z.literal("")),
   ZEROG_REQUIRED_TRUST_MODE: z.enum(["private", "verified", "standard"]).default("private"),
@@ -16,9 +16,8 @@ export function loadConfig(env = process.env) {
   const present = (k: string) => (env[k] ? "set" : "missing");
   const report = {
     APP_MODE: parsed.APP_MODE,
-    OPERATOR_TOKEN: present("OPERATOR_TOKEN"),
     ARKIV_ACCESS_KEY: present("ARKIV_ACCESS_KEY"),
-    ARKIV_TRUSTED_PUBLISHERS: present("ARKIV_TRUSTED_PUBLISHERS"),
+    ADMIN: "wallet sign-in; roles in data/admin.json",
     ARKIV_SIGNING: "wallet only",
     ZEROG_ROUTER_BASE_URL: present("ZEROG_ROUTER_BASE_URL"),
     ZEROG_ROUTER_API_KEY: present("ZEROG_ROUTER_API_KEY"),

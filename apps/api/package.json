@@ -16,6 +16,7 @@
     "@semmal/contracts": "workspace:*",
     "@semmal/zerog-pc-adapter": "workspace:*",
     "fastify": "^5.12.8",
+    "viem": "^2.57.16",
     "zod": "^4.6.7"
   },
   "devDependencies": {
