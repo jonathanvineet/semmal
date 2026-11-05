@@ -311,3 +311,50 @@ export type AgentResult = {
   receipt?: AgentReceipt;
   evidenceRefs?: string[];
 };
+
+// ---------------------------------------------------------------- robot gateway (robot <-> platform)
+/** Safety states from the robot's own supervisor (CLAUDE.md 4.4). The platform only reports them. */
+export const SafetyState = z.enum(["NORMAL", "DEGRADED", "STOPPING", "E_STOP", "RECOVERY_REQUIRED"]);
+const seq = z.number().int().min(1).max(Number.MAX_SAFE_INTEGER);
+const ts = z.string().datetime();
+
+/** First message after connecting. The link token goes in the Authorization header, not here. */
+export const GwHello = z.object({ type: z.literal("hello"), seq, ts, robotId: z.string().max(64), softwareVersion: z.string().max(32) });
+export const GwHeartbeat = z.object({
+  type: z.literal("heartbeat"),
+  seq,
+  ts,
+  batteryPct: z.number().min(0).max(100),
+  safetyState: SafetyState,
+  /** Coarse zone only (an aisle or area name), never coordinates. */
+  zone: z.string().max(40).optional(),
+  availability: z.enum(["available", "busy", "offline"]),
+});
+export const GwMissionProgress = z.object({
+  type: z.literal("mission_progress"),
+  seq,
+  ts,
+  taskId: z.string().max(64),
+  state: z.enum(["TASK_RECEIVED", "VALIDATING", "PLANNING", "DISCOVERING_SPECIALISTS", "HIRING_SPECIALISTS", "EXECUTING", "VERIFYING", "COMPLETED", "FAILED", "ABORTED", "PAUSED", "DEGRADED", "INCIDENT", "WAITING_FOR_0G", "SAFE_STOP"]),
+  detail: z.string().max(200).optional(),
+});
+export const GwIncidentNotice = z.object({
+  type: z.literal("incident_notice"),
+  seq,
+  ts,
+  incidentId: z.string().max(64),
+  faultCode: z.string().max(60),
+  severity: z.enum(["info", "warning", "critical"]),
+  safetyAction: z.string().max(40),
+  persistence: z.enum(["LOCAL_DURABLE", "STORAGE_CONFIRMED", "ARKIV_CONFIRMED"]),
+});
+export const GwTaskAck = z.object({ type: z.literal("task_ack"), seq, ts, taskId: z.string().max(64), accepted: z.boolean(), reason: z.string().max(200).optional() });
+export const RobotToPlatform = z.discriminatedUnion("type", [GwHello, GwHeartbeat, GwMissionProgress, GwIncidentNotice, GwTaskAck]);
+export type RobotToPlatform = z.infer<typeof RobotToPlatform>;
+
+export type PlatformToRobot =
+  | { type: "welcome"; sessionId: string; serverTime: string; heartbeatSeconds: number }
+  | { type: "ack"; seq: number }
+  | { type: "error"; code: string; message: string; seq?: number }
+  | { type: "task_assignment"; taskId: string; skill: string; plan: { waypoints: number; distanceM: number; privacy: string }; quote?: string; assignedAt: string }
+  | { type: "recovery_approval"; incidentId: string; approvedBy: string; approvedAt: string };

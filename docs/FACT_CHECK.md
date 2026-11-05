@@ -84,3 +84,17 @@ ID, provider, model, trust evidence, latency, input/output sha256 and a receipt 
 (no keys in SEMMAL). Jobs are owner-session only until the robot gateway authenticates robots.
 Payments are not executed (charge is reported only). Inspection delegation to vision is not run yet.
 **Not yet live-tested:** needs `ZEROG_ROUTER_API_KEY` (empty on this machine).
+
+## Robot gateway (added 2026-11-06)
+
+WebSocket `GET /api/gateway` on the API (`@fastify/websocket` 11, `ws` 8). The robot authenticates
+with a link token (`Authorization: Bearer slk_...`) its owner creates in the dashboard; only a
+sha256 is stored (`data/robot-links.json`), compared in constant time, revocable. Messages are the
+`RobotToPlatform` schemas (hello, heartbeat, mission_progress, incident_notice, task_ack), max 16 KiB,
+strictly increasing `seq` (replays rejected), hello within 5 s, offline after 15 s without a
+heartbeat, one session per robot. Public status (`/api/robots/live`) is online/availability only;
+owners see battery, safety state, zone and an event log. Tasks are refused unless the robot reports
+NORMAL. Live state is in memory (PostgreSQL/Redis later). `services/robot-link` is the robot-host
+side: it relays state written by the ROS 2 gateway node (`SEMMAL_STATE_FILE`) and reports DEGRADED,
+declining tasks, when that state is missing; battery falls back to the host's own reading.
+Tests: `apps/api/src/gateway.test.ts` against a real WebSocket server.

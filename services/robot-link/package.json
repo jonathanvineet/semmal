@@ -1,0 +1,13 @@
+{
+  "name": "@semmal/robot-link",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Robot host side of the SEMMAL robot gateway (the ROS 2 gateway node feeds it state).",
+  "scripts": {
+    "start": "tsx --env-file-if-exists=.env.robot src/index.ts",
+    "typecheck": "tsc --noEmit -p ."
+  },
+  "dependencies": { "@semmal/contracts": "workspace:*", "ws": "^8.22.1" },
+  "devDependencies": { "@types/node": "^24", "@types/ws": "^8", "tsx": "^4.23.15", "typescript": "^5.9" }
+}

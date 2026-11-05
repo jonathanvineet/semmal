@@ -10,8 +10,10 @@ import { z } from "zod";
 import { arkivRpcProxy } from "./arkiv-rpc-proxy";
 import { AdminStore, readCookie, WalletAuth } from "./admin";
 import { AgentRunner } from "./runner";
+import { Gateway, LinkStore, MAX_MESSAGE_BYTES } from "./gateway";
+import websocket from "@fastify/websocket";
 
-type Deps = { registry: ArkivRegistry; router: ZeroGRouter; config: ReturnType<typeof loadConfig>; admin: AdminStore; auth: WalletAuth; runner?: AgentRunner };
+type Deps = { registry: ArkivRegistry; router: ZeroGRouter; config: ReturnType<typeof loadConfig>; admin: AdminStore; auth: WalletAuth; runner?: AgentRunner; gateway?: Gateway };
 
 export function defaultDeps(): Deps {
   const config = loadConfig();
@@ -23,7 +25,8 @@ export function defaultDeps(): Deps {
     async (agentId) => (await registry.listAgents({ agentId }))[0]?.data ?? null,
     process.env.AGENT_JOBS_DB || "../../data/agent-jobs.db",
   );
-  return { config, admin, auth: new WalletAuth(new URL(config.WEB_ORIGIN).host), registry, router, runner };
+  const gateway = new Gateway(new LinkStore(process.env.ROBOT_LINKS_PATH || "../../data/robot-links.json"));
+  return { config, admin, auth: new WalletAuth(new URL(config.WEB_ORIGIN).host), registry, router, runner, gateway };
 }
 
 const SID = "semmal_sid";
@@ -42,7 +45,7 @@ function cached<T>(ttlMs: number, fn: (key: string) => Promise<T>) {
 }
 
 export function buildApp(deps: Deps = defaultDeps()) {
-  const { registry, router, config, admin, auth, runner } = deps;
+  const { registry, router, config, admin, auth, runner, gateway } = deps;
   const app = Fastify({
     logger: {
       level: "info",
@@ -288,6 +291,80 @@ export function buildApp(deps: Deps = defaultDeps()) {
     } catch {
       return reply.code(502).send({ error: "could not read the 0G model list" });
     }
+  });
+
+  // ---------------------------------------------------------------- robot gateway
+  /** The wallet signed in now must be the robot's owner on Arkiv. */
+  async function ownedRobot(req: FastifyRequest, robotId: string) {
+    const address = sessionAddress(req);
+    if (!address) return { error: 401, message: "Sign in with your wallet first" } as const;
+    if (!/^[a-z0-9][a-z0-9-]{2,63}$/.test(robotId)) return { error: 400, message: "bad robot id" } as const;
+    const robot = (await registry.listRobots({ robotId }).catch(() => []))[0];
+    if (!robot) return { error: 404, message: "Robot not found on Arkiv" } as const;
+    if (robot.data.ownerWallet.toLowerCase() !== address.toLowerCase()) return { error: 403, message: "Only the robot's owner wallet can do this" } as const;
+    return { robot, address } as const;
+  }
+
+  if (gateway) {
+    app.register(async (scope) => {
+      await scope.register(websocket, { options: { maxPayload: MAX_MESSAGE_BYTES } });
+      scope.get(
+        "/api/gateway",
+        {
+          websocket: true,
+          preValidation: async (req, reply) => {
+            const token = (req.headers.authorization ?? "").replace(/^Bearer\s+/i, "");
+            const link = gateway.links.verify(token);
+            if (!link) return reply.code(401).send({ error: "invalid or revoked link token" });
+            (req as FastifyRequest & { robotId?: string }).robotId = link.robotId;
+          },
+        },
+        (socket, req) => gateway.attach(socket, (req as FastifyRequest & { robotId: string }).robotId),
+      );
+    });
+    app.addHook("onClose", async () => gateway.stop());
+  }
+
+  /** Create (or replace) the robot's link token. Shown once; only its hash is kept. */
+  app.post<{ Params: { robotId: string } }>("/api/robots/:robotId/link", async (req, reply) => {
+    if (!gateway) return reply.code(503).send({ error: "gateway not available" });
+    const own = await ownedRobot(req, req.params.robotId);
+    if ("error" in own) return reply.code(own.error as number).send({ error: own.message });
+    gateway.disconnect(req.params.robotId);
+    const token = gateway.links.issue(req.params.robotId, own.address);
+    return { robotId: req.params.robotId, token, gatewayPath: "/api/gateway", note: "Shown once. Store it on the robot host only." };
+  });
+
+  app.delete<{ Params: { robotId: string } }>("/api/robots/:robotId/link", async (req, reply) => {
+    if (!gateway) return reply.code(503).send({ error: "gateway not available" });
+    const own = await ownedRobot(req, req.params.robotId);
+    if ("error" in own) return reply.code(own.error as number).send({ error: own.message });
+    gateway.disconnect(req.params.robotId);
+    return { revoked: gateway.links.revoke(req.params.robotId) };
+  });
+
+  /** Public, coarse live status for the marketplace: online and availability only. */
+  app.get("/api/robots/live", async () => ({ robots: gateway ? gateway.publicView() : [] }));
+
+  app.get<{ Params: { robotId: string } }>("/api/robots/:robotId/live", async (req, reply) => {
+    if (!gateway) return reply.code(503).send({ error: "gateway not available" });
+    const own = await ownedRobot(req, req.params.robotId);
+    if ("error" in own) return reply.code(own.error as number).send({ error: own.message });
+    return gateway.ownerView(req.params.robotId);
+  });
+
+  /** Owner sends a task straight to their connected robot (customer booking comes later). */
+  app.post<{ Params: { robotId: string } }>("/api/robots/:robotId/tasks", async (req, reply) => {
+    if (!gateway) return reply.code(503).send({ error: "gateway not available" });
+    const own = await ownedRobot(req, req.params.robotId);
+    if ("error" in own) return reply.code(own.error as number).send({ error: own.message });
+    const body = z
+      .object({ skill: RobotSkill, waypoints: z.number().int().min(1).max(50), distanceM: z.number().min(0).max(20000), privacy: TrustMode })
+      .safeParse(req.body);
+    if (!body.success) return reply.code(400).send({ error: "invalid task", issues: body.error.issues });
+    if (!own.robot.data.capabilities.includes(body.data.skill)) return reply.code(409).send({ error: "this robot does not offer that skill" });
+    const r = gateway.assign(req.params.robotId, { skill: body.data.skill, plan: { waypoints: body.data.waypoints, distanceM: body.data.distanceM, privacy: body.data.privacy } });
+    return r.ok ? { taskId: r.taskId } : reply.code(409).send({ error: r.reason });
   });
 
   // ---------------------------------------------------------------- agent runner
