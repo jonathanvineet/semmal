@@ -10,6 +10,7 @@ import { useEffect, useMemo, useState } from "react";
 import { formatEther, getAddress, isAddress } from "viem";
 import { ROBOT_MODELS, ROBOT_SKILLS, RobotProfile, SERVICE_AREAS, robotIdFromWallet, type RobotProfile as TRobot } from "@semmal/contracts";
 import { Select } from "./ui/Select";
+import { ApprovalCard } from "./ui/ApprovalCard";
 import { robotCreateArgs } from "@semmal/arkiv-adapter/browser";
 import { useWallet } from "@/lib/wallet";
 import { useArkivWriter } from "@/lib/arkiv-writer";
@@ -348,19 +349,20 @@ export function RegisterRobot() {
                   )}
                   {profile && (
                     <details className="json-peek">
-                      <summary>See exactly what goes on Arkiv</summary>
+                      <summary><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m7.5 5 5 5-5 5" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" /></svg>See exactly what goes on Arkiv</summary>
                       <pre className="mono">{JSON.stringify(profile, null, 2)}</pre>
                     </details>
                   )}
                   {ark.approval && (
-                    <div className="approve" role="alertdialog" aria-labelledby="ap-h">
-                      <h3 id="ap-h" className="t-card">Approve this write</h3>
-                      <p className="muted t-small">Maximum fee {formatEther(ark.approval.maximumCostWei)} tGLM · gas {ark.approval.gas.toString()}</p>
-                      <div className="btn-row">
-                        <button className="btn btn--primary" type="button" onClick={() => ark.approval!.resolve(true)}>Approve and open wallet</button>
-                        <button className="btn btn--secondary" type="button" onClick={() => ark.approval!.resolve(false)}>Cancel</button>
-                      </div>
-                    </div>
+                    <ApprovalCard
+                      what={`Robot profile · ${ark.approval.key}`}
+                      account={w.account}
+                      gas={ark.approval.gas}
+                      gasPrice={ark.approval.gasPrice}
+                      maximumCostWei={ark.approval.maximumCostWei}
+                      onApprove={() => ark.approval!.resolve(true)}
+                      onCancel={() => ark.approval!.resolve(false)}
+                    />
                   )}
                 </>
               )}

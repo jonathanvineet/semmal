@@ -674,3 +674,40 @@ main > section.market { padding-top: 176px !important; }
 @media (prefers-reduced-motion: reduce) { .sel__chev { transition: none; } }
 /* let the dropdown hang below the panel; still clip the sideways step slide */
 .reg-panel { overflow: visible; overflow-x: clip; }
+
+/* ------------------------------------------------------------- approval card */
+.apv {
+  display: grid; gap: 20px; padding: 26px; border-radius: 28px;
+  background: radial-gradient(120% 140% at 0% 0%, color-mix(in oklab, var(--p-accent) 9%, #121316), #0f1012 60%);
+  box-shadow: 0 0 0 1px color-mix(in oklab, var(--p-accent) 32%, transparent), 0 30px 70px -40px color-mix(in oklab, var(--p-accent) 60%, #000);
+}
+.apv__head { display: flex; gap: 16px; align-items: flex-start; }
+.apv__icon { width: 46px; height: 46px; flex: none; display: grid; place-items: center; border-radius: 15px; color: var(--p-accent); background: color-mix(in oklab, var(--p-accent) 14%, transparent); }
+.apv__icon svg { width: 24px; height: 24px; }
+.apv__head h3 { margin: 2px 0 4px; font-size: 21px; font-weight: 600; letter-spacing: -0.015em; }
+.apv__head p { margin: 0; color: var(--p-muted); font-size: 15px; line-height: 1.5; }
+.apv__rows { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px; margin: 0; border-radius: 18px; overflow: hidden; background: var(--soft-line); }
+.apv__rows > div { display: grid; gap: 4px; padding: 14px 16px; background: #0c0c0e; min-width: 0; }
+.apv__rows dt { font-size: 12.5px; color: var(--p-muted); }
+.apv__rows dd { margin: 0; font-size: 15px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: flex; align-items: center; }
+.apv__rows dd.mono { font-size: 13px; }
+.apv__rows .dot { width: 7px; height: 7px; margin-right: 8px; }
+.apv__fee { grid-column: 1 / -1; background: color-mix(in oklab, var(--p-accent) 7%, #0c0c0e) !important; }
+.apv__fee dd { font-size: 24px; font-weight: 600; letter-spacing: -0.02em; }
+.apv__fee dd small { font-size: 14px; font-weight: 500; color: var(--p-muted); margin-left: 6px; }
+.apv__foot { display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; }
+.apv__steps { list-style: none; margin: 0; padding: 0; display: flex; align-items: center; gap: 10px; font-size: 13.5px; color: var(--p-muted); }
+.apv__steps li { display: inline-flex; align-items: center; gap: 8px; }
+.apv__steps li + li::before { content: ""; width: 22px; height: 1px; background: var(--soft-line); margin-right: 2px; }
+.apv__steps span { width: 22px; height: 22px; display: grid; place-items: center; border-radius: 50%; background: var(--soft-fill); font-size: 12px; font-weight: 600; }
+.apv__steps li.is-now { color: var(--p-ink); }
+.apv__steps li.is-now span { background: var(--p-accent); color: var(--p-bg); }
+.apv__actions { display: flex; gap: 10px; margin-left: auto; }
+@media (max-width: 639px) { .apv__rows { grid-template-columns: 1fr; } .apv__actions { width: 100%; } .apv__actions .btn { flex: 1; } }
+
+/* the "see exactly what goes on Arkiv" toggle */
+.json-peek summary { display: inline-flex; align-items: center; gap: 8px; height: 38px; padding: 0 14px 0 10px; border-radius: 999px; background: var(--soft-fill); color: var(--p-muted); font-size: 14px; list-style: none; cursor: pointer; transition: background var(--m-in) var(--m-ease), color var(--m-in) var(--m-ease); }
+.json-peek summary::-webkit-details-marker { display: none; }
+.json-peek summary:hover { color: var(--p-ink); background: color-mix(in oklab, var(--p-ink) 8%, transparent); }
+.json-peek summary svg { width: 16px; height: 16px; transition: transform 180ms var(--m-ease); }
+.json-peek[open] summary svg { transform: rotate(90deg); }

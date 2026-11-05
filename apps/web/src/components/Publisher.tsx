@@ -18,6 +18,7 @@ import {
 } from "@semmal/arkiv-adapter/browser";
 import type { AgentListing, RobotProfile } from "@semmal/contracts";
 import { ARKIV_EXPLORER } from "@/lib/api";
+import { ApprovalCard } from "./ui/ApprovalCard";
 
 type Drafts = { robots: RobotProfile[]; agents: AgentListing[]; ttlDays: number };
 type JournalEntry = { key: string; phase: string; txHash?: string; entityKey?: string; at: string };
@@ -196,19 +197,15 @@ export function Publisher() {
       {message && <p className="notice" role="status">{message}</p>}
 
       {pending && (
-        <div className="approve" role="alertdialog" aria-labelledby="approve-h">
-          <h3 id="approve-h" className="t-card">Approve this Arkiv write</h3>
-          <dl className="detail-grid">
-            <div><dt>Profile</dt><dd className="mono">{pending.key}</dd></div>
-            <div><dt>Gas limit</dt><dd className="mono">{pending.gas.toString()}</dd></div>
-            <div><dt>Gas price</dt><dd className="mono">{pending.gasPrice.toString()} wei</dd></div>
-            <div><dt>Maximum fee</dt><dd className="mono">{formatEther(pending.maximumCostWei)} tGLM</dd></div>
-          </dl>
-          <div className="btn-row">
-            <button className="btn btn--primary" type="button" onClick={() => pending.resolve(true)}>Approve and open wallet</button>
-            <button className="btn btn--secondary" type="button" onClick={() => pending.resolve(false)}>Cancel write</button>
-          </div>
-        </div>
+        <ApprovalCard
+          what={`Agent listing · ${pending.key}`}
+          account={account}
+          gas={pending.gas}
+          gasPrice={pending.gasPrice}
+          maximumCostWei={pending.maximumCostWei}
+          onApprove={() => pending.resolve(true)}
+          onCancel={() => pending.resolve(false)}
+        />
       )}
 
       {drafts && (
