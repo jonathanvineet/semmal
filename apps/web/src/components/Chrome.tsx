@@ -36,7 +36,7 @@ export function Footer() {
               <a href="https://gazebosim.org/" target="_blank" rel="noreferrer">Gazebo</a>
             </div>
           </div>
-          <p className="legal t-small muted">© {new Date().getFullYear()} Semmal · Payments are not live yet · Product names are trademarks of their owners</p>
+          <p className="legal t-small muted">© {new Date().getFullYear()} Semmal · Payments are not live yet · 3D robots adapted from MuJoCo Menagerie, <a className="link" href="/credits">credits</a> · Product names are trademarks of their owners</p>
         </div>
       </div>
     </footer>

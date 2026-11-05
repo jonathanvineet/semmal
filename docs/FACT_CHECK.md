@@ -49,3 +49,12 @@ Source pages: https://docs.0g.ai/developer-hub/building-on-0g/compute-network/ro
 ## Taste / design
 
 Palette, type and hero were dealt with the taste-skill scripts (`start.mjs deal/css`, `assets/layout/deal.mjs`): graphite + safety orange, Sora / Figtree / Martian Mono, soft radius.
+
+## 3D robot models (added 2026-11-06)
+
+Seven robot types are rendered from real geometry in `apps/web/public/models/*.glb`, adapted from
+MuJoCo Menagerie (https://github.com/google-deepmind/mujoco_menagerie): loaded in MuJoCo 3.17, posed
+at their home keyframe, visual geoms only, merged by colour, simplified, meshopt-compressed (~800 KB
+total). Licences are copied to `public/models/LICENSES/` and listed on `/credits`:
+skydio_x2, shadow_hand, google_robot, pal_tiago (Apache-2.0); unitree_go2, unitree_g1, universal_robots_ur5e (BSD-3-Clause style).
+The rover is TIAGo's mobile base only. Types are shown by category; the app does not claim to support those vendors' products.

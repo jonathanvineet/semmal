@@ -591,3 +591,13 @@ body { color: var(--p-ink); line-height: 1.6; }
 }
 main, footer.closing { position: relative; z-index: 1; }
 main > section.market { background: transparent; }
+
+/* ------------------------------------------------------------- 3D robots (one shared canvas, drei View per card) */
+main > section.market { padding-top: 176px !important; }
+.model-grid { grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); }
+.model { padding: 12px 16px 18px; }
+.model__view { width: 100%; aspect-ratio: 1 / 0.82; border-radius: 16px; background: radial-gradient(70% 70% at 50% 60%, #191a1f, #0b0b0d 75%); }
+.model.is-on .model__view { background: radial-gradient(70% 70% at 50% 60%, color-mix(in oklab, var(--p-accent) 10%, #191a1f), #0b0b0d 75%); }
+.robot-card__view { width: 100%; aspect-ratio: 1 / 0.86; border-radius: 22px; background: radial-gradient(70% 70% at 50% 60%, #1b1c21, #0d0d10 75%); }
+.credits-list li { flex-wrap: wrap; }
+@media (max-width: 1023px) { .model-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

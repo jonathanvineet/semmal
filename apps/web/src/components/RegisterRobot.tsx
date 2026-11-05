@@ -13,6 +13,9 @@ import { robotCreateArgs } from "@semmal/arkiv-adapter/browser";
 import { useWallet } from "@/lib/wallet";
 import { useArkivWriter } from "@/lib/arkiv-writer";
 import { ARKIV_EXPLORER } from "@/lib/api";
+import { RobotCanvas, RobotView, preloadRobots } from "./robots3d/Robot3D";
+
+preloadRobots(ROBOT_MODELS.map((x) => x.asset));
 
 const STEPS = ["Nickname", "Model", "Skills", "Robot wallet", "Publish"] as const;
 const AREAS = ["warehouse-a", "warehouse-b"] as const;
@@ -20,27 +23,14 @@ type Check = { robotId: string; takenByOther: boolean; existing: { entityKey: st
 
 const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
 
-function RoverGlyph({ model }: { model: string }) {
-  const off = model !== "semmal-rover-sim";
-  return (
-    <svg viewBox="0 0 120 80" className={`rover ${off ? "is-off" : ""}`} aria-hidden="true">
-      <rect x="22" y="30" width="76" height="30" rx="14" className="rover__body" />
-      <rect x="30" y="24" width="60" height="10" rx="5" className="rover__deck" />
-      <circle cx="60" cy="18" r="7" className="rover__lidar" />
-      <circle cx="34" cy="62" r="9" className="rover__wheel" />
-      <circle cx="86" cy="62" r="9" className="rover__wheel" />
-      <rect x="40" y="42" width="40" height="4" rx="2" className="rover__light" />
-    </svg>
-  );
-}
-
 export function RegisterRobot() {
   const w = useWallet();
   const ark = useArkivWriter();
   const [step, setStep] = useState(0);
   const [dir, setDir] = useState(1);
   const [name, setName] = useState("");
-  const [model, setModel] = useState<string>("semmal-rover-sim");
+  const [model, setModel] = useState<string>("rover");
+  const [hoverModel, setHoverModel] = useState<string | null>(null);
   const [skills, setSkills] = useState<string[]>(["warehouse.inspection"]);
   const [price, setPrice] = useState(12.5);
   const [area, setArea] = useState<string>(AREAS[0]);
@@ -52,7 +42,8 @@ export function RegisterRobot() {
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<{ entityKey: string; txHash: string; robotId: string; version: number } | null>(null);
 
-  const m = ROBOT_MODELS.find((x) => x.id === model)!;
+  const m = ROBOT_MODELS.find((x) => x.id === model) ?? ROBOT_MODELS[0];
+  const skillChoices = ROBOT_SKILLS.filter((x) => (m.skills as readonly string[]).includes(x.id));
   const walletOk = isAddress(robotWallet);
   const robotId = walletOk ? robotIdFromWallet(robotWallet) : "";
   const sameAsOwner = Boolean(walletOk && w.account && getAddress(robotWallet) === getAddress(w.account));
@@ -100,7 +91,7 @@ export function RegisterRobot() {
 
   const valid = [
     /^[\p{L}\p{N} .'-]{2,40}$/u.test(name.trim()),
-    m.supported,
+    true,
     skills.length > 0,
     walletOk && !check?.takenByOther && !checking,
     Boolean(profile) && ark.onRabdi,
@@ -151,6 +142,7 @@ export function RegisterRobot() {
 
   return (
     <div className="reg">
+      <RobotCanvas />
       <ol className="reg-rail" aria-label="Steps">
         {STEPS.map((s, i) => (
           <li key={s}>
@@ -192,11 +184,25 @@ export function RegisterRobot() {
                   <p className="muted">The platform decides its sensors and how SEMMAL can drive it safely.</p>
                   <div className="model-grid" role="radiogroup" aria-label="Robot model">
                     {ROBOT_MODELS.map((x) => (
-                      <button key={x.id} type="button" role="radio" aria-checked={model === x.id} disabled={!x.supported} className={`model ${model === x.id ? "is-on" : ""}`} onClick={() => setModel(x.id)}>
-                        <RoverGlyph model={x.id} />
+                      <button
+                        key={x.id}
+                        type="button"
+                        role="radio"
+                        aria-checked={model === x.id}
+                        className={`model ${model === x.id ? "is-on" : ""}`}
+                        onPointerEnter={() => setHoverModel(x.id)}
+                        onPointerLeave={() => setHoverModel(null)}
+                        onClick={() => {
+                          setModel(x.id);
+                          setSkills((cur) => {
+                            const keep = cur.filter((c) => (x.skills as readonly string[]).includes(c));
+                            return keep.length ? keep : [x.skills[0]];
+                          });
+                        }}
+                      >
+                        <RobotView asset={x.asset} active={model === x.id || hoverModel === x.id} className="model__view" />
                         <b>{x.name}</b>
                         <span>{x.note}</span>
-                        {!x.supported && <span className="model__soon">Coming later</span>}
                       </button>
                     ))}
                   </div>
@@ -206,12 +212,12 @@ export function RegisterRobot() {
               {step === 2 && (
                 <>
                   <h2>What work can it do?</h2>
-                  <p className="muted">Pick every job it can take. Customers and the marketplace search by these.</p>
+                  <p className="muted">Pick every job a {m.name.toLowerCase()} like yours can take, up to four. Customers search by these.</p>
                   <div className="skill-grid">
-                    {ROBOT_SKILLS.map((s) => {
+                    {skillChoices.map((s) => {
                       const on = skills.includes(s.id);
                       return (
-                        <button key={s.id} type="button" aria-pressed={on} className={`skill ${on ? "is-on" : ""}`} onClick={() => setSkills((cur) => (on ? cur.filter((x) => x !== s.id) : [...cur, s.id]))}>
+                        <button key={s.id} type="button" aria-pressed={on} className={`skill ${on ? "is-on" : ""}`} onClick={() => setSkills((cur) => (on ? cur.filter((x) => x !== s.id) : cur.length >= 4 ? cur : [...cur, s.id]))}>
                           <span className="skill__tick" aria-hidden="true">{on ? "✓" : "+"}</span>
                           <b>{s.label}</b>
                           <span>{s.hint}</span>
@@ -310,7 +316,7 @@ export function RegisterRobot() {
         <aside className="reg-preview" aria-label="Preview">
           <span className="t-label muted">Preview</span>
           <div className="robot-card">
-            <RoverGlyph model={model} />
+            <RobotView asset={m.asset} active className="robot-card__view" zoom={1.05} />
             <h3>{name.trim() || "Your robot"}</h3>
             <p className="muted t-small">{m.name}</p>
             <div className="robot-card__tags">

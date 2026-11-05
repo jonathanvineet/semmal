@@ -17,46 +17,54 @@ const evmAddress = z.string().regex(/^0x[0-9a-fA-F]{40}$/);
 const decimalAmount = z.string().regex(/^\d+(\.\d{1,18})?$/);
 
 // ---------------------------------------------------------------- robots
-export const RobotType = z.enum(["diff-drive-indoor"]);
+export const RobotType = z.enum([
+  "diff-drive-indoor",
+  "aerial-multirotor",
+  "legged-quadruped",
+  "fixed-arm",
+  "dexterous-hand",
+  "humanoid",
+  "mobile-manipulator",
+]);
 
 export const ROBOT_SKILLS = [
   { id: "warehouse.inspection", label: "Inspection", hint: "Checks machines and panels at waypoints" },
   { id: "warehouse.patrol", label: "Patrol", hint: "Drives routes and reports what changed" },
-  { id: "indoor.delivery", label: "Delivery", hint: "Carries small items between zones" },
+  { id: "indoor.delivery", label: "Indoor delivery", hint: "Carries small items between zones" },
+  { id: "aerial.inspection", label: "Aerial inspection", hint: "Flies to roofs, racks and towers to look closely" },
+  { id: "aerial.mapping", label: "Mapping", hint: "Flies a grid and builds a map of a site" },
+  { id: "site.inspection", label: "Site inspection", hint: "Walks stairs and rough ground to read gauges" },
+  { id: "outdoor.patrol", label: "Outdoor patrol", hint: "Walks a perimeter and flags anything new" },
+  { id: "manipulation.pick-place", label: "Pick and place", hint: "Moves parts and boxes from one spot to another" },
+  { id: "manipulation.assembly", label: "Assembly", hint: "Fits, screws and joins parts" },
+  { id: "manipulation.machine-tending", label: "Machine tending", hint: "Loads and unloads machines" },
+  { id: "manipulation.dexterous", label: "Fine handling", hint: "Grips small or delicate objects with fingers" },
+  { id: "assist.human", label: "Assist people", hint: "Hands over items and works next to people" },
 ] as const;
-export const RobotSkill = z.enum(["warehouse.inspection", "warehouse.patrol", "indoor.delivery"]);
+export const RobotSkill = z.enum([
+  "warehouse.inspection", "warehouse.patrol", "indoor.delivery", "aerial.inspection", "aerial.mapping",
+  "site.inspection", "outdoor.patrol", "manipulation.pick-place", "manipulation.assembly",
+  "manipulation.machine-tending", "manipulation.dexterous", "assist.human",
+]);
 
-/** Robot platforms SEMMAL can run. Only supported ones can be registered. */
+const SENSORS = ["lidar-2d", "rgb-camera", "imu", "wheel-encoders", "bumper", "battery", "depth-camera", "gps", "barometer", "joint-encoders", "force-torque", "tactile"] as const;
+export const Sensor = z.enum(SENSORS);
+
+/**
+ * Robot types SEMMAL can register. `asset` is the 3D model in apps/web/public/models (adapted
+ * from MuJoCo Menagerie; see /credits).
+ */
 export const ROBOT_MODELS = [
-  {
-    id: "semmal-rover-sim",
-    name: "Semmal Rover",
-    robotType: "diff-drive-indoor",
-    base: "Differential drive, 0.36 m wheelbase",
-    sensors: ["lidar-2d", "rgb-camera", "imu", "wheel-encoders", "bumper", "battery"],
-    supported: true,
-    note: "Indoor rover with lidar, camera, IMU and bumper. Built for warehouse aisles.",
-  },
-  {
-    id: "custom-diff-drive",
-    name: "Your own diff-drive base",
-    robotType: "diff-drive-indoor",
-    base: "Differential drive, ROS 2 interface",
-    sensors: ["lidar-2d", "rgb-camera", "imu", "wheel-encoders", "battery"],
-    supported: true,
-    note: "Any indoor diff-drive base that speaks the SEMMAL ROS 2 interface.",
-  },
-  {
-    id: "quadruped",
-    name: "Quadruped",
-    robotType: "diff-drive-indoor",
-    base: "Legged base",
-    sensors: ["rgb-camera", "imu", "battery"],
-    supported: false,
-    note: "Not supported yet.",
-  },
+  { id: "rover", name: "Compact rover", robotType: "diff-drive-indoor", asset: "rover", base: "Wheeled indoor base", sensors: ["lidar-2d", "rgb-camera", "imu", "wheel-encoders", "bumper", "battery"], skills: ["warehouse.inspection", "warehouse.patrol", "indoor.delivery"], note: "Small wheeled base for aisles, patrols and short deliveries." },
+  { id: "drone", name: "Inspection drone", robotType: "aerial-multirotor", asset: "drone", base: "Quadcopter", sensors: ["rgb-camera", "imu", "gps", "barometer", "battery"], skills: ["aerial.inspection", "aerial.mapping"], note: "Flies to high or hard-to-reach places and maps sites." },
+  { id: "quadruped", name: "Quadruped", robotType: "legged-quadruped", asset: "quadruped", base: "Four-legged base", sensors: ["depth-camera", "lidar-2d", "imu", "joint-encoders", "battery"], skills: ["site.inspection", "outdoor.patrol", "warehouse.patrol"], note: "Walks stairs and rough ground where wheels cannot go." },
+  { id: "arm", name: "Robot arm", robotType: "fixed-arm", asset: "arm", base: "Six-axis arm", sensors: ["joint-encoders", "force-torque", "rgb-camera"], skills: ["manipulation.pick-place", "manipulation.assembly", "manipulation.machine-tending"], note: "Fixed six-axis arm for cells, benches and machines." },
+  { id: "hand", name: "Dexterous hand", robotType: "dexterous-hand", asset: "hand", base: "Five-finger hand", sensors: ["joint-encoders", "tactile"], skills: ["manipulation.dexterous", "manipulation.assembly"], note: "Five fingers for small, delicate or oddly shaped parts." },
+  { id: "humanoid", name: "Humanoid", robotType: "humanoid", asset: "humanoid", base: "Bipedal humanoid", sensors: ["depth-camera", "imu", "joint-encoders", "force-torque", "battery"], skills: ["manipulation.pick-place", "indoor.delivery", "assist.human"], note: "Works in spaces built for people, next to people." },
+  { id: "manipulator", name: "Mobile manipulator", robotType: "mobile-manipulator", asset: "manipulator", base: "Wheeled base with an arm", sensors: ["lidar-2d", "depth-camera", "imu", "joint-encoders", "battery"], skills: ["manipulation.pick-place", "indoor.delivery", "warehouse.inspection"], note: "Drives to the job, then picks and places." },
 ] as const;
-export const RobotModelId = z.enum(["semmal-rover-sim", "custom-diff-drive", "quadruped"]);
+/** Older ids stay valid so profiles already on Arkiv still parse. */
+export const RobotModelId = z.enum(["rover", "drone", "quadruped", "arm", "hand", "humanoid", "manipulator", "semmal-rover-sim", "custom-diff-drive"]);
 
 /** The robot's unique id, derived from its own wallet so one robot cannot hold two ids. */
 export const robotIdFromWallet = (wallet: string) => `rbt-${wallet.toLowerCase().replace(/^0x/, "").slice(0, 10)}`;
@@ -73,9 +81,9 @@ export const RobotProfile = z.object({
   robotType: RobotType,
   hardware: z.object({
     base: z.string().max(80),
-    sensors: z.array(z.enum(["lidar-2d", "rgb-camera", "imu", "wheel-encoders", "bumper", "battery"])).max(8),
+    sensors: z.array(Sensor).max(10),
   }),
-  capabilities: z.array(RobotSkill).min(1).max(6),
+  capabilities: z.array(RobotSkill).min(1).max(4),
   rosInterfaceVersion: z.string().max(16),
   profileVersion: z.number().int().min(1),
   /** Coarse only. Never an exact location. */

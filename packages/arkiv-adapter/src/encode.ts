@@ -26,6 +26,7 @@ export function robotCreateArgs(input: TRobot, ttlDays = 30) {
       can_inspect: has("warehouse.inspection"),
       can_patrol: has("warehouse.patrol"),
       can_deliver: has("indoor.delivery"),
+      ...Object.fromEntries(p.capabilities.slice(0, 4).map((c, i) => [`skill_${i + 1}`, c])),
       price: dec(p.price.amount),
       profile_version: i32(p.profileVersion),
       display_name: p.displayName,

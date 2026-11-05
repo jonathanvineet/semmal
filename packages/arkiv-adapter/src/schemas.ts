@@ -18,6 +18,11 @@ export const RobotProfileSchema = defineSchema("semmal_robot_profile_v2", {
   can_inspect: bool().indexed(),
   can_patrol: bool().indexed(),
   can_deliver: bool().indexed(),
+  // up to four skills, one indexed slot each, so any skill is a single eq() or an or() of four
+  skill_1: str().indexed().optional(),
+  skill_2: str().indexed().optional(),
+  skill_3: str().indexed().optional(),
+  skill_4: str().indexed().optional(),
   price: dec().indexed(),
   profile_version: i32().indexed(),
   display_name: str(),
