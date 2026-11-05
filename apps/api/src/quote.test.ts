@@ -34,7 +34,8 @@ test("prices a task from its parts, hiring the private agents", () => {
   // cost 0.40 + 1.10 + 0.078518 + 0.36 = 1.938518 ; margin 25% -> 0.48463 (rounded up) ; quote 2.423148 -> raised to minFee 5
   assert.equal(q.cost, "1.938518");
   assert.equal(q.quote, "5.00");
-  assert.ok(q.notes.some((n) => n.includes("minimum fee")));
+  const top = q.lines.find((l) => l.label === "Minimum fee top-up")!;
+  assert.equal(top.usdc, "2.576852");
 });
 
 test("verified-only agents are not hired for a private task", () => {
@@ -57,6 +58,15 @@ test("caps at the maximum quote when it still covers cost", () => {
   assert.equal(q.status, "ok");
   if (q.status === "ok") {
     assert.equal(q.quote, "2.10");
-    assert.ok(q.notes.some((n) => n.includes("maximum quote")));
+    assert.ok(q.lines.some((l) => l.label === "Capped at maximum quote" && l.usdc.startsWith("-")));
+  }
+});
+
+test("the lines always add up to the quote", () => {
+  for (const policy of [base.policy, { minFee: "0.5", maxQuote: "2.1", marginPct: 50, maxSpendPerTask: "10" }, { minFee: "0.5", maxQuote: "90", marginPct: 10, maxSpendPerTask: "10" }]) {
+    const q = quoteTask({ ...base, policy });
+    if (q.status !== "ok") continue;
+    const sum = q.lines.reduce((a, l) => a + toMicro(l.usdc.replace("-", "")) * (l.usdc.startsWith("-") ? -1n : 1n), 0n);
+    assert.equal(fromMicro(sum), q.quote);
   }
 });

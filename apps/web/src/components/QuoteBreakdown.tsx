@@ -57,3 +57,26 @@ export function QuoteBreakdown({ q, compact = false }: { q: QuoteResult | null; 
     </div>
   );
 }
+
+/** Just the line items and notes (the workbench pins the total separately). */
+export function QuoteLines({ q }: { q: QuoteResult }) {
+  return (
+    <div className="ql">
+      <ul className="quote__lines">
+        <AnimatePresence initial={false}>
+          {q.lines.map((l, i) => (
+            <motion.li key={l.label + l.detail} layout initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.04 }}>
+              <span>
+                <b>{l.label}</b>
+                <span className="muted">{l.detail}</span>
+              </span>
+              <span className={`quote__src quote__src--${l.source}`}>{SOURCE[l.source]}</span>
+              <span className="quote__amt">{l.usdc}</span>
+            </motion.li>
+          ))}
+        </AnimatePresence>
+      </ul>
+      {q.notes.map((n) => <p key={n} className="quote__note t-small muted">{n}</p>)}
+    </div>
+  );
+}

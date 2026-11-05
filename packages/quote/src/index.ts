@@ -184,15 +184,18 @@ export function quoteTask(input: QuoteInput): Quote {
 
   if (cost > maxQuote)
     return { status: "declined", reason: `Cost ${fromMicro(cost)} USDC is above the owner's maximum quote of ${policy.maxQuote}`, cost: fromMicro(cost), lines, hired, notes };
+  // every adjustment is its own line, so the lines always add up to the quote
   if (quote > maxQuote) {
+    const cut = quote - maxQuote;
     marginApplied = maxQuote - cost;
     quote = maxQuote;
-    notes.push(`Capped at the owner's maximum quote; margin reduced to ${fromMicro(marginApplied)} USDC.`);
+    lines.push({ label: "Capped at maximum quote", detail: `the owner's limit is ${policy.maxQuote} USDC`, usdc: fromMicro(-cut), source: "policy" });
   }
   if (quote < minFee) {
-    marginApplied += minFee - quote;
+    const topUp = minFee - quote;
+    marginApplied += topUp;
     quote = minFee;
-    notes.push(`Raised to the owner's minimum fee of ${policy.minFee} USDC.`);
+    lines.push({ label: "Minimum fee top-up", detail: `the owner's minimum is ${policy.minFee} USDC`, usdc: fromMicro(topUp), source: "policy" });
   }
   return { status: "ok", quote: fromMicro(quote), cost: fromMicro(cost), marginApplied: fromMicro(marginApplied), lines, hired, notes };
 }
