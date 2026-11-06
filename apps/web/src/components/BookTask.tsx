@@ -17,6 +17,7 @@ import { useArkivWriter } from "@/lib/arkiv-writer";
 import { ApprovalCard } from "./ui/ApprovalCard";
 import { MapView, type Pt } from "./map/MapView";
 import { ComputeView } from "./ComputeView";
+import { ArkivRecord, ExtraStops } from "./JobRecord";
 
 type Plan = { skill: string; waypoints: number; distanceM: number; privacy: "private" | "verified" | "standard" };
 type TaskView = {
@@ -287,7 +288,9 @@ export function BookTask({ robotId, robotName, robotBase, site, area, plan, quot
         {payTx && <p className="t-small muted">Your payment on 0G Galileo: <ExplorerLink href={galileoTx(payTx)} value={payTx} /></p>}
         {offer && <p className="t-small muted">Robot wallet: <ExplorerLink href={galileoAddress(offer.robotWallet)} value={offer.robotWallet} n={6} /> (0G Galileo) · <ExplorerLink href={arkivAddress(offer.robotWallet)} value={offer.robotWallet} label="its records on Arkiv" /></p>}
         {err && <p className="soft-warn">{err}</p>}
+        <ExtraStops taskId={taskId} skill={plan.skill} />
         <ComputeView taskId={taskId} />
+        <ArkivRecord taskId={taskId} />
         {view && view.events.length > 0 && (
           <ol className="rl__log">
             {view.events.slice(0, 6).map((e, i) => (

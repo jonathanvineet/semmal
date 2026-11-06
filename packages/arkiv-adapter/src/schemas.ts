@@ -81,8 +81,23 @@ export const EpisodeSchema = defineSchema("semmal_episode_v1", {
   body: bytes(),
 });
 
+/**
+ * Episode index v2: v1 plus the robot's own job score (task-score-v1) as an indexed column, so scores
+ * can be queried and ranked on Arkiv. The full score breakdown is in the body and the signed bundle.
+ */
+export const EpisodeSchemaV2 = defineSchema("semmal_episode_v2", {
+  episode_id: str().indexed(),
+  task_id: str().indexed(),
+  robot_id: str().indexed(),
+  outcome: str().indexed(),
+  task_score: i32().indexed(),
+  storage_root: str().indexed(),
+  ended_at: u64().indexed(),
+  body: bytes(),
+});
+
 /** Index of an incident bundle on 0G Storage. Owner: robot wallet. */
-/** A robot's or agent's published score (score-v1). Owner: the instance owner's wallet. Lives 120 days. */
+/** A robot's or agent's published score (score-v2; older checkpoints may say score-v1). Owner: the instance owner's wallet. Lives 120 days. */
 export const ReputationSchema = defineSchema("semmal_reputation_v1", {
   subject_kind: str().indexed(),
   subject_id: str().indexed(),

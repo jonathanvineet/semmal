@@ -3,7 +3,7 @@ import { rabdi } from "@arkiv-network/sdk/chains";
 import { eq, desc } from "@arkiv-network/sdk/query";
 import { getAddress, hexToString, http } from "viem";
 import { AgentListing, RobotProfile, type AgentListing as TAgent, type RobotProfile as TRobot } from "@semmal/contracts";
-import { AgentProfileSchema, EpisodeSchema, IncidentSchema, JobClaimSchema, QuoteSchema, ReputationSchema, RobotProfileSchema, TaskRequestSchema } from "./schemas";
+import { AgentProfileSchema, EpisodeSchema, EpisodeSchemaV2, IncidentSchema, JobClaimSchema, QuoteSchema, ReputationSchema, RobotProfileSchema, TaskRequestSchema } from "./schemas";
 import { EpisodeIndex, IncidentIndex, JobClaim, ReputationCheckpoint, TaskQuote, TaskRequest } from "@semmal/contracts";
 import { RABDI_CHAIN_ID } from "./guarded-writer";
 import { addr } from "@arkiv-network/sdk/schema";
@@ -128,8 +128,38 @@ export class ArkivRegistry {
   async listJobClaims(taskId: string) {
     return this.robotSigned(await this.readBodies(JobClaimSchema, eq("task_id", taskId), JobClaim, (d) => d.robotWallet));
   }
+  /** Both episode schemas: v2 (with the job score column) and older v1 records. */
   async listEpisodes(robotId: string) {
-    return this.robotSigned(await this.readBodies(EpisodeSchema, eq("robot_id", robotId), EpisodeIndex, (d) => d.robotWallet));
+    const [v2, v1] = await Promise.all([
+      this.readBodies(EpisodeSchemaV2, eq("robot_id", robotId), EpisodeIndex, (d) => d.robotWallet),
+      this.readBodies(EpisodeSchema, eq("robot_id", robotId), EpisodeIndex, (d) => d.robotWallet).catch(() => []),
+    ]);
+    const seen = new Set(v2.map((e) => e.data.episodeId));
+    return this.robotSigned([...v2, ...v1.filter((e) => !seen.has(e.data.episodeId))]);
+  }
+
+  /**
+   * One task's episode exactly as it is stored on Arkiv: the schema, every column (indexed values as the
+   * chain returns them, the body decoded from its bytes), owner, creator, expiry. Only robot-signed records.
+   */
+  async episodeRecord(taskId: string) {
+    for (const [schema, name] of [[EpisodeSchemaV2, "semmal_episode_v2"], [EpisodeSchema, "semmal_episode_v1"]] as const) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const cols: Record<string, true> = { $key: true, $owner: true, $creator: true, $expiresAt: true, $createdAt: true, episode_id: true, task_id: true, robot_id: true, outcome: true, storage_root: true, ended_at: true, body: true };
+      if (name === "semmal_episode_v2") cols.task_score = true;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const page = await (this.publicClient as any).select(cols).from(schema).where(eq("task_id", taskId)).limit(10).fetch().catch(() => ({ entities: [] }));
+      const signed = await this.robotSigned(this.toEntries(page.entities, "body", EpisodeIndex, (d) => d.robotWallet));
+      const hit = signed[0];
+      if (!hit) continue;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const row = page.entities.find((r: any) => String(r.$key) === hit.entityKey);
+      const plain = (v: unknown): unknown => (typeof v === "bigint" ? v.toString() : v && typeof v === "object" && "value" in (v as object) ? plain((v as { value: unknown }).value) : v);
+      const indexed: Record<string, unknown> = {};
+      for (const c of Object.keys(cols)) if (!c.startsWith("$") && c !== "body") indexed[c] = plain(row?.[c]);
+      return { schema: name, entityKey: hit.entityKey, owner: hit.owner, creator: hit.creator, expiresAtBlock: hit.expiresAtBlock, createdAtBlock: hit.createdAt, indexed, body: hit.data };
+    }
+    return null;
   }
   /** Published score checkpoints (creator = the publisher named in the body). The caller keeps only trusted publishers. */
   async listReputation() {
