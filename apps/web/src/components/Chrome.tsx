@@ -13,7 +13,9 @@ export function Footer() {
             </div>
             <Link className="btn btn--primary btn--xl" href="/agents">Browse agents</Link>
           </div>
-          <p className="close-word__name" aria-hidden="true">Semmal</p>
+          <p className="close-word__name" aria-hidden="true">
+            <span className="close-word__ta" lang="ta">செம்மல்</span> Semmal
+          </p>
         </div>
         <div className="footer-row">
           <div className="footer-cols">
@@ -36,7 +38,7 @@ export function Footer() {
               <a href="https://gazebosim.org/" target="_blank" rel="noreferrer">Gazebo</a>
             </div>
           </div>
-          <p className="legal t-small muted">© {new Date().getFullYear()} Semmal · Payments are not live yet · 3D robots adapted from MuJoCo Menagerie, <a className="link" href="/credits">credits</a> · Product names are trademarks of their owners</p>
+          <p className="legal t-small muted">© {new Date().getFullYear()} Semmal (செம்மல்) · Payments in 0G on the Galileo testnet · 3D robots adapted from MuJoCo Menagerie, <a className="link" href="/credits">credits</a> · Product names are trademarks of their owners</p>
         </div>
       </div>
     </footer>

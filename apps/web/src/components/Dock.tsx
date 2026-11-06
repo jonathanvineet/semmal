@@ -6,6 +6,7 @@
  */
 import Link from "next/link";
 import { NotificationBell } from "./NotificationBell";
+import { Logo } from "./brand/Logo";
 import { AccountButton } from "./AccountButton";
 import { usePathname } from "next/navigation";
 import { motion, useMotionValue, useSpring, useTransform, type MotionValue } from "motion/react";
@@ -111,15 +112,8 @@ export function Dock() {
     <header className="dock-wrap">
       <a className="skip" href="#main">Skip to content</a>
       <nav className="dock" aria-label="Main" onMouseMove={(e) => mouseX.set(e.clientX)} onMouseLeave={() => mouseX.set(Infinity)}>
-        <Link href="/" className="dock__brand" aria-label="Semmal home">
-          <svg viewBox="0 0 24 24" aria-hidden="true" className="dock__mark">
-            <circle cx="12" cy="12" r="3.4" fill="var(--p-accent)" />
-            <circle cx="4.6" cy="6.4" r="1.9" fill="currentColor" />
-            <circle cx="19.4" cy="6.4" r="1.9" fill="currentColor" />
-            <circle cx="12" cy="20.6" r="1.9" fill="currentColor" />
-            <path d="M12 12 4.6 6.4M12 12l7.4-5.6M12 12v8.6" stroke="currentColor" strokeWidth="1.3" opacity=".5" strokeLinecap="round" />
-          </svg>
-          <span>Semmal</span>
+        <Link href="/" className="dock__brand" aria-label="Semmal (செம்மல்) home">
+          <Logo size={30} />
         </Link>
         <span className="dock__sep" aria-hidden="true" />
         {ITEMS.map((it) => (

@@ -1,4 +1,7 @@
-# SEMMAL: robots that hire, pay and answer for their work
+# Semmal (செம்மல்): robots that hire, pay and answer for their work
+
+> **செம்மல்** (Semmal) is Tamil for *a person of eminence*, one honoured for doing the work well. Every robot here
+> earns that name job by job: it does the work, pays its own way and answers for the result.
 
 SEMMAL is a robot-as-a-service marketplace where **every robot is its own autonomous agent**. A customer books a
 robot near them; the robot's owner approves; the robot travels to the site, assesses it with its own camera, hires
