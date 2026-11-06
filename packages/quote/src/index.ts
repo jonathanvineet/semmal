@@ -71,12 +71,14 @@ export function fromMicro(v: bigint): string {
 const ceilDiv = (a: bigint, b: bigint) => (a + b - 1n) / b;
 
 /** Which specialist each skill needs. Delivery and manipulation run on the robot alone. */
-export const SKILL_NEEDS: Record<string, { kinds: string[]; tokensIn: number; tokensOut: number }> = {
-  "warehouse.inspection": { kinds: ["vision", "inspection"], tokensIn: 1500, tokensOut: 200 },
+/** Required specialists (`kinds`) and ones the robot hires only if one is on Arkiv (`optional`). */
+export const SKILL_NEEDS: Record<string, { kinds: string[]; optional?: string[]; tokensIn: number; tokensOut: number }> = {
+  "warehouse.inspection": { kinds: ["vision"], optional: ["inspection"], tokensIn: 1500, tokensOut: 200 },
   "aerial.inspection": { kinds: ["vision"], tokensIn: 1500, tokensOut: 200 },
   "site.inspection": { kinds: ["vision"], tokensIn: 1500, tokensOut: 200 },
-  "warehouse.patrol": { kinds: ["vision"], tokensIn: 1200, tokensOut: 150 },
-  "outdoor.patrol": { kinds: ["vision"], tokensIn: 1200, tokensOut: 150 },
+  "warehouse.patrol": { kinds: ["vision"], optional: ["navigation"], tokensIn: 1200, tokensOut: 150 },
+  "outdoor.patrol": { kinds: ["vision"], optional: ["navigation"], tokensIn: 1200, tokensOut: 150 },
+  "home.cleaning": { kinds: ["vision"], optional: ["navigation"], tokensIn: 1300, tokensOut: 180 },
   "aerial.mapping": { kinds: [], tokensIn: 600, tokensOut: 150 },
   "indoor.delivery": { kinds: [], tokensIn: 400, tokensOut: 100 },
   "manipulation.pick-place": { kinds: [], tokensIn: 800, tokensOut: 150 },
@@ -92,6 +94,7 @@ export const SKILL_NEEDS: Record<string, { kinds: string[]; tokensIn: number; to
  */
 export const OPERATING_MICRO_PER_MIN: Record<string, bigint> = {
   "diff-drive-indoor": 40_000n,
+  "diff-drive-outdoor": 70_000n,
   "aerial-multirotor": 120_000n,
   "legged-quadruped": 90_000n,
   "fixed-arm": 35_000n,
@@ -132,15 +135,21 @@ const strength = { private: 3, verified: 2, standard: 1, none: 0 } as const;
 
 /** The hiring rule (CLAUDE.md 6.3): right kind, trust at least the plan's, then strongest trust, then lowest price. */
 export function pickSpecialists(plan: TaskPlan, offers: SpecialistOffer[]) {
-  const needs = SKILL_NEEDS[plan.skill]?.kinds ?? [];
+  const need = SKILL_NEEDS[plan.skill];
   const hired: SpecialistOffer[] = [];
   const missing: string[] = [];
-  for (const kind of needs) {
-    const fit = offers
+  const best = (kind: string) =>
+    offers
       .filter((o) => o.kind === kind && strength[o.trustMode] >= strength[plan.privacy])
-      .sort((a, b) => strength[b.trustMode] - strength[a.trustMode] || Number(toMicro(a.price) - toMicro(b.price)));
-    if (fit[0]) hired.push(fit[0]);
+      .sort((a, b) => strength[b.trustMode] - strength[a.trustMode] || Number(toMicro(a.price) - toMicro(b.price)))[0];
+  for (const kind of need?.kinds ?? []) {
+    const fit = best(kind);
+    if (fit) hired.push(fit);
     else missing.push(kind);
+  }
+  for (const kind of need?.optional ?? []) {
+    const fit = best(kind);
+    if (fit) hired.push(fit);
   }
   return { hired, missing };
 }

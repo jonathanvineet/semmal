@@ -10,6 +10,10 @@
 
   <xacro:arg name="model_name" default="semmal"/>
   <xacro:property name="model_name" value="$(arg model_name)"/>
+  <!-- Body style: rover (warehouse), cleaner (house), field (forest). Visual only: the collision box,
+       wheels, sensors, mass and limits are identical for all three, so safety and plant models hold. -->
+  <xacro:arg name="variant" default="rover"/>
+  <xacro:property name="variant" value="$(arg variant)"/>
 
   <!-- Geometry -->
   <xacro:property name="wheel_radius" value="0.06"/>
@@ -45,20 +49,62 @@
   <material name="graphite"><color rgba="0.16 0.17 0.19 1"/></material>
   <material name="safety_orange"><color rgba="0.95 0.45 0.08 1"/></material>
   <material name="black"><color rgba="0.05 0.05 0.05 1"/></material>
+  <material name="appliance_white"><color rgba="0.92 0.93 0.94 1"/></material>
+  <material name="sky_blue"><color rgba="0.25 0.60 0.90 1"/></material>
+  <material name="olive"><color rgba="0.33 0.38 0.22 1"/></material>
+  <material name="beacon_amber"><color rgba="1.0 0.65 0.0 1"/></material>
 
   <link name="base_footprint"/>
 
   <link name="base_link">
-    <visual>
-      <origin xyz="0 0 ${base_z_offset}"/>
-      <geometry><box size="${base_x} ${base_y} ${base_z}"/></geometry>
-      <material name="graphite"/>
-    </visual>
-    <visual>
-      <origin xyz="0 0 ${base_z_offset + base_z/2 + 0.005}"/>
-      <geometry><box size="${base_x - 0.04} ${base_y - 0.04} 0.01"/></geometry>
-      <material name="safety_orange"/>
-    </visual>
+    <xacro:if value="${variant == 'rover'}">
+      <visual>
+        <origin xyz="0 0 ${base_z_offset}"/>
+        <geometry><box size="${base_x} ${base_y} ${base_z}"/></geometry>
+        <material name="graphite"/>
+      </visual>
+      <visual>
+        <origin xyz="0 0 ${base_z_offset + base_z/2 + 0.005}"/>
+        <geometry><box size="${base_x - 0.04} ${base_y - 0.04} 0.01"/></geometry>
+        <material name="safety_orange"/>
+      </visual>
+    </xacro:if>
+    <xacro:if value="${variant == 'cleaner'}">
+      <!-- round home-cleaning robot: low white disc, blue bumper ring, brush plate -->
+      <visual>
+        <origin xyz="0 0 ${base_z_offset - 0.01}"/>
+        <geometry><cylinder radius="${base_x/2}" length="${base_z - 0.04}"/></geometry>
+        <material name="appliance_white"/>
+      </visual>
+      <visual>
+        <origin xyz="0 0 ${base_z_offset - 0.03}"/>
+        <geometry><cylinder radius="${base_x/2 + 0.008}" length="0.025"/></geometry>
+        <material name="sky_blue"/>
+      </visual>
+      <visual>
+        <origin xyz="0 0 ${base_z_offset + (base_z - 0.04)/2 - 0.004}"/>
+        <geometry><cylinder radius="${base_x/2 - 0.06}" length="0.01"/></geometry>
+        <material name="graphite"/>
+      </visual>
+    </xacro:if>
+    <xacro:if value="${variant == 'field'}">
+      <!-- rugged field rover: olive hull, roll bar, amber beacon -->
+      <visual>
+        <origin xyz="0 0 ${base_z_offset}"/>
+        <geometry><box size="${base_x} ${base_y} ${base_z}"/></geometry>
+        <material name="olive"/>
+      </visual>
+      <visual>
+        <origin xyz="-0.12 0 ${base_z_offset + base_z/2 + 0.07}"/>
+        <geometry><box size="0.03 ${base_y} 0.14"/></geometry>
+        <material name="black"/>
+      </visual>
+      <visual>
+        <origin xyz="-0.12 0 ${base_z_offset + base_z/2 + 0.16}"/>
+        <geometry><cylinder radius="0.03" length="0.04"/></geometry>
+        <material name="beacon_amber"/>
+      </visual>
+    </xacro:if>
     <collision>
       <origin xyz="0 0 ${base_z_offset}"/>
       <geometry><box size="${base_x} ${base_y} ${base_z}"/></geometry>

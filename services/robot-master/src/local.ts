@@ -1,10 +1,10 @@
 /** Client for the robot-host gateway node (semmal_gateway, 127.0.0.1 only). */
-export type LocalState = { safetyState: string; batteryPct: number; zone: string; availability: string; executor: boolean; missionPhase: string; activeTask: string | null; hold: boolean };
+export type LocalState = { safetyState: string; batteryPct: number; zone: string; availability: string; executor: boolean; missionPhase: string; activeTask: string | null; hold: boolean; world?: string | null; waypoints?: string[] };
 export type MissionResult = { success: boolean; outcome: string; message: string; reached: string[]; keyframePaths: string[] };
 
 export interface LocalApi {
   state(): Promise<LocalState>;
-  startMission(goal: { taskId: string; episodeId: string; waypoints: string[]; captureKeyframe: boolean; maxSpeed?: number }): Promise<{ accepted: boolean; message: string }>;
+  startMission(goal: { taskId: string; episodeId: string; waypoints: string[]; captureKeyframe: boolean; maxSpeed?: number; dwellS?: number }): Promise<{ accepted: boolean; message: string }>;
   waitMission(timeoutMs: number): Promise<MissionResult | null>;
   cancel(): Promise<void>;
   hold(on: boolean): Promise<void>;

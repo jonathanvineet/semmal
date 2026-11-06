@@ -19,6 +19,7 @@ const decimalAmount = z.string().regex(/^\d+(\.\d{1,18})?$/);
 // ---------------------------------------------------------------- robots
 export const RobotType = z.enum([
   "diff-drive-indoor",
+  "diff-drive-outdoor",
   "aerial-multirotor",
   "legged-quadruped",
   "fixed-arm",
@@ -40,11 +41,12 @@ export const ROBOT_SKILLS = [
   { id: "manipulation.machine-tending", label: "Machine tending", hint: "Loads and unloads machines" },
   { id: "manipulation.dexterous", label: "Fine handling", hint: "Grips small or delicate objects with fingers" },
   { id: "assist.human", label: "Assist people", hint: "Hands over items and works next to people" },
+  { id: "home.cleaning", label: "Home cleaning", hint: "Visits each room, finds spills and clutter, reports what it cleaned" },
 ] as const;
 export const RobotSkill = z.enum([
   "warehouse.inspection", "warehouse.patrol", "indoor.delivery", "aerial.inspection", "aerial.mapping",
   "site.inspection", "outdoor.patrol", "manipulation.pick-place", "manipulation.assembly",
-  "manipulation.machine-tending", "manipulation.dexterous", "assist.human",
+  "manipulation.machine-tending", "manipulation.dexterous", "assist.human", "home.cleaning",
 ]);
 
 const SENSORS = ["lidar-2d", "rgb-camera", "imu", "wheel-encoders", "bumper", "battery", "depth-camera", "gps", "barometer", "joint-encoders", "force-torque", "tactile"] as const;
@@ -56,6 +58,8 @@ export const Sensor = z.enum(SENSORS);
  */
 export const ROBOT_MODELS = [
   { id: "rover", name: "Compact rover", robotType: "diff-drive-indoor", asset: "rover", base: "Wheeled indoor base", sensors: ["lidar-2d", "rgb-camera", "imu", "wheel-encoders", "bumper", "battery"], skills: ["warehouse.inspection", "warehouse.patrol", "indoor.delivery"], note: "Small wheeled base for aisles, patrols and short deliveries." },
+  { id: "cleaner", name: "Home cleaning robot", robotType: "diff-drive-indoor", asset: "rover", base: "Round wheeled base, low profile", sensors: ["lidar-2d", "rgb-camera", "imu", "wheel-encoders", "bumper", "battery"], skills: ["home.cleaning", "indoor.delivery"], note: "Low, round home robot. Visits rooms, spots spills and clutter." },
+  { id: "field-rover", name: "Field rover", robotType: "diff-drive-outdoor", asset: "rover", base: "Rugged wheeled base", sensors: ["lidar-2d", "rgb-camera", "imu", "wheel-encoders", "gps", "battery"], skills: ["outdoor.patrol", "site.inspection"], note: "Outdoor rover for trails and sites. Patrols and reports hazards." },
   { id: "drone", name: "Inspection drone", robotType: "aerial-multirotor", asset: "drone", base: "Quadcopter", sensors: ["rgb-camera", "imu", "gps", "barometer", "battery"], skills: ["aerial.inspection", "aerial.mapping"], note: "Flies to high or hard-to-reach places and maps sites." },
   { id: "quadruped", name: "Quadruped", robotType: "legged-quadruped", asset: "quadruped", base: "Four-legged base", sensors: ["depth-camera", "lidar-2d", "imu", "joint-encoders", "battery"], skills: ["site.inspection", "outdoor.patrol", "warehouse.patrol"], note: "Walks stairs and rough ground where wheels cannot go." },
   { id: "arm", name: "Robot arm", robotType: "fixed-arm", asset: "arm", base: "Six-axis arm", sensors: ["joint-encoders", "force-torque", "rgb-camera"], skills: ["manipulation.pick-place", "manipulation.assembly", "manipulation.machine-tending"], note: "Fixed six-axis arm for cells, benches and machines." },
@@ -64,7 +68,7 @@ export const ROBOT_MODELS = [
   { id: "manipulator", name: "Mobile manipulator", robotType: "mobile-manipulator", asset: "manipulator", base: "Wheeled base with an arm", sensors: ["lidar-2d", "depth-camera", "imu", "joint-encoders", "battery"], skills: ["manipulation.pick-place", "indoor.delivery", "warehouse.inspection"], note: "Drives to the job, then picks and places." },
 ] as const;
 /** Older ids stay valid so profiles already on Arkiv still parse. */
-export const RobotModelId = z.enum(["rover", "drone", "quadruped", "arm", "hand", "humanoid", "manipulator", "semmal-rover-sim", "custom-diff-drive"]);
+export const RobotModelId = z.enum(["rover", "cleaner", "field-rover", "drone", "quadruped", "arm", "hand", "humanoid", "manipulator", "semmal-rover-sim", "custom-diff-drive"]);
 
 /**
  * Where a robot works, at city or metro level only (never an exact site or live location).

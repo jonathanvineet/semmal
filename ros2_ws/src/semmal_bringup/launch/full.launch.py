@@ -18,12 +18,13 @@ def generate_launch_description():
     share = get_package_share_directory('semmal_bringup')
     world = LaunchConfiguration('world')
     return LaunchDescription([
-        DeclareLaunchArgument('world', default_value='warehouse', description='warehouse | house'),
+        DeclareLaunchArgument('world', default_value='warehouse', description='warehouse | house | forest'),
         DeclareLaunchArgument('headless', default_value='false'),
+        DeclareLaunchArgument('robot', default_value='rover', description='body style: rover | cleaner | field'),
         DeclareLaunchArgument('rviz', default_value='false'),
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(os.path.join(share, 'launch', 'sim.launch.py')),
-            launch_arguments={'world': world, 'headless': LaunchConfiguration('headless')}.items()),
+            launch_arguments={'world': world, 'headless': LaunchConfiguration('headless'), 'robot': LaunchConfiguration('robot')}.items()),
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(os.path.join(share, 'launch', 'robot.launch.py')),
             launch_arguments={'world': world}.items()),

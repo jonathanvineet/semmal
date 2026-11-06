@@ -24,7 +24,10 @@ def _setup(context):
     x, y, yaw = (str(v) for v in w['spawn'])
     gz_share = get_package_share_directory('semmal_gazebo')
     xacro_file = os.path.join(get_package_share_directory('semmal_description'), 'urdf', 'semmal_robot.urdf.xacro')
-    robot_description = ParameterValue(Command(['xacro ', xacro_file, ' model_name:=semmal']), value_type=str)
+    variant = LaunchConfiguration('robot').perform(context)
+    if variant not in ('rover', 'cleaner', 'field'):
+        raise RuntimeError(f'unknown robot {variant!r}; use rover | cleaner | field')
+    robot_description = ParameterValue(Command(['xacro ', xacro_file, ' model_name:=semmal', f' variant:={variant}']), value_type=str)
     args = f'-r -s --headless-rendering {w["sdf"]}' if headless else f'-r {w["sdf"]}'
     return [
         IncludeLaunchDescription(
@@ -47,7 +50,8 @@ def _setup(context):
 
 def generate_launch_description():
     return LaunchDescription([
-        DeclareLaunchArgument('world', default_value='warehouse', description='warehouse | house'),
+        DeclareLaunchArgument('world', default_value='warehouse', description='warehouse | house | forest'),
         DeclareLaunchArgument('headless', default_value='false', description='Run gz server only (no GUI)'),
+        DeclareLaunchArgument('robot', default_value='rover', description='body style: rover | cleaner | field'),
         OpaqueFunction(function=_setup),
     ])

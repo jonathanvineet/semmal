@@ -5,9 +5,11 @@ Usage: generate_world.py [WORLD ...]            # default: every config/worlds/*
 Outputs: semmal_gazebo/worlds/<name>.sdf, semmal_navigation/maps/<name>.{pgm,yaml}
 Deterministic: same inputs -> byte-identical outputs.
 
-Layout keys: floor, walls (outer, automatic), interior_walls (axis-aligned segments with door gaps),
-rooms (visual floor finishes), obstacles (solid boxes), furniture (Fuel models from config/models.yaml,
-footprints from config/model_catalog.yaml), markers (visual only), robot_spawn, map.
+Layout keys: floor, walls (outer, automatic; omit for an open outdoor site), interior_walls (axis-aligned
+segments with door gaps), rooms (visual floor finishes), obstacles (solid boxes), trees (cylinder trunk +
+canopy; the trunk collides), logs (fallen trunks lying along x or y; collide), furniture (Fuel models from
+config/models.yaml, footprints from config/model_catalog.yaml), markers (visual only), scene (sky and
+ambient colours), robot_spawn, map.
 """
 import argparse
 import glob
@@ -58,7 +60,9 @@ def box_solid(o, zmin=0.0):
 
 
 def wall_boxes(layout):
-    """Outer walls (boxes) around the floor."""
+    """Outer walls (boxes) around the floor. None for an open site (no `walls` key)."""
+    if not layout.get('walls'):
+        return []
     fx, fy = layout['floor']['size_x'], layout['floor']['size_y']
     w = layout['walls']
     t, h = w['thickness'], w['height']
@@ -136,12 +140,41 @@ def furniture_items(layout, models=None, catalog=None):
     return out
 
 
+def circle_poly(cx, cy, r, n=12):
+    return [(_r(cx + r * math.cos(2 * math.pi * k / n)), _r(cy + r * math.sin(2 * math.pi * k / n))) for k in range(n)]
+
+
+def tree_items(layout):
+    out = []
+    for i, t in enumerate(layout.get('trees') or []):
+        out.append({'name': t.get('name') or f'tree_{i}', 'x': t['x'], 'y': t['y'], 'r': t.get('r', 0.18),
+                    'h': t.get('h', 4.0), 'canopy': t.get('canopy', 1.4),
+                    'trunk_rgba': t.get('trunk_rgba', [0.36, 0.25, 0.16, 1]), 'leaf_rgba': t.get('leaf_rgba', [0.16, 0.36, 0.14, 1])})
+    return out
+
+
+def log_items(layout):
+    """Fallen trunks: axis-aligned so they rasterise exactly; `along` is x or y."""
+    out = []
+    for i, g in enumerate(layout.get('logs') or []):
+        r, L = g.get('r', 0.2), g['length']
+        sx, sy = (L, 2 * r) if g.get('along', 'x') == 'x' else (2 * r, L)
+        out.append({'name': g.get('name') or f'log_{i}', 'x': g['x'], 'y': g['y'], 'r': r, 'length': L,
+                    'along': g.get('along', 'x'), 'sx': sx, 'sy': sy, 'sz': 2 * r,
+                    'rgba': g.get('rgba', [0.40, 0.28, 0.17, 1])})
+    return out
+
+
 def all_solids(layout):
     """Every collidable thing as {name, poly, zmin, zmax}. Boxes keep a 'box' entry for SDF rendering."""
     solids = [box_solid(o) for o in wall_boxes(layout) + interior_wall_boxes(layout)]
     solids += [box_solid(o) for o in layout.get('obstacles', [])]
     solids += [{'name': f['name'], 'poly': f['poly'], 'zmin': f['zmin'], 'zmax': f['zmax']}
                for f in furniture_items(layout) if f['poly']]
+    solids += [{'name': t['name'], 'poly': circle_poly(t['x'], t['y'], t['r']), 'zmin': 0.0, 'zmax': t['h']}
+               for t in tree_items(layout)]
+    solids += [box_solid({'name': g['name'], 'x': g['x'], 'y': g['y'], 'sx': g['sx'], 'sy': g['sy'], 'sz': g['sz']})
+               for g in log_items(layout)]
     return solids
 
 
@@ -185,6 +218,49 @@ def include_model(f):
     </include>"""
 
 
+def tree_model(t):
+    trunk_h = t['h'] * 0.55
+    return f"""
+    <model name="{t['name']}">
+      <static>true</static>
+      <pose>{t['x']:g} {t['y']:g} 0 0 0 0</pose>
+      <link name="link">
+        <collision name="trunk_collision">
+          <pose>0 0 {t['h'] / 2:g} 0 0 0</pose>
+          <geometry><cylinder><radius>{t['r']:g}</radius><length>{t['h']:g}</length></cylinder></geometry>
+        </collision>
+        <visual name="trunk">
+          <pose>0 0 {trunk_h / 2:g} 0 0 0</pose>
+          <geometry><cylinder><radius>{t['r']:g}</radius><length>{trunk_h:g}</length></cylinder></geometry>
+          <material><ambient>{_rgba(t['trunk_rgba'])}</ambient><diffuse>{_rgba(t['trunk_rgba'])}</diffuse></material>
+        </visual>
+        <visual name="canopy">
+          <pose>0 0 {trunk_h + t['canopy'] * 0.6:g} 0 0 0</pose>
+          <geometry><sphere><radius>{t['canopy']:g}</radius></sphere></geometry>
+          <material><ambient>{_rgba(t['leaf_rgba'])}</ambient><diffuse>{_rgba(t['leaf_rgba'])}</diffuse></material>
+        </visual>
+      </link>
+    </model>"""
+
+
+def log_model(g):
+    roll_pitch = '0 1.5708 0' if g['along'] == 'x' else '1.5708 0 0'
+    return f"""
+    <model name="{g['name']}">
+      <static>true</static>
+      <pose>{g['x']:g} {g['y']:g} {g['r']:g} {roll_pitch}</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><cylinder><radius>{g['r']:g}</radius><length>{g['length']:g}</length></cylinder></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><cylinder><radius>{g['r']:g}</radius><length>{g['length']:g}</length></cylinder></geometry>
+          <material><ambient>{_rgba(g['rgba'])}</ambient><diffuse>{_rgba(g['rgba'])}</diffuse></material>
+        </visual>
+      </link>
+    </model>"""
+
+
 def room_floor(r):
     (x0, y0), (x1, y1) = r['min'], r['max']
     return box_model({'name': f"floor_{r['name']}", 'x': _r((x0 + x1) / 2), 'y': _r((y0 + y1) / 2),
@@ -200,6 +276,10 @@ def render_sdf(layout):
     rooms = ''.join(room_floor(r) for r in layout.get('rooms', []))
     furniture = ''.join(include_model(f) for f in furniture_items(layout))
     markers = ''.join(box_model(m, z_centre=m['z'], collide=False) for m in layout.get('markers', []))
+    nature = ''.join(tree_model(t) for t in tree_items(layout)) + ''.join(log_model(g) for g in log_items(layout))
+    scene = layout.get('scene') or {}
+    ambient = _rgba(scene.get('ambient', [0.6, 0.6, 0.6, 1]))
+    background = _rgba(scene.get('background', [0.85, 0.87, 0.9, 1]))
     return f"""<?xml version="1.0"?>
 <!-- GENERATED by semmal_gazebo/scripts/generate_world.py from config/worlds/{layout['name']}.yaml. Do not edit. -->
 <sdf version="1.10">
@@ -217,8 +297,8 @@ def render_sdf(layout):
     <plugin filename="gz-sim-imu-system" name="gz::sim::systems::Imu"/>
 
     <scene>
-      <ambient>0.6 0.6 0.6 1</ambient>
-      <background>0.85 0.87 0.9 1</background>
+      <ambient>{ambient}</ambient>
+      <background>{background}</background>
       <shadows>false</shadows>
     </scene>
 
@@ -243,7 +323,7 @@ def render_sdf(layout):
         </visual>
       </link>
     </model>
-{rooms}{models}{furniture}
+{rooms}{models}{furniture}{nature}
 {markers}
   </world>
 </sdf>
@@ -253,7 +333,7 @@ def render_sdf(layout):
 # ---------------------------------------------------------------------------------- map
 def map_bounds(layout):
     fx, fy = layout['floor']['size_x'], layout['floor']['size_y']
-    t = layout['walls']['thickness']
+    t = layout['walls']['thickness'] if layout.get('walls') else 0.0
     m = layout['map']['margin']
     return (-fx / 2 - t - m, -fy / 2 - t - m, fx / 2 + t + m, fy / 2 + t + m)
 

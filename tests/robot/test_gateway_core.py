@@ -68,6 +68,7 @@ def test_state_doc_without_sensors_is_honest():
     d = state_doc(safety_state=None, battery_pct=None, x=None, y=None, waypoints=WPS, mission_phase=None,
                   task_id=None, executor_ready=False, hold=False)
     assert d['safetyState'] == 'DEGRADED' and d['availability'] == 'offline' and d['executor'] is False
+    assert d['waypoints'] == ['dock', 'inspection_point_A'] and d['world'] is None
 
 
 def test_mission_validation_allowlist_and_limits():

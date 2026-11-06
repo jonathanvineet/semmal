@@ -41,6 +41,7 @@ class GatewayNode(Node):
         self.keyframe_dir = self.declare_parameter('keyframe_dir', os.path.join(data, 'robot', 'keyframes')).value
         wp_file = self.declare_parameter('waypoints_file', '').value
         self.waypoints = {}
+        self.world = os.path.splitext(os.path.basename(wp_file))[0] if wp_file else None
         if wp_file:
             with open(wp_file) as f:
                 self.waypoints = (yaml.safe_load(f) or {}).get('waypoints', {}) or {}
@@ -83,6 +84,7 @@ class GatewayNode(Node):
             task_id=self.mission.get('task_id'),
             executor_ready=self.mission_client.server_is_ready(),
             hold=self.hold,
+            world=self.world,
         )
 
     def _write_state(self):

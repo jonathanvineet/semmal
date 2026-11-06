@@ -1,0 +1,136 @@
+# SEMMAL forest site: an open 30 m x 24 m woodland patrol area (no walls).
+# `dock` is the base camp. Single source of truth for worlds/forest.sdf and semmal_navigation/maps/forest.{pgm,yaml}.
+# Trees are deterministic (seed 20261106) and kept >= 1.6 m + trunk radius from every trail edge.
+# Vision targets: a fallen log across the path ahead of log_check, a smouldering campfire ahead of
+# fire_lookout. Units: metres, world frame, origin at the site centre.
+
+name: forest
+floor: { size_x: 30.0, size_y: 24.0, rgba: [0.33, 0.40, 0.22, 1] }
+scene: { background: [0.62, 0.78, 0.92, 1], ambient: [0.68, 0.70, 0.66, 1] }
+
+# Fallen trunk across the old path, 2.5 m ahead of log_check (camera faces +x).
+logs:
+  - { name: fallen_log, x: 4.5, y: 2.0, r: 0.22, length: 3.0, along: y }
+
+trees:
+  - { x: 4.22, y: -9.22, r: 0.18, h: 5.4, canopy: 1.3 }
+  - { x: 14.15, y: 8.55, r: 0.14, h: 3.6, canopy: 1.1 }
+  - { x: -6.46, y: -8.12, r: 0.19, h: 3.9, canopy: 1.7 }
+  - { x: -14.13, y: 4.79, r: 0.25, h: 3.5, canopy: 1.5 }
+  - { x: 10.76, y: 4.88, r: 0.23, h: 5.7, canopy: 1.1 }
+  - { x: 7.93, y: -9.2, r: 0.19, h: 4.0, canopy: 1.3 }
+  - { x: 0.98, y: -2.22, r: 0.15, h: 4.9, canopy: 1.0 }
+  - { x: -12.35, y: -0.58, r: 0.19, h: 4.9, canopy: 1.7 }
+  - { x: 12.09, y: -1.24, r: 0.29, h: 5.0, canopy: 1.5 }
+  - { x: 7.18, y: -4.74, r: 0.26, h: 4.9, canopy: 1.5 }
+  - { x: 8.91, y: 10.2, r: 0.14, h: 5.1, canopy: 1.3 }
+  - { x: -3.64, y: 4.64, r: 0.2, h: 4.6, canopy: 1.0 }
+  - { x: 5.6, y: -0.47, r: 0.21, h: 4.7, canopy: 1.6 }
+  - { x: 6.74, y: 1.15, r: 0.21, h: 4.0, canopy: 1.3 }
+  - { x: -11.64, y: 6.94, r: 0.18, h: 5.5, canopy: 1.2 }
+  - { x: 13.43, y: 5.3, r: 0.22, h: 5.8, canopy: 1.1 }
+  - { x: 9.05, y: -10.83, r: 0.2, h: 6.3, canopy: 1.7 }
+  - { x: -5.86, y: 4.08, r: 0.26, h: 4.9, canopy: 1.7 }
+  - { x: -6.75, y: -1.89, r: 0.23, h: 3.9, canopy: 1.2 }
+  - { x: -2.46, y: -7.7, r: 0.27, h: 5.4, canopy: 1.7 }
+  - { x: -0.83, y: -8.82, r: 0.19, h: 4.6, canopy: 1.5 }
+  - { x: -5.31, y: 8.64, r: 0.27, h: 5.9, canopy: 1.2 }
+  - { x: 0.63, y: -7.85, r: 0.15, h: 4.6, canopy: 1.6 }
+  - { x: -9.85, y: 3.33, r: 0.16, h: 6.0, canopy: 1.1 }
+  - { x: -12.71, y: -5.52, r: 0.25, h: 3.8, canopy: 1.1 }
+  - { x: -0.82, y: 4.61, r: 0.26, h: 4.2, canopy: 1.7 }
+  - { x: 2.86, y: -3.25, r: 0.21, h: 4.8, canopy: 1.7 }
+  - { x: 5.37, y: 9.54, r: 0.19, h: 4.7, canopy: 1.3 }
+  - { x: 8.17, y: -2.16, r: 0.29, h: 6.0, canopy: 1.1 }
+  - { x: 3.76, y: -1.59, r: 0.26, h: 5.7, canopy: 1.3 }
+  - { x: 11.69, y: -10.45, r: 0.3, h: 4.7, canopy: 1.6 }
+  - { x: -7.17, y: 7.92, r: 0.17, h: 3.8, canopy: 1.0 }
+  - { x: -11.05, y: -3.18, r: 0.2, h: 4.4, canopy: 1.4 }
+  - { x: -2.55, y: 1.0, r: 0.25, h: 4.7, canopy: 1.6 }
+  - { x: -8.15, y: 9.79, r: 0.18, h: 5.5, canopy: 1.2 }
+  - { x: 8.11, y: -6.07, r: 0.29, h: 4.4, canopy: 1.0 }
+  - { x: -6.29, y: 0.2, r: 0.28, h: 5.1, canopy: 1.3 }
+  - { x: 10.6, y: -8.5, r: 0.22, h: 4.4, canopy: 1.1 }
+  - { x: -0.89, y: -2.93, r: 0.25, h: 5.1, canopy: 1.1 }
+  - { x: -8.94, y: 8.39, r: 0.22, h: 4.0, canopy: 1.5 }
+  - { x: 1.41, y: 9.39, r: 0.16, h: 4.2, canopy: 1.3 }
+  - { x: -10.82, y: 10.26, r: 0.25, h: 3.8, canopy: 1.3 }
+  - { x: -8.57, y: -11.15, r: 0.23, h: 5.1, canopy: 1.0 }
+  - { x: -0.39, y: -5.93, r: 0.26, h: 5.6, canopy: 1.6 }
+  - { x: -7.94, y: 4.04, r: 0.14, h: 4.5, canopy: 1.1 }
+  - { x: -11.57, y: 4.27, r: 0.27, h: 4.3, canopy: 1.5 }
+  - { x: 13.62, y: -9.07, r: 0.18, h: 4.0, canopy: 1.7 }
+  - { x: -0.32, y: 7.08, r: 0.15, h: 4.6, canopy: 1.2 }
+  - { x: 9.52, y: -7.08, r: 0.14, h: 5.9, canopy: 1.7 }
+  - { x: -1.39, y: -11.17, r: 0.24, h: 5.7, canopy: 1.4 }
+  - { x: -4.18, y: -0.18, r: 0.28, h: 6.4, canopy: 1.6 }
+  - { x: -4.58, y: -7.54, r: 0.22, h: 4.1, canopy: 1.8 }
+  - { x: -12.93, y: -11.16, r: 0.29, h: 4.6, canopy: 1.8 }
+  - { x: -0.22, y: 9.78, r: 0.19, h: 4.7, canopy: 1.0 }
+  - { x: 10.13, y: -4.81, r: 0.27, h: 4.3, canopy: 1.1 }
+  - { x: 8.71, y: 0.03, r: 0.28, h: 4.3, canopy: 1.4 }
+  - { x: 12.75, y: 7.04, r: 0.29, h: 5.7, canopy: 1.8 }
+  - { x: -3.96, y: 2.51, r: 0.19, h: 6.3, canopy: 1.1 }
+  - { x: 8.33, y: 4.95, r: 0.26, h: 6.2, canopy: 1.4 }
+  - { x: -1.27, y: 2.86, r: 0.23, h: 4.0, canopy: 1.5 }
+  - { x: -8.04, y: 0.11, r: 0.19, h: 4.2, canopy: 1.4 }
+  - { x: -3.98, y: 10.69, r: 0.19, h: 5.6, canopy: 1.8 }
+  - { x: 7.34, y: 9.82, r: 0.15, h: 5.9, canopy: 1.3 }
+  - { x: 11.19, y: -3.28, r: 0.18, h: 3.9, canopy: 1.4 }
+  - { x: 14.02, y: 3.53, r: 0.28, h: 6.5, canopy: 1.5 }
+  - { x: 12.56, y: -4.8, r: 0.21, h: 5.6, canopy: 1.5 }
+  - { x: 6.23, y: -11.17, r: 0.15, h: 5.3, canopy: 1.1 }
+  - { x: 2.51, y: -8.54, r: 0.21, h: 3.8, canopy: 1.0 }
+  - { x: -2.3, y: 8.72, r: 0.2, h: 5.3, canopy: 1.4 }
+  - { x: -10.8, y: -4.94, r: 0.22, h: 5.3, canopy: 1.1 }
+
+# Visual only (no collision, not in the occupancy map).
+markers:
+  # trail surface: flat dirt patches along each route edge
+  - { name: trail_0, x: -12.0, y: -9.0, z: 0.002, sx: 1.1, sy: 1.1, sz: 0.003, rgba: [0.45, 0.36, 0.24, 1] }
+  - { name: trail_1, x: -11.2, y: -8.4, z: 0.002, sx: 1.1, sy: 1.1, sz: 0.003, rgba: [0.45, 0.36, 0.24, 1] }
+  - { name: trail_2, x: -10.4, y: -7.8, z: 0.002, sx: 1.1, sy: 1.1, sz: 0.003, rgba: [0.45, 0.36, 0.24, 1] }
+  - { name: trail_3, x: -9.6, y: -7.2, z: 0.002, sx: 1.1, sy: 1.1, sz: 0.003, rgba: [0.45, 0.36, 0.24, 1] }
+  - { name: trail_4, x: -8.8, y: -6.6, z: 0.002, sx: 1.1, sy: 1.1, sz: 0.003, rgba: [0.45, 0.36, 0.24, 1] }
+  - { name: trail_5, x: -8.0, y: -6.0, z: 0.002, sx: 1.1, sy: 1.1, sz: 0.003, rgba: [0.45, 0.36, 0.24, 1] }
+  - { name: trail_6, x: -8.0, y: -6.0, z: 0.002, sx: 1.1, sy: 1.1, sz: 0.003, rgba: [0.45, 0.36, 0.24, 1] }
+  - { name: trail_7, x: -7.17, y: -5.33, z: 0.002, sx: 1.1, sy: 1.1, sz: 0.003, rgba: [0.45, 0.36, 0.24, 1] }
+  - { name: trail_8, x: -6.33, y: -4.67, z: 0.002, sx: 1.1, sy: 1.1, sz: 0.003, rgba: [0.45, 0.36, 0.24, 1] }
+  - { name: trail_9, x: -5.5, y: -4.0, z: 0.002, sx: 1.1, sy: 1.1, sz: 0.003, rgba: [0.45, 0.36, 0.24, 1] }
+  - { name: trail_10, x: -4.67, y: -3.33, z: 0.002, sx: 1.1, sy: 1.1, sz: 0.003, rgba: [0.45, 0.36, 0.24, 1] }
+  - { name: trail_11, x: -3.83, y: -2.67, z: 0.002, sx: 1.1, sy: 1.1, sz: 0.003, rgba: [0.45, 0.36, 0.24, 1] }
+  - { name: trail_12, x: -3.0, y: -2.0, z: 0.002, sx: 1.1, sy: 1.1, sz: 0.003, rgba: [0.45, 0.36, 0.24, 1] }
+  - { name: trail_13, x: -3.0, y: -2.0, z: 0.002, sx: 1.1, sy: 1.1, sz: 0.003, rgba: [0.45, 0.36, 0.24, 1] }
+  - { name: trail_14, x: -2.17, y: -1.33, z: 0.002, sx: 1.1, sy: 1.1, sz: 0.003, rgba: [0.45, 0.36, 0.24, 1] }
+  - { name: trail_15, x: -1.33, y: -0.67, z: 0.002, sx: 1.1, sy: 1.1, sz: 0.003, rgba: [0.45, 0.36, 0.24, 1] }
+  - { name: trail_16, x: -0.5, y: 0.0, z: 0.002, sx: 1.1, sy: 1.1, sz: 0.003, rgba: [0.45, 0.36, 0.24, 1] }
+  - { name: trail_17, x: 0.33, y: 0.67, z: 0.002, sx: 1.1, sy: 1.1, sz: 0.003, rgba: [0.45, 0.36, 0.24, 1] }
+  - { name: trail_18, x: 1.17, y: 1.33, z: 0.002, sx: 1.1, sy: 1.1, sz: 0.003, rgba: [0.45, 0.36, 0.24, 1] }
+  - { name: trail_19, x: 2.0, y: 2.0, z: 0.002, sx: 1.1, sy: 1.1, sz: 0.003, rgba: [0.45, 0.36, 0.24, 1] }
+  - { name: trail_20, x: 2.0, y: 2.0, z: 0.002, sx: 1.1, sy: 1.1, sz: 0.003, rgba: [0.45, 0.36, 0.24, 1] }
+  - { name: trail_21, x: 2.0, y: 3.0, z: 0.002, sx: 1.1, sy: 1.1, sz: 0.003, rgba: [0.45, 0.36, 0.24, 1] }
+  - { name: trail_22, x: 2.0, y: 4.0, z: 0.002, sx: 1.1, sy: 1.1, sz: 0.003, rgba: [0.45, 0.36, 0.24, 1] }
+  - { name: trail_23, x: 2.0, y: 5.0, z: 0.002, sx: 1.1, sy: 1.1, sz: 0.003, rgba: [0.45, 0.36, 0.24, 1] }
+  - { name: trail_24, x: 2.0, y: 6.0, z: 0.002, sx: 1.1, sy: 1.1, sz: 0.003, rgba: [0.45, 0.36, 0.24, 1] }
+  - { name: trail_25, x: 2.0, y: 6.0, z: 0.002, sx: 1.1, sy: 1.1, sz: 0.003, rgba: [0.45, 0.36, 0.24, 1] }
+  - { name: trail_26, x: 3.0, y: 6.33, z: 0.002, sx: 1.1, sy: 1.1, sz: 0.003, rgba: [0.45, 0.36, 0.24, 1] }
+  - { name: trail_27, x: 4.0, y: 6.67, z: 0.002, sx: 1.1, sy: 1.1, sz: 0.003, rgba: [0.45, 0.36, 0.24, 1] }
+  - { name: trail_28, x: 5.0, y: 7.0, z: 0.002, sx: 1.1, sy: 1.1, sz: 0.003, rgba: [0.45, 0.36, 0.24, 1] }
+  - { name: trail_29, x: 6.0, y: 7.33, z: 0.002, sx: 1.1, sy: 1.1, sz: 0.003, rgba: [0.45, 0.36, 0.24, 1] }
+  - { name: trail_30, x: 7.0, y: 7.67, z: 0.002, sx: 1.1, sy: 1.1, sz: 0.003, rgba: [0.45, 0.36, 0.24, 1] }
+  - { name: trail_31, x: 8.0, y: 8.0, z: 0.002, sx: 1.1, sy: 1.1, sz: 0.003, rgba: [0.45, 0.36, 0.24, 1] }
+  # creek running north-south under the crossing
+  - { name: creek, x: -3.0, y: -2.0, z: 0.003, sx: 1.6, sy: 22.0, sz: 0.003, rgba: [0.25, 0.45, 0.65, 1] }
+  # smouldering campfire 2.5 m ahead of fire_lookout: stone ring, embers, smoke column
+  - { name: fire_ring,  x: 10.5, y: 8.0, z: 0.06, sx: 0.9, sy: 0.9, sz: 0.12, rgba: [0.35, 0.33, 0.30, 1] }
+  - { name: embers,     x: 10.5, y: 8.0, z: 0.13, sx: 0.5, sy: 0.5, sz: 0.04, rgba: [0.95, 0.35, 0.05, 1] }
+  - { name: smoke,      x: 10.5, y: 8.0, z: 1.4,  sx: 0.5, sy: 0.5, sz: 2.4,  rgba: [0.55, 0.55, 0.55, 1] }
+  - { name: camp_tent,  x: -13.2, y: -10.4, z: 0.5, sx: 1.6, sy: 1.2, sz: 1.0, rgba: [0.85, 0.55, 0.10, 1] }
+  - { name: dock_zone,  x: -12.0, y: -9.0, z: 0.004, sx: 1.2, sy: 1.2, sz: 0.002, rgba: [0.10, 0.60, 0.25, 1] }
+
+robot_spawn: { x: -12.0, y: -9.0, yaw: 0.6435 }
+
+map:
+  resolution: 0.05
+  margin: 0.5
+  max_obstacle_z: 10.0

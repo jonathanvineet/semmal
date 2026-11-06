@@ -102,8 +102,10 @@ def availability(safety_state, mission_phase, sensors_ready=True):
     return 'available'
 
 
-def state_doc(*, safety_state, battery_pct, x, y, waypoints, mission_phase, task_id, executor_ready, hold):
+def state_doc(*, safety_state, battery_pct, x, y, waypoints, mission_phase, task_id, executor_ready, hold, world=None):
     return {
+        'world': world,
+        'waypoints': sorted((waypoints or {}).keys()),
         'safetyState': safety_state or 'DEGRADED',
         'batteryPct': max(0.0, min(100.0, float(battery_pct if battery_pct is not None else 0.0))),
         'zone': zone_for(x, y, waypoints) if x is not None else 'unknown',

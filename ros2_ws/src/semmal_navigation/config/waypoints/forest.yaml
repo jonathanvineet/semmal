@@ -1,0 +1,24 @@
+# Named-waypoint allowlist and route graph for the forest site (mission_executor).
+# Checked against semmal_gazebo/config/worlds/forest.yaml (tree trunks, fallen log) by tests/robot/test_layout.py.
+# Units: metres, radians (yaw), `map` frame (= Gazebo world frame).
+
+frame: map
+robot_radius: 0.27
+geofence: { min_x: -14.5, max_x: 14.5, min_y: -11.5, max_y: 11.5 }
+
+waypoints:
+  dock: { x: -12.0, y: -9.0, yaw: 0.6435 }
+  creek_crossing: { x: -3.0, y: -2.0, yaw: 0.7854 }
+  log_check: { x: 2.0, y: 2.0, yaw: 0.0 }
+  fire_lookout: { x: 8.0, y: 8.0, yaw: 0.0 }
+
+nodes:
+  trailhead: { x: -8.0, y: -6.0 }
+  n_bend: { x: 2.0, y: 6.0 }
+
+edges:
+  - [dock, trailhead]
+  - [trailhead, creek_crossing]
+  - [creek_crossing, log_check]
+  - [log_check, n_bend]
+  - [n_bend, fire_lookout]

@@ -30,23 +30,23 @@ const ok = (action: string, confidence = 0.9): AgentResult => ({
   receipt: { jobId: "j", agentId: vision.agentId, model: "m-vis", requestedTrustMode: "private", trustEvidence: "tee_verified", providerRequestId: "req-777", latencyMs: 900, inputSha256: "a", outputSha256: "b", completedAt: new Date().toISOString(), receiptHash: "c" },
 });
 
-function harness(opts: { state?: Partial<LocalState>; job?: () => Promise<AgentResult> } = {}) {
-  const calls = { missions: [] as string[][], holds: [] as boolean[], jobs: 0, quotes: 0, claims: 0, acks: [] as [boolean, string?][], states: [] as string[], episodes: [] as EpisodeRecord[] };
+function harness(opts: { state?: Partial<LocalState>; job?: (input: { context?: string }) => Promise<AgentResult>; profile?: Partial<RobotProfile> } = {}) {
+  const calls = { dwell: [] as number[], missions: [] as string[][], holds: [] as boolean[], jobs: 0, quotes: 0, claims: 0, acks: [] as [boolean, string?][], states: [] as string[], episodes: [] as EpisodeRecord[] };
   const result = (wps: string[]): MissionResult => ({ success: true, outcome: "COMPLETED", message: "ok", reached: wps, keyframePaths: ["/data/kf/a.ppm"] });
   let last: string[] = [];
   const local: LocalApi = {
-    state: async () => ({ safetyState: "NORMAL", batteryPct: 90, zone: "dock", availability: "available", executor: true, missionPhase: "IDLE", activeTask: null, hold: false, ...opts.state }),
-    startMission: async (g) => { calls.missions.push(g.waypoints); last = g.waypoints; return { accepted: true, message: "ok" }; },
+    state: async () => ({ safetyState: "NORMAL", batteryPct: 90, zone: "dock", availability: "available", executor: true, missionPhase: "IDLE", activeTask: null, hold: false, world: "warehouse", waypoints: ["destination", "dock", "inspection_point_A"], ...opts.state }),
+    startMission: async (g) => { calls.missions.push(g.waypoints); calls.dwell.push(g.dwellS ?? 0); last = g.waypoints; return { accepted: true, message: "ok" }; },
     waitMission: async () => result(last),
     cancel: async () => undefined,
     hold: async (on) => { calls.holds.push(on); },
     keyframe: async () => ({ dataUrl: "data:image/png;base64,AAAA", width: 1, height: 1 }),
   };
   const platform: PlatformApi = {
-    robot: async () => robot,
+    robot: async () => ({ ...robot, ...opts.profile }),
     agents: async () => [vision, inspection],
     catalog: async () => ({ rate: "1", models: [{ id: "m-vis", promptNeuron: "1000000000", completionNeuron: "1000000000", verifiability: "TeeML" }] }),
-    runJob: async () => { calls.jobs++; return (opts.job ?? (async () => ok("continue_mission")))(); },
+    runJob: async (_id, job) => { calls.jobs++; return (opts.job ?? (async () => ok("continue_mission")))((job as { input: { context?: string } }).input); },
   };
   const store = new TaskStore(mkdtempSync(join(tmpdir(), "rm-")));
   const deps = {
@@ -125,4 +125,54 @@ test("a re-delivered task is never run twice", async () => {
   await runTask(t, deps);
   assert.equal(await runTask(t, deps), null);
   assert.equal(calls.missions.length, 2);
+});
+
+test("the episode says what the robot accessed and what it bought", async () => {
+  const { deps } = harness();
+  const ep = (await runTask(task(), deps))!;
+  assert.equal(ep.world, "warehouse");
+  assert.ok(ep.access.some((a) => a.what === "camera frame" && a.leftRobot));
+  assert.ok(ep.access.some((a) => a.source === "Arkiv registry"));
+  assert.ok(!JSON.stringify(ep).includes("base64"), "no image bytes in the evidence");
+  assert.deepEqual(ep.purchases.map((p) => [p.agentId, p.status, p.providerRequestId]), [[vision.agentId, "delivered", "req-777"]]);
+  assert.equal(ep.spend.agentsUsdc, "0.05");
+  assert.equal(ep.spend.quotedUsdc, ep.quote!.amount);
+});
+
+const house = { world: "house", waypoints: ["bathroom", "bedroom", "dock", "inspection_point_A", "kitchen", "living_room", "office", "guest_room"] };
+const cleaner = { capabilities: ["home.cleaning" as const], model: "cleaner" as const };
+
+test("house cleaning: visits rooms, cleans where the camera finds mess, skips clean rooms, returns", async () => {
+  const { calls, deps } = harness({
+    state: house,
+    profile: cleaner,
+    job: async (input) => (/kitchen|living room/.test(input.context ?? "") ? ok("pause_and_request_inspection") : ok("continue_mission")),
+  });
+  const ep = (await runTask(task({ skill: "home.cleaning", plan: { waypoints: 3, distanceM: 60, privacy: "private" } }), deps))!;
+  assert.equal(ep.outcome, "COMPLETED");
+  assert.deepEqual(ep.stops, ["kitchen", "living_room", "bedroom"]);
+  assert.deepEqual(calls.missions, [["kitchen"], ["kitchen"], ["living_room"], ["living_room"], ["bedroom"], ["dock"]]);
+  assert.equal(calls.dwell.filter((x) => x > 0).length, 2); // two cleaning passes
+  assert.deepEqual(ep.actions.map((a) => a.stop + ":" + a.action.split(" ")[0]), ["kitchen:cleaning", "living_room:cleaning", "bedroom:nothing"]);
+  assert.equal(ep.purchases.length, 3);
+});
+
+test("forest patrol: hazards are reported and the patrol continues to every stop", async () => {
+  const { calls, deps } = harness({
+    state: { world: "forest", waypoints: ["creek_crossing", "dock", "fire_lookout", "log_check"] },
+    profile: { capabilities: ["outdoor.patrol"], robotType: "diff-drive-outdoor", model: "field-rover" },
+    job: async (input) => (/log check|fire lookout/.test(input.context ?? "") ? ok("pause_and_request_inspection") : ok("continue_mission")),
+  });
+  const ep = (await runTask(task({ skill: "outdoor.patrol", plan: { waypoints: 3, distanceM: 40, privacy: "private" } }), deps))!;
+  assert.equal(ep.outcome, "COMPLETED");
+  assert.deepEqual(calls.missions, [["creek_crossing"], ["log_check"], ["fire_lookout"], ["dock"]]);
+  assert.equal(ep.actions.filter((a) => a.action.startsWith("hazard")).length, 2);
+  assert.ok(!calls.holds.includes(true));
+});
+
+test("declines a job the current world cannot serve", async () => {
+  const { calls, deps } = harness({ state: { world: "forest", waypoints: ["dock", "log_check"] }, profile: cleaner });
+  assert.equal(await runTask(task({ skill: "home.cleaning" }), deps), null);
+  assert.match(calls.acks[0]![1]!, /has none of the stops/);
+  assert.equal(calls.missions.length, 0);
 });
