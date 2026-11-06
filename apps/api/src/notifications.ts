@@ -14,7 +14,8 @@ export type TaskEvent =
   | { kind: "ack"; accepted: boolean; reason?: string }
   | { kind: "progress"; state: string; detail?: string }
   | { kind: "position"; phase: string; remainingM?: number; etaAt?: string }
-  | { kind: "incident"; faultCode: string; safetyAction: string };
+  | { kind: "incident"; faultCode: string; safetyAction: string }
+  | { kind: "extra"; stop: string; accepted: boolean; reason: string };
 export type Note = { wallet: string; taskId: string; kind: string; title: string; body: string; to: "owner" | "customer" };
 
 const time = (iso?: string) => (iso ? new Date(iso).toISOString().slice(11, 16) + " UTC" : "");
@@ -30,6 +31,10 @@ export function notesFor(t: TripMeta, e: TaskEvent): Note[] {
     case "dispatched":
       owner("request", t.customerWallet ? "New booking" : "Test task sent", `${r}: ${skillName(t.skill)}${t.startAt ? `, on site ${time(t.startAt)}` : ""}.`);
       customer("request", "Booking sent", `${r} is working out its offer for ${skillName(t.skill)}.`);
+      break;
+    case "extra":
+      customer("extra", `${r} ${e.accepted ? "added" : "declined"} ${e.stop.replace(/_/g, " ")}`, e.reason);
+      owner("extra", `Extra stop ${e.accepted ? "added" : "declined"}: ${e.stop.replace(/_/g, " ")}`, e.reason);
       break;
     case "ack":
       if (!e.accepted) {

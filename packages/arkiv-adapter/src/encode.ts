@@ -65,7 +65,7 @@ export function agentCreateArgs(input: TAgent, ttlDays = REGISTRATION_DAYS) {
 // ---------------------------------------------------------------- coordination + evidence encoders
 import { EpisodeIndex, IncidentIndex, JobClaim, ReputationCheckpoint, SCORE_RULES, TaskQuote, TaskRequest } from "@semmal/contracts";
 import { addr as addrV, dec as decV, i32 as i32V, u64 } from "@arkiv-network/sdk/schema";
-import { EpisodeSchema, IncidentSchema, JobClaimSchema, QuoteSchema, ReputationSchema, TaskRequestSchema } from "./schemas";
+import { EpisodeSchema, EpisodeSchemaV2, IncidentSchema, JobClaimSchema, QuoteSchema, ReputationSchema, TaskRequestSchema } from "./schemas";
 
 const BLOCK_SECONDS = 2;
 /** Lifetime that ends at `iso` (rounded up to the 2 s block time, at least 2 blocks). */
@@ -108,6 +108,20 @@ export function episodeCreateArgs(input: EpisodeIndex) {
   return {
     schema: EpisodeSchema,
     values: { episode_id: e.episodeId, task_id: e.taskId, robot_id: e.robotId, outcome: e.outcome, storage_root: e.storageRoot, ended_at: u64(BigInt(Math.floor(Date.parse(e.endedAt) / 1000))), body: body(e) },
+    options: { expiration: ExpirationTime.fromDays(EVIDENCE_DAYS) },
+  };
+}
+
+/** v2: the same index with the robot's job score as an indexed column (needs `score`). */
+export function episodeV2CreateArgs(input: EpisodeIndex) {
+  const e = EpisodeIndex.parse(input);
+  if (!e.score) throw new Error("episode v2 needs the robot's job score");
+  return {
+    schema: EpisodeSchemaV2,
+    values: {
+      episode_id: e.episodeId, task_id: e.taskId, robot_id: e.robotId, outcome: e.outcome, task_score: e.score.score,
+      storage_root: e.storageRoot, ended_at: u64(BigInt(Math.floor(Date.parse(e.endedAt) / 1000))), body: body(e),
+    },
     options: { expiration: ExpirationTime.fromDays(EVIDENCE_DAYS) },
   };
 }

@@ -1,11 +1,12 @@
 "use client";
 /**
- * Robot and agent scores (score-v1): live, from evidence nobody can quietly edit, with the latest
+ * Robot and agent scores (score-v2): live, from evidence nobody can quietly edit, with the latest
  * checkpoint published on Arkiv. The instance owner publishes new checkpoints (one wallet-signed write
  * each, ~4 months on Arkiv). Excluded robots and agents are not offered for booking or hiring.
  */
 import { useCallback, useEffect, useState } from "react";
 import { getAddress } from "viem";
+import { SCORE_FORMULA, SELECTION_PRIOR } from "@semmal/contracts";
 import { reputationCreateArgs } from "@semmal/arkiv-adapter/browser";
 import { useWallet } from "@/lib/wallet";
 import { useArkivWriter } from "@/lib/arkiv-writer";
@@ -16,6 +17,7 @@ import { ApprovalCard } from "./ui/ApprovalCard";
 type Row = {
   subjectKind: "robot" | "agent"; subjectId: string; name: string; score: number; status: "new" | "good" | "watch" | "excluded";
   judged: number; counts: Record<string, number>; lastActiveAt: string | null; reason: string;
+  selection: number | null; source: string;
   published: { entityKey: string; score: number; status: string; computedAt: string } | null;
 };
 type Scores = { formula: string; rules: Record<string, number>; robots: Row[]; agents: Row[] };
@@ -44,7 +46,7 @@ export function Scores({ isOwner }: { isOwner: boolean }) {
     try {
       for (const r of due) {
         const args = reputationCreateArgs({
-          schemaVersion: "1.0", formula: "score-v1", subjectKind: r.subjectKind, subjectId: r.subjectId, score: r.score, status: r.status, judged: r.judged,
+          schemaVersion: "1.0", formula: SCORE_FORMULA, subjectKind: r.subjectKind, subjectId: r.subjectId, score: r.score, status: r.status, judged: r.judged,
           counts: r.counts, lastActiveAt: r.lastActiveAt, computedAt: new Date().toISOString(), publisherWallet: getAddress(w.account),
         });
         await ark.publish(`score:${r.subjectId}:${Date.now()}`, w.account, args, "0.01");
@@ -64,15 +66,19 @@ export function Scores({ isOwner }: { isOwner: boolean }) {
     <article className="card integ span-12 sc">
       <div className="integ__head">
         <h3 className="t-card">Scores</h3>
-        <span className="t-small muted">{s.formula}: from signed episodes and paid agent jobs · excluded robots and agents cannot be booked or hired</span>
+        <span className="t-small muted">
+          {s.formula}: robots from their own signed episodes, agents from the job scores the robots that hired them signed · the selection score
+          ranks robots for booking and agents for hiring: (judged × score + {SELECTION_PRIOR.weight} × {SELECTION_PRIOR.score}) / (judged + {SELECTION_PRIOR.weight}), compared in {SELECTION_PRIOR.band}-point bands · excluded ones are never booked or hired
+        </span>
       </div>
       <table className="ev__table sc__table">
-        <thead><tr><th>Robot / agent</th><th>Score</th><th>Status</th><th>Why</th><th>Judged</th><th>Last active</th><th>On Arkiv</th></tr></thead>
+        <thead><tr><th>Robot / agent</th><th>Score</th><th>Selection</th><th>Status</th><th>Why</th><th>Judged</th><th>Last active</th><th>On Arkiv</th></tr></thead>
         <tbody>
           {rows.map((r) => (
             <tr key={r.subjectId}>
               <td><b>{r.name}</b> <span className="muted t-small">{r.subjectKind}</span></td>
               <td className="mono">{r.score}</td>
+              <td className="mono" title={r.source}>{r.selection ?? "—"}</td>
               <td><span className={`sc__badge sc__badge--${r.status}`}>{r.status}</span></td>
               <td className="t-small">{r.reason}</td>
               <td className="mono">{r.judged}</td>

@@ -16,7 +16,7 @@
  * The episode records what the robot accessed and what it bought.
  */
 import { randomUUID } from "node:crypto";
-import { NavigationPlanOutput, VisionInspectionOutput, type AgentListing, type JobClaim, type TaskQuote } from "@semmal/contracts";
+import { SKILL_STOPS, scoreAgentJob, scoreTask, type AgentJobScore, type TaskScore, NavigationPlanOutput, VisionInspectionOutput, type AgentListing, type JobClaim, type TaskQuote } from "@semmal/contracts";
 import { quoteTask, rankSpecialists, toWei, weiToMicro, type SpecialistOffer, type TaskPlan } from "@semmal/quote";
 import type { TransferCheck } from "@semmal/zerog-pay";
 import type { ClearStep, LocalApi } from "./local";
@@ -57,7 +57,14 @@ export type AccessRecord = { at: string; what: string; source: string; detail: s
 export type Purchase = {
   at: string; agentId: string; agentName: string; kind: string; forWhat: string; price0G: string; payTo?: string;
   paymentTx?: string; paymentStatus: string; status: string; providerRequestId?: string; model?: string; trustMode?: string; billing?: string;
+  /** The robot's score for this agent job (agent-job-score-v1); absent when the job never ran because of the robot. */
+  score?: AgentJobScore;
 };
+export type ExtraRequest = { extraId: string; stop: string; requestedAt: string };
+export type ExtraRecord = ExtraRequest & { decidedAt: string; accepted: boolean; reason: string };
+/** At most this many extra stops per job, on top of the booked ones. */
+export const MAX_EXTRAS = 3;
+
 export type Transfer = { to: string; amount0G: string; txHash?: string; status: string };
 
 export type EpisodeRecord = {
@@ -88,6 +95,10 @@ export type EpisodeRecord = {
   access: AccessRecord[];
   purchases: Purchase[];
   actions: { at: string; stop: string; action: string; why: string }[];
+  /** Stops the customer asked for during the job, and the robot's answer to each. */
+  extras: ExtraRecord[];
+  /** The robot's own score for this job (task-score-v1), computed from this record before it is signed. */
+  score?: TaskScore;
   transitions: { at: string; state: string; reason: string; actor: string }[];
   mission: unknown[];
 };
@@ -102,27 +113,27 @@ export type Progress = (state: TaskState, taskId: string, detail?: string) => vo
 
 /** What to do when the vision agent finds something, per kind of job. */
 type OnFinding = "clean_and_continue" | "hold_and_finish" | "report_and_continue";
-type SkillPlan = { candidates: string[]; home: string; onFinding: OnFinding; ask: (stop: string) => string };
+type SkillPlan = { candidates: readonly string[]; home: string; onFinding: OnFinding; ask: (stop: string) => string };
 
 /** Stops are chosen from the world's own waypoints (the gateway reports them), in this preference order. */
 export const SKILL_PLANS: Record<string, SkillPlan> = {
   "home.cleaning": {
-    candidates: ["kitchen", "living_room", "bedroom", "bathroom", "office", "guest_room"],
+    candidates: SKILL_STOPS["home.cleaning"]!,
     home: "dock",
     onFinding: "clean_and_continue",
     ask: (s) => `Home cleaning check in the ${s.replace("_", " ")}. Is the floor clean? Report spills, stains or clutter on the floor.`,
   },
-  "warehouse.inspection": { candidates: ["inspection_point_A"], home: "dock", onFinding: "hold_and_finish", ask: (s) => `Warehouse inspection at ${s}. Check the machine panel and its vents for obstructions or damage.` },
-  "site.inspection": { candidates: ["inspection_point_A", "log_check"], home: "dock", onFinding: "hold_and_finish", ask: (s) => `Site inspection at ${s}. Report hazards or damage in view.` },
-  "aerial.inspection": { candidates: ["inspection_point_A"], home: "dock", onFinding: "hold_and_finish", ask: (s) => `Inspection at ${s}. Report hazards or damage in view.` },
-  "warehouse.patrol": { candidates: ["inspection_point_A", "destination"], home: "dock", onFinding: "report_and_continue", ask: (s) => `Patrol stop ${s}. Report anything blocking aisles or out of place.` },
+  "warehouse.inspection": { candidates: SKILL_STOPS["warehouse.inspection"]!, home: "dock", onFinding: "hold_and_finish", ask: (s) => `Warehouse inspection at ${s}. Check the machine panel and its vents for obstructions or damage.` },
+  "site.inspection": { candidates: SKILL_STOPS["site.inspection"]!, home: "dock", onFinding: "hold_and_finish", ask: (s) => `Site inspection at ${s}. Report hazards or damage in view.` },
+  "aerial.inspection": { candidates: SKILL_STOPS["aerial.inspection"]!, home: "dock", onFinding: "hold_and_finish", ask: (s) => `Inspection at ${s}. Report hazards or damage in view.` },
+  "warehouse.patrol": { candidates: SKILL_STOPS["warehouse.patrol"]!, home: "dock", onFinding: "report_and_continue", ask: (s) => `Patrol stop ${s}. Report anything blocking aisles or out of place.` },
   "outdoor.patrol": {
-    candidates: ["creek_crossing", "log_check", "fire_lookout"],
+    candidates: SKILL_STOPS["outdoor.patrol"]!,
     home: "dock",
     onFinding: "report_and_continue",
     ask: (s) => `Trail patrol at ${s.replace("_", " ")}. Report hazards: fallen trees across the path, fire, smoke, flooding.`,
   },
-  "indoor.delivery": { candidates: ["destination", "kitchen"], home: "dock", onFinding: "report_and_continue", ask: (s) => `Delivery drop at ${s}. Is the drop spot clear?` },
+  "indoor.delivery": { candidates: SKILL_STOPS["indoor.delivery"]!, home: "dock", onFinding: "report_and_continue", ask: (s) => `Delivery drop at ${s}. Is the drop spot clear?` },
 };
 
 const CONFIDENCE_FLOOR = 0.6;
@@ -178,6 +189,10 @@ export type Deps = {
   awaitArrival?: (taskId: string, waitMs: number) => Promise<boolean>;
   ownerWaitMs?: number;
   confirmWaitMs?: number;
+  /** Extra stops the customer asked for since the last call (drained: each request is returned once). */
+  extras?: (taskId: string) => ExtraRequest[];
+  /** The robot's answer to each extra request, sent to the platform for the customer. */
+  extraResult?: (taskId: string, r: ExtraRecord) => void;
   /** Every 0G decision, in full, as it happens (for the customer's "how it decided" view). */
   decision?: (d: DecisionDetail) => void;
   log?: (m: string) => void;
@@ -214,6 +229,17 @@ export async function runTask(a: Assignment, d: Deps): Promise<EpisodeRecord | n
   let paid: { from: string; wei: bigint; txHash: string } | null = null;
   let budget: bigint | null = null; // micro-0G the robot may spend on agents
   let spent = 0n; // micro-0G actually paid to agents
+  const extras: ExtraRecord[] = [];
+  let findings = 0;
+  let findingsHandled = 0;
+  // set once the stop loop runs: decides each extra request the customer sent (see below)
+  let takeExtras: (finished: boolean) => void = (finished) => {
+    for (const x of d.extras?.(a.taskId) ?? []) {
+      const r: ExtraRecord = { ...x, decidedAt: now(), accepted: false, reason: "the job ended before it reached its stops" };
+      extras.push(r);
+      d.extraResult?.(a.taskId, r);
+    }
+  };
   let travel: EpisodeRecord["travel"];
   const money: EpisodeRecord["money"] = { token: "0G", funding: "none", budget0G: null, agentsPaid0G: "0" };
   const now = () => new Date().toISOString();
@@ -242,8 +268,18 @@ export async function runTask(a: Assignment, d: Deps): Promise<EpisodeRecord | n
       }
     }
     money.agentsPaid0G = fromMicro(spent);
+    takeExtras(true); // anything still queued gets an answer
+    const endedAt = now();
+    const visited = new Set(actions.map((x) => x.stop));
+    const accepted = extras.filter((x) => x.accepted);
+    const score = scoreTask({
+      outcome, planned: stops.length, visited: stops.filter((x) => visited.has(x)).length,
+      decisionsAsked: decisions.length, decisionsAccepted: decisions.filter((x) => x.outcome === "accepted").length,
+      findings, findingsHandled, extrasAccepted: accepted.length, extrasDone: accepted.filter((x) => visited.has(x.stop)).length,
+      deadline: a.deadline ?? null, endedAt,
+    });
     const ep: EpisodeRecord = {
-      episodeId, taskId: a.taskId, robotId: d.robotId, world, skill: a.skill, outcome, startedAt, endedAt: now(), stops,
+      episodeId, taskId: a.taskId, robotId: d.robotId, world, skill: a.skill, outcome, startedAt, endedAt, stops, extras, score,
       quote: quoteDoc, money, ...(travel ? { travel } : {}),
       hired: hired.map((h) => h.agentId), decisions, access, purchases, actions, transitions: store.history(a.taskId), mission,
     };
@@ -297,7 +333,7 @@ export async function runTask(a: Assignment, d: Deps): Promise<EpisodeRecord | n
   move("PLANNING", `${stops.length} stop(s) in ${world ?? "this world"}: ${stops.join(", ")}`);
 
   // ---- quote with live prices
-  const [listed, catalog] = await Promise.all([platform.agents().catch(() => [] as AgentListing[]), platform.catalog().catch(() => ({ models: [] }))]);
+  const [listed, catalog] = await Promise.all([platform.agents().catch(() => [] as (AgentListing & { selection?: number | null })[]), platform.catalog().catch(() => ({ models: [] }))]);
   // the robot can only pay agents priced in 0G, and only use agents whose model can serve their trust mode:
   // 0G sends private requests to TEE providers only (catalog verifiability "TeeML"); when the catalog lists
   // trust levels, a model without one would fail with 503 no_provider_for_trust_mode
@@ -310,7 +346,8 @@ export async function runTask(a: Assignment, d: Deps): Promise<EpisodeRecord | n
   const agents = listed.filter((x) => x.price.token === "0G" && servable(x));
   touch("agent listings", "Arkiv registry", `${listed.length} specialist agents read, ${agents.length} priced in 0G with a model that can serve their trust mode`);
   touch("model prices", "0G Router catalog", `${catalog.models.length} models`);
-  const offers: SpecialistOffer[] = agents.map((x) => ({ agentId: x.agentId, name: x.displayName, kind: x.kind, price: x.price.amount, trustMode: x.inference?.trustMode ?? "none" }));
+  // each offer carries the agent's selection score: hiring takes the best score first (rankSpecialists)
+  const offers: SpecialistOffer[] = agents.map((x) => ({ agentId: x.agentId, name: x.displayName, kind: x.kind, price: x.price.amount, trustMode: x.inference?.trustMode ?? "none", selection: x.selection }));
   const visionModel = agents.find((x) => x.kind === "vision" && x.inference)?.inference?.model;
   const m = catalog.models.find((x) => x.id === visionModel);
   const q = quoteTask({
@@ -510,14 +547,22 @@ export async function runTask(a: Assignment, d: Deps): Promise<EpisodeRecord | n
     return { r: r ?? null, latencyMs: r?.receipt?.latencyMs ?? Date.now() - t0, blocked: undefined as string | undefined, rec, jobId, paymentTx: pay.txHash as string };
   };
 
+  /** Score an agent job the robot paid for. A job the runner rejected (input or payment check) is not the agent's fault. */
+  const judge = (rec: Purchase | undefined, r: { status: string } | null, latencyMs: number, passedChecks: boolean) => {
+    if (!rec || r?.status === "rejected") return;
+    rec.score = scoreAgentJob({ delivered: r?.status === "succeeded", passedChecks, latencyMs, deadlineMs: d.inferenceTimeoutMs ?? 45_000 });
+  };
+
   // ---- optional: a navigation agent orders the stops (the robot keeps its own order otherwise)
   if (navigator && stops.length > 1) {
     const nav = agents.find((x) => x.agentId === navigator.agentId)!;
     touch("stop list", "robot-master", `${stops.length} stop names sent to ${nav.displayName}`, true);
-    const { r } = await job(nav, `order ${stops.length} stops`, { stops, constraints: `start and end at ${sp.home}` });
+    const { r, rec, latencyMs } = await job(nav, `order ${stops.length} stops`, { stops, constraints: `start and end at ${sp.home}` });
     const out = r?.status === "succeeded" ? NavigationPlanOutput.safeParse(r.output) : null;
     const proposed = out?.success ? out.data.order : null;
-    if (proposed && proposed.length === stops.length && proposed.every((s) => stops.includes(s)) && new Set(proposed).size === stops.length) {
+    const usable = Boolean(proposed && proposed.length === stops.length && proposed.every((s) => stops.includes(s)) && new Set(proposed).size === stops.length);
+    judge(rec, r, latencyMs, usable);
+    if (proposed && usable) {
       stops = proposed;
       move("PLANNING", `route ordered by ${nav.displayName}: ${stops.join(" → ")}`);
     } else move("PLANNING", "navigation answer not usable; keeping the robot's own order");
@@ -532,8 +577,37 @@ export async function runTask(a: Assignment, d: Deps): Promise<EpisodeRecord | n
   let visionAgent = agents.find((x) => x.agentId === vision.agentId)!;
   const unusable = new Set<string>();
 
-  // ---- visit each stop: drive, look, decide, act
-  for (const stop of stops) {
+  // ---- extra stops the customer asks for during the job: the robot decides each one itself
+  takeExtras = (finished) => {
+    for (const x of d.extras?.(a.taskId) ?? []) {
+      const price = micro(visionAgent.price.amount);
+      const unchecked = stops.length - Math.min(stops.length, si); // stops still to be looked at, each one paid vision job
+      const left = budget === null ? 0n : budget - spent;
+      let accepted = false;
+      let reason: string;
+      if (finished) reason = "the job had finished its stops";
+      else if (!here.has(x.stop) || !sp.candidates.includes(x.stop)) reason = `${x.stop.replace(/_/g, " ")} is not a place this robot covers for this kind of job here`;
+      else if (stops.includes(x.stop)) reason = `${x.stop.replace(/_/g, " ")} is already on this job`;
+      else if (extras.filter((e) => e.accepted).length >= MAX_EXTRAS) reason = `at most ${MAX_EXTRAS} extra stops per job`;
+      else if (left < price * BigInt(unchecked + 1))
+        reason = `the paid budget left (${fromMicro(left < 0n ? 0n : left)} 0G) does not cover ${unchecked} planned check(s) plus this one at ${visionAgent.price.amount} 0G each`;
+      else {
+        accepted = true;
+        stops.push(x.stop);
+        reason = `added as stop ${stops.length}; paid from the job's agent budget (${fromMicro(left)} 0G left)`;
+      }
+      const r: ExtraRecord = { ...x, decidedAt: now(), accepted, reason };
+      extras.push(r);
+      d.extraResult?.(a.taskId, r);
+      move("PLANNING", `customer asked for ${x.stop.replace(/_/g, " ")}: ${accepted ? "accepted" : "declined"} (${reason})`);
+    }
+  };
+  let si = 0;
+  takeExtras(false);
+
+  // ---- visit each stop: drive, look, decide, act (stops can grow with accepted extras)
+  for (; si < stops.length; si++, takeExtras(false)) {
+    const stop = stops[si]!;
     move("EXECUTING", `driving to ${stop}`);
     const leg = await drive([stop], true);
     if (!leg.ok) return finish(leg.safety ? "SAFE_STOP" : "FAILED", leg.why);
@@ -563,6 +637,7 @@ export async function runTask(a: Assignment, d: Deps): Promise<EpisodeRecord | n
       }
       const base = { at: now(), checkpoint: stop, agentId: visionAgent.agentId, model: visionAgent.inference?.model ?? "", trustMode: visionAgent.inference?.trustMode ?? "", latencyMs };
       if (!r || r.status !== "succeeded") {
+        judge(rec, r, latencyMs, false);
         decisions.push({ ...base, providerRequestId: r?.receipt?.providerRequestId, outcome: r ? "failed" : "timeout", action: "hold" });
         tell({ outcome: r ? "failed" : "timeout", action: "hold", reason: r ? (r.reason ?? r.status) : "no answer before the deadline", checks: { format: false, actionAllowed: false, confidence: null, confidenceFloor: CONFIDENCE_FLOOR } });
         if (r?.status === "failed" && r.code && AGENT_CANNOT_SERVE.has(r.code)) {
@@ -584,6 +659,7 @@ export async function runTask(a: Assignment, d: Deps): Promise<EpisodeRecord | n
       }
       const out = VisionInspectionOutput.safeParse(r.output);
       const ok = out.success && ACTIONS.has(out.data.recommended_action) && out.data.confidence >= CONFIDENCE_FLOOR;
+      judge(rec, r, latencyMs, ok);
       decisions.push({
         ...base, providerRequestId: r.receipt?.providerRequestId, outcome: ok ? "accepted" : "rejected", action: ok ? out.data.recommended_action : "hold",
         observation: out.success ? out.data.observation : undefined, anomaly: out.success ? out.data.anomaly_type : undefined, confidence: out.success ? out.data.confidence : undefined,
@@ -621,9 +697,11 @@ export async function runTask(a: Assignment, d: Deps): Promise<EpisodeRecord | n
       return finish(back.ok ? "COMPLETED" : back.safety ? "SAFE_STOP" : "FAILED", back.ok ? `returned to ${sp.home} from ${stop}` : back.why);
     }
     if (answer.found || answer.action === "pause_and_request_inspection" || answer.action === "clear_and_continue") {
+      findings++;
       if (sp.onFinding === "hold_and_finish") {
         await local.hold(true);
         actions.push({ at: now(), stop, action: "hold for a human", why: answer.anomaly ?? "finding" });
+        findingsHandled++;
         return finish("COMPLETED", `finding at ${stop} (${answer.anomaly ?? "issue"}); holding for a human inspection`);
       }
       if (sp.onFinding === "clean_and_continue" && clearing[stop]) {
@@ -649,9 +727,11 @@ export async function runTask(a: Assignment, d: Deps): Promise<EpisodeRecord | n
             if (!toBin.ok) return finish(toBin.safety ? "SAFE_STOP" : "FAILED", toBin.why);
             const dropped = await step("drop", spot.dropAt);
             actions.push({ at: now(), stop, action: dropped.ok ? `put ${dropped.moved.join(", ")} in the bin` : `could not put the items in the bin`, why: dropped.ok ? "floor cleared" : dropped.error ?? "drop failed" });
+            if (dropped.ok) findingsHandled++;
           }
         } else {
           const wiped = await step("wipe", spot.approach);
+          if (wiped.ok) findingsHandled++;
           actions.push({ at: now(), stop, action: wiped.ok ? `wiped ${wiped.moved.join(", ")} with a ${CLEANING_PASS_S} s pass` : `wiping pass of ${CLEANING_PASS_S} s; the spill did not clear`, why: wiped.ok ? what : wiped.error ?? what });
         }
       } else if (sp.onFinding === "clean_and_continue") {
@@ -659,7 +739,11 @@ export async function runTask(a: Assignment, d: Deps): Promise<EpisodeRecord | n
         const clean = await drive([stop], false, CLEANING_PASS_S);
         if (!clean.ok) return finish(clean.safety ? "SAFE_STOP" : "FAILED", clean.why);
         actions.push({ at: now(), stop, action: `cleaning stop: held ${CLEANING_PASS_S} s on the spot (no brush or vacuum is modelled on this body)`, why: answer.anomaly ?? "mess on the floor" });
-      } else actions.push({ at: now(), stop, action: "hazard reported, patrol continues", why: answer.anomaly ?? "hazard" });
+        findingsHandled++;
+      } else {
+        actions.push({ at: now(), stop, action: "hazard reported, patrol continues", why: answer.anomaly ?? "hazard" });
+        findingsHandled++;
+      }
     } else actions.push({ at: now(), stop, action: "nothing to do", why: answer.observation });
   }
 

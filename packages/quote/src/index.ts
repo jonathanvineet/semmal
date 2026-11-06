@@ -22,6 +22,8 @@ export type SpecialistOffer = {
   kind: string;
   price: string; // 0G per job
   trustMode: TrustMode | "none";
+  /** Selection score (score-v2 blended with the prior, 0-100); null = excluded; missing = no record yet (70). */
+  selection?: number | null;
 };
 
 export type TaskPlan = {
@@ -144,13 +146,22 @@ const strength = { private: 3, verified: 2, standard: 1, none: 0 } as const;
  * trust at least the plan's, then strongest trust, then lowest price, then agent id (stable order).
  * The robot hires the first; the rest are its alternatives if the first cannot serve.
  */
+/** Must equal SELECTION_PRIOR in @semmal/contracts (a test checks it); kept here so this package stays standalone. */
+export const SELECTION = { prior: 70, band: 5 } as const;
+/** Selection band: scores within the same 5-point band count as equal, so price and trust decide between them. */
+const band = (o: SpecialistOffer) => Math.floor((o.selection ?? SELECTION.prior) / SELECTION.band);
+
+/**
+ * The hiring rule (CLAUDE.md 6.3): right kind, trust at least the plan's, not excluded; then the best selection
+ * score (score-v2 with the prior, in 5-point bands), then the strongest trust, then the lowest price.
+ */
 export function rankSpecialists(plan: Pick<TaskPlan, "privacy">, offers: SpecialistOffer[], kind: string) {
   return offers
-    .filter((o) => o.kind === kind && strength[o.trustMode] >= strength[plan.privacy])
-    .sort((a, b) => strength[b.trustMode] - strength[a.trustMode] || Number(toMicro(a.price) - toMicro(b.price)) || a.agentId.localeCompare(b.agentId));
+    .filter((o) => o.kind === kind && strength[o.trustMode] >= strength[plan.privacy] && o.selection !== null)
+    .sort((a, b) => band(b) - band(a) || strength[b.trustMode] - strength[a.trustMode] || Number(toMicro(a.price) - toMicro(b.price)) || a.agentId.localeCompare(b.agentId));
 }
 
-/** The hiring rule (CLAUDE.md 6.3): right kind, trust at least the plan's, then strongest trust, then lowest price. */
+/** The hiring rule: see rankSpecialists. */
 export function pickSpecialists(plan: TaskPlan, offers: SpecialistOffer[]) {
   const need = SKILL_NEEDS[plan.skill];
   const hired: SpecialistOffer[] = [];

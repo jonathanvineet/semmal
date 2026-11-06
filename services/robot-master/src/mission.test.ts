@@ -4,7 +4,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AgentListing, AgentResult, RobotProfile } from "@semmal/contracts";
-import { runTask, type Assignment, type EpisodeRecord } from "./mission";
+import { type ExtraRecord, type ExtraRequest, runTask, type Assignment, type EpisodeRecord } from "./mission";
 import { TaskStore } from "./store";
 import type { LocalApi, LocalState, MissionResult } from "./local";
 import type { PlatformApi } from "./platform";
@@ -84,6 +84,8 @@ function harness(opts: HarnessOpts = {}) {
     progress: (s: string) => { calls.states.push(s); },
     ack: (_t: string, a: boolean, r?: string) => { calls.acks.push([a, r]); },
     inferenceTimeoutMs: 200,
+    extras: undefined as undefined | ((taskId: string) => ExtraRequest[]),
+    extraResult: undefined as undefined | ((taskId: string, r: ExtraRecord) => void),
   };
   return { calls, deps, store };
 }
@@ -224,6 +226,67 @@ test("house cleaning: if the gateway cannot move the toys, the episode says so a
   const ep = (await runTask(task({ skill: "home.cleaning", plan: { waypoints: 3, distanceM: 60, privacy: "private" } }), deps))!;
   assert.equal(ep.outcome, "COMPLETED");
   assert.ok(ep.actions.some((x) => x.action === "could not pick up toy_ball"));
+});
+
+test("extra stops during the job: the robot adds what it can do and pays for, declines the rest, and scores the job", async () => {
+  const { calls, deps } = harness({ state: house, profile: cleaner });
+  const answers: string[] = [];
+  let call = 0;
+  deps.extras = () => {
+    call++;
+    if (call === 1) return [{ extraId: "x1", stop: "garage_roof", requestedAt: "t" }, { extraId: "x2", stop: "kitchen", requestedAt: "t" }];
+    if (call === 2) return [{ extraId: "x3", stop: "bedroom", requestedAt: "t" }]; // arrives while the robot works
+    return [];
+  };
+  deps.extraResult = (_t, r) => answers.push(`${r.stop}:${r.accepted}`);
+  const ep = (await runTask(task({ skill: "home.cleaning", plan: { waypoints: 2, distanceM: 60, privacy: "private" } }), deps))!;
+  assert.equal(ep.outcome, "COMPLETED");
+  assert.deepEqual(answers, ["garage_roof:false", "kitchen:false", "bedroom:true"]);
+  assert.deepEqual(ep.stops, ["kitchen", "living_room", "bedroom"]);
+  assert.deepEqual(calls.missions.at(-2), ["bedroom"]);
+  assert.match(ep.extras[0]!.reason, /not a place this robot covers/);
+  assert.match(ep.extras[1]!.reason, /already on this job/);
+  assert.equal(ep.purchases.length, 3); // one paid vision check per stop, the extra included
+  assert.equal(ep.score!.score, 100);
+  assert.equal(ep.score!.parts.find((p) => p.id === "extras")!.detail, "1 of 1 accepted extras");
+  assert.equal(ep.score!.parts.find((p) => p.id === "completion")!.detail, "3 of 3 stops");
+});
+
+test("an extra stop the paid budget cannot cover is declined before any money moves", async () => {
+  const { calls, deps } = harness({ state: house, profile: { ...cleaner, pricing: { ...robot.pricing!, maxSpendPerTask: "0.10" } } });
+  deps.extras = (() => {
+    let sent = false;
+    return () => (sent ? [] : ((sent = true), [{ extraId: "x1", stop: "bedroom", requestedAt: "t" }]));
+  })();
+  const ep = (await runTask(task({ skill: "home.cleaning", plan: { waypoints: 2, distanceM: 60, privacy: "private" } }), deps))!;
+  assert.equal(ep.extras[0]!.accepted, false);
+  assert.match(ep.extras[0]!.reason, /paid budget left/);
+  assert.deepEqual(ep.stops, ["kitchen", "living_room"]);
+  assert.equal(calls.pays.filter((p) => p.kind === "job").length, 2);
+});
+
+test("a request that arrives after the last stop gets an answer, not silence", async () => {
+  const { deps } = harness({ state: house, profile: cleaner });
+  let n = 0;
+  deps.extras = () => (++n === 3 ? [{ extraId: "late", stop: "office", requestedAt: "t" }] : []); // 1: start, 2: after stop 1, 3: finish
+  const ep = (await runTask(task({ skill: "home.cleaning", plan: { waypoints: 1, distanceM: 60, privacy: "private" } }), deps))!;
+  assert.equal(ep.extras.length, 1);
+  assert.equal(ep.extras[0]!.accepted, false);
+  assert.equal(ep.extras[0]!.reason, "the job had finished its stops");
+});
+
+test("hiring follows the score: the robot hires the better-scored agent and scores the job it paid for", async () => {
+  const { deps } = harness();
+  const cheapPoor = { ...vision, agentId: "agt-vis-cheap01", displayName: "Cheap", price: { ...vision.price, amount: "0.01" }, selection: 45 };
+  const good = { ...vision, agentId: "agt-vis-good001", displayName: "Good", price: { ...vision.price, amount: "0.05" }, selection: 90 };
+  deps.platform = { ...deps.platform, agents: async () => [cheapPoor, good, inspection] };
+  const ep = (await runTask(task(), deps))!;
+  assert.equal(ep.outcome, "COMPLETED");
+  assert.ok(ep.hired.includes("agt-vis-good001") && !ep.hired.includes("agt-vis-cheap01"));
+  const p = ep.purchases.find((x) => x.agentId === "agt-vis-good001")!;
+  assert.equal(p.score!.formula, "agent-job-score-v1");
+  assert.equal(p.score!.parts.find((x) => x.id === "checks")!.points, 40);
+  assert.equal(ep.score!.formula, "task-score-v1");
 });
 
 test("forest patrol: hazards are reported and the patrol continues to every stop", async () => {

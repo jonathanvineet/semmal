@@ -108,17 +108,47 @@ hardware (that needs a TPM).
 
 ## Scores: no bad robots or agents get in
 
-Implemented in `packages/contracts` (`scoreRobot`, `scoreAgent`, formula **score-v1**), served by `/api/scores`,
-shown in the dashboard and next to each robot when booking, and published on Arkiv.
+Implemented in `packages/contracts` (`scoreTask`, `scoreRobot`, `scoreAgent`; formulas **task-score-v1** and
+**score-v2**), served by `/api/scores`, shown in the dashboard and next to each robot when booking, and on Arkiv.
 
-- **Robots** are scored on their own signed episodes and incidents on Arkiv: completed jobs count for, mission failures
-  against, hardware incidents lower it a little. A correct safe stop and a customer cancellation are **not** counted
-  against the robot.
-- **Agents** are scored on every paid job the runner handled: good answers count for, bad or late answers against.
-  Jobs rejected for input or payment problems are not the agent's fault and are not counted.
+- **Every job is scored by the robot itself** (`scoreTask`, task-score-v1), from its own episode, before the episode
+  is signed and stored. Parts that do not apply are left out of the total:
+
+  | Part | Points | Input |
+  |---|---|---|
+  | Stops completed | 40 | stops visited / stops planned (accepted customer extras count as planned) |
+  | Valid 0G decisions | 20 | 0G answers that passed the robot's checks / answers asked for |
+  | Findings dealt with | 20 | findings cleared, reported or held for inspection as the job says / findings |
+  | Extra stops done | 10 | extras done / extras the robot accepted |
+  | On time | 10 | finished by the booking's deadline |
+
+  `score = round(100 × points / max of the judged parts)`. After a safe stop only the decisions part counts: a correct
+  safe stop is never misconduct. The score goes into the signed 0G Storage bundle and into the Arkiv episode entity
+  (`semmal_episode_v2`, with `task_score` as an indexed column).
+- **Robots** (score-v2): the mean job score of their completed and failed episodes on Arkiv (an older episode without a
+  score counts 100 if completed, 0 if failed), minus up to 20 for hardware incidents. Safe stops and customer
+  cancellations are **not** counted against the robot.
+- **Extra stops during a job:** while the robot works, the customer can ask for another place (`POST
+  /api/tasks/:id/extras`). The platform only passes it on; the robot decides: the place must suit the job in its world,
+  not already be planned, at most 3 extras, and the customer's payment must still cover every remaining check plus this
+  one. Each request and answer is in the episode.
+- **What went to Arkiv:** each booking shows the episode entity read back from Arkiv (`GET /api/tasks/:id/record`):
+  schema, indexed columns, the stored body, owner, expiry, and the job score and robot score worked through.
+- **Agents are scored by the robots that hire them** (`scoreAgentJob`, agent-job-score-v1): for every job it paid for,
+  the robot records delivered before the deadline (40), passed its checks: format, allowed action, confidence, or a
+  usable route plan (40), and speed (20 within half the deadline, 10 within it). These job scores go into the robot's
+  signed episode and its Arkiv entity (`agentJobs`). An agent's score (score-v2) is the mean of the job scores robots
+  gave it; until a robot has scored it, the runner's record of its paid jobs is used. A job that never ran because of
+  the robot (not paid, over budget, rejected input) is not counted against the agent.
+- **Selection uses the scores, on both sides.** The selection score is the reputation pulled toward a neutral 70 while
+  there is little evidence: `round((judged × score + 3 × 70) / (judged + 3))`; excluded means never selected.
+  - **Booking:** robots that cover the site come first, ranked by selection score (5-point bands), then distance.
+  - **Hiring:** a robot hires, for each kind it needs, the agent with the best selection score (5-point bands) that
+    meets the job's trust mode, then stronger trust, then lower price (`rankSpecialists` in `packages/quote`). If that
+    agent cannot serve, it hires the next one in the same order.
 - **Exclusion:** with 5 or more judged jobs and a score under 40, or no activity for 180 days, a robot or agent is
   **excluded**: it is not shown for booking and no robot will hire it. New ones (under 3 judged jobs) are marked new.
-- **On Arkiv:** the instance owner publishes **score checkpoints** (`semmal_reputation_v1`), each living about 4 months;
+- **On Arkiv:** the instance owner publishes **score checkpoints** (`semmal_reputation_v1`, formula score-v2), each living about 4 months;
   publishing again refreshes it. Registrations live 3 months and are renewed by re-publishing; an excluded robot or
   agent is simply not renewed and lapses.
 - **Logs:** each operation's evidence is collected when it completes, signed, stored on 0G Storage and indexed on Arkiv

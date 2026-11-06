@@ -15,7 +15,7 @@ import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { eq } from "@arkiv-network/sdk/query";
-import { EpisodeSchema, IncidentSchema, episodeCreateArgs, incidentCreateArgs, jobClaimCreateArgs, quoteCreateArgs } from "@semmal/arkiv-adapter";
+import { EpisodeSchema, EpisodeSchemaV2, IncidentSchema, episodeCreateArgs, episodeV2CreateArgs, incidentCreateArgs, jobClaimCreateArgs, quoteCreateArgs } from "@semmal/arkiv-adapter";
 import type { JobClaim, TaskQuote } from "@semmal/contracts";
 import type { Device } from "./device";
 import type { EpisodeRecord, EvidenceSink } from "./mission";
@@ -113,18 +113,22 @@ export class Evidence implements EvidenceSink {
         Object.assign(r, { stage: "STORAGE_CONFIRMED", manifest_hash: hash, signature, storage_root: up.rootHash });
       }
       if (r.stage === "STORAGE_CONFIRMED") {
-        const existing = await this.findOnArkiv(EpisodeSchema, "episode_id", id);
-        const key =
-          existing ??
-          (
-            await this.device.arkivCreate(`episode:${id}`, episodeCreateArgs({
-              schemaVersion: "1.0", episodeId: id, taskId: e.taskId, robotId: this.robotId, robotWallet: this.device.address,
-              outcome: e.outcome, startedAt: e.startedAt, endedAt: e.endedAt, storageRoot: String(r.storage_root) as `0x${string}`,
-              manifestHash: `0x${String(r.manifest_hash).replace("sha256:", "")}`, robotSignature: String(r.signature),
-              requestIds: e.decisions.map((x) => x.providerRequestId).filter((x): x is string => Boolean(x)).slice(0, 50),
-              agents: e.hired.slice(0, 10), seqFrom: 0, seqTo: e.transitions.length,
-            }))
-          ).entityKey;
+        // an episode with the robot's job score goes to the v2 schema (score as an indexed column)
+        const existing = (await this.findOnArkiv(EpisodeSchemaV2, "episode_id", id)) ?? (await this.findOnArkiv(EpisodeSchema, "episode_id", id));
+        const index = {
+          schemaVersion: "1.0" as const, episodeId: id, taskId: e.taskId, robotId: this.robotId, robotWallet: this.device.address,
+          outcome: e.outcome, startedAt: e.startedAt, endedAt: e.endedAt, storageRoot: String(r.storage_root) as `0x${string}`,
+          manifestHash: `0x${String(r.manifest_hash).replace("sha256:", "")}` as `0x${string}`, robotSignature: String(r.signature),
+          requestIds: e.decisions.map((x) => x.providerRequestId).filter((x): x is string => Boolean(x)).slice(0, 50),
+          agents: e.hired.slice(0, 10), seqFrom: 0, seqTo: e.transitions.length,
+          ...(e.score ? { score: e.score } : {}),
+          // the robot's score for each agent it paid in this job: agent reputations are built from these
+          agentJobs: e.purchases
+            .filter((p) => p.score)
+            .slice(0, 30)
+            .map((p) => ({ agentId: p.agentId, at: p.at, status: p.score!.parts[0]!.points > 0 ? ("succeeded" as const) : ("failed" as const), score: p.score!.score })),
+        };
+        const key = existing ?? (await this.device.arkivCreate(`episode:${id}`, e.score ? episodeV2CreateArgs(index) : episodeCreateArgs(index))).entityKey;
         this.db.prepare("UPDATE outbox SET stage = 'ARKIV_CONFIRMED', entity_key = ?, attempts = 0, last_error = NULL WHERE id = ? AND stage = 'STORAGE_CONFIRMED'").run(key, id);
         this.notify("episode", id, "ARKIV_CONFIRMED", { entityKey: key });
         this.log(`episode ${id} confirmed: root ${String(r.storage_root).slice(0, 12)}…, Arkiv ${key.slice(0, 10)}…`);

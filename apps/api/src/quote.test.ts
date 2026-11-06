@@ -79,3 +79,29 @@ test("agent price in 0G = one job's live model cost plus margin, never below 0.0
   assert.equal(p.price, "0.030212");
   assert.equal(agentJobPrice("navigation", { promptNeuron: "1", completionNeuron: "1" }, 0).price, "0.0001");
 });
+
+// ---------------------------------------------------------------- selection by score
+import { rankSpecialists as rank, SELECTION } from "@semmal/quote";
+import { SELECTION_PRIOR } from "@semmal/contracts";
+
+const ag = (agentId: string, price: string, selection?: number | null, trustMode: "private" | "verified" | "standard" = "private") => ({ agentId, name: agentId, kind: "vision", price, trustMode, selection });
+
+test("hiring takes the best-scored agent first, even when it costs more", () => {
+  const r = rank({ privacy: "private" }, [ag("cheap-poor", "0.01", 40), ag("pricier-good", "0.05", 92)], "vision");
+  assert.deepEqual(r.map((x) => x.agentId), ["pricier-good", "cheap-poor"]);
+});
+
+test("scores in the same 5-point band are equal: then stronger trust, then the lower price", () => {
+  const r = rank({ privacy: "verified" }, [ag("a", "0.05", 91, "verified"), ag("b", "0.02", 93, "verified"), ag("c", "0.09", 90, "private")], "vision");
+  assert.deepEqual(r.map((x) => x.agentId), ["c", "b", "a"]);
+});
+
+test("excluded agents are never hired; an unscored agent counts as the neutral 70", () => {
+  const r = rank({ privacy: "private" }, [ag("excluded", "0.01", null), ag("new", "0.02"), ag("weak", "0.01", 55)], "vision");
+  assert.deepEqual(r.map((x) => x.agentId), ["new", "weak"]);
+});
+
+test("the quote package's selection constants match the published contract", () => {
+  assert.equal(SELECTION.prior, SELECTION_PRIOR.score);
+  assert.equal(SELECTION.band, SELECTION_PRIOR.band);
+});

@@ -5,7 +5,7 @@ import cors from "@fastify/cors";
 import { ArkivRegistry, arkivConfigFromEnv } from "@semmal/arkiv-adapter";
 import { ZeroGError, ZeroGRouter, zeroGConfigFromEnv } from "@semmal/zerog-pc-adapter";
 import { loadConfig } from "./config";
-import { LatLon, PricingPolicy, RobotSkill, SCORE_FORMULA, SCORE_RULES, TrustMode, distanceM, robotIdFromWallet, scoreAgent, scoreRobot } from "@semmal/contracts";
+import { LatLon, PricingPolicy, RobotSkill, SCORE_FORMULA, SCORE_RULES, SELECTION_PRIOR, selectionScore, AGENT_JOB_SCORE_FORMULA, TASK_SCORE_FORMULA, TASK_SCORE_WEIGHTS, TrustMode, distanceM, robotIdFromWallet, scoreAgent, scoreRobot } from "@semmal/contracts";
 import { routeBetween } from "./route";
 import { agentJobPrice, AGENT_TOKENS, quoteTask, SKILL_NEEDS } from "@semmal/quote";
 import { z } from "zod";
@@ -247,27 +247,41 @@ export function buildApp(deps: Deps = defaultDeps()) {
     }
   }
 
-  // ---------------------------------------------------------------- scores (score-v1)
+  // ---------------------------------------------------------------- scores (score-v2)
   /**
-   * Live scores for every robot and agent, from evidence nobody can quietly edit: robots from their own
-   * signed episodes and incidents on Arkiv, agents from the runner's record of each paid job. Excluded
-   * robots and agents are left out of discovery and hiring. Recomputed at most once a minute.
+   * Live scores for every robot and agent (score-v2), from evidence nobody can quietly edit: robots from their
+   * own signed episodes and incidents on Arkiv; agents from the job scores the hiring robots wrote into those
+   * signed episodes (an agent no robot has scored yet falls back to the runner's record of its paid jobs).
+   * Each carries its selection score, which ranks robots for booking and agents for hiring. Excluded robots
+   * and agents are left out of discovery and hiring. Recomputed at most once a minute.
    */
   const scores = cached(60_000, async () => {
     const [robots, agents] = await Promise.all([robotsFromArkiv(""), agentsFromArkiv("")]);
+    const robotJobs: { agentId: string; at: string; status: string; score: { score: number } }[] = [];
     const robotScores = await Promise.all(
       robots.map(async (r) => {
         const [eps, incs] = await Promise.all([registry.listEpisodes(r.data.robotId).catch(() => []), registry.listIncidents(r.data.robotId).catch(() => [])]);
-        return { subjectKind: "robot" as const, subjectId: r.data.robotId, name: r.data.displayName, owner: r.data.ownerWallet, ...scoreRobot(eps.map((e) => e.data), incs.map((i) => i.data)) };
+        for (const e of eps) for (const j of e.data.agentJobs ?? []) robotJobs.push({ agentId: j.agentId, at: j.at, status: j.status, score: { score: j.score } });
+        const sc = scoreRobot(eps.map((e) => e.data), incs.map((i) => i.data));
+        return { subjectKind: "robot" as const, subjectId: r.data.robotId, name: r.data.displayName, owner: r.data.ownerWallet, ...sc, selection: selectionScore(sc), source: "robot-signed episodes on Arkiv" };
       }),
     );
     const history = runner?.jobHistory() ?? [];
-    const agentScores = agents.map((a) => ({
-      subjectKind: "agent" as const, subjectId: a.data.agentId, name: a.data.displayName, owner: a.data.ownerWallet,
-      ...scoreAgent(history.filter((h) => h.agentId === a.data.agentId)),
-    }));
+    const agentScores = agents.map((a) => {
+      const judgedByRobots = robotJobs.filter((j) => j.agentId === a.data.agentId);
+      const sc = scoreAgent(judgedByRobots.length ? judgedByRobots : history.filter((h) => h.agentId === a.data.agentId));
+      return {
+        subjectKind: "agent" as const, subjectId: a.data.agentId, name: a.data.displayName, owner: a.data.ownerWallet, ...sc, selection: selectionScore(sc),
+        source: judgedByRobots.length ? "job scores from hiring robots' signed episodes on Arkiv" : "the runner's record of its paid jobs (no robot has scored it yet)",
+      };
+    });
     return { robots: robotScores, agents: agentScores };
   });
+  /** Selection score per robot or agent id (missing: not scored yet; null: excluded). */
+  const selections = async () => {
+    const s = await scores("").catch(() => null);
+    return new Map([...(s?.robots ?? []), ...(s?.agents ?? [])].map((x) => [x.subjectId, { score: x.score, status: x.status, judged: x.judged, selection: x.selection }]));
+  };
   const excluded = async () => {
     const s = await scores("").catch(() => null);
     return new Set([...(s?.robots ?? []), ...(s?.agents ?? [])].filter((x) => x.status === "excluded").map((x) => x.subjectId));
@@ -303,15 +317,19 @@ export function buildApp(deps: Deps = defaultDeps()) {
     try {
       const out = await excluded();
       const robots = (await robotsFromArkiv("")).filter((r) => !out.has(r.data.robotId));
+      const sel = await selections();
+      const selBand = (x: { selection: number | null } | null) => Math.floor((x?.selection ?? SELECTION_PRIOR.score) / SELECTION_PRIOR.band);
       const live = new Map((gateway?.publicView() ?? []).map((r) => [r.robotId, r]));
       const items = robots
         .filter((e) => e.data.location)
         .map((e) => {
           const km = distanceM(at.data, e.data.location!) / 1000;
           const l = live.get(e.data.robotId);
-          return { ...e, distanceKm: Math.round(km * 10) / 10, inRange: km <= (e.data.serviceRadiusKm ?? 10) + 1.5, online: l?.online ?? false, availability: l?.availability ?? "offline" };
+          const sc = sel.get(e.data.robotId) ?? null;
+          return { ...e, distanceKm: Math.round(km * 10) / 10, inRange: km <= (e.data.serviceRadiusKm ?? 10) + 1.5, online: l?.online ?? false, availability: l?.availability ?? "offline", score: sc };
         })
-        .sort((a, b) => a.distanceKm - b.distanceKm);
+        // the marketplace's ranking: robots that cover the site first, then the best selection score (5-point bands), then the nearest
+        .sort((a, b) => Number(b.inRange) - Number(a.inRange) || selBand(b.score) - selBand(a.score) || a.distanceKm - b.distanceKm);
       return { items };
     } catch {
       return reply.code(502).send({ error: "Arkiv could not be reached" });
@@ -350,7 +368,8 @@ export function buildApp(deps: Deps = defaultDeps()) {
     // excluded agents (bad score or inactive) are not offered for hiring; ?all=1 shows everything
     const out = await excluded();
     const all = (req.query as { all?: string }).all === "1";
-    return listing(async () => (await agentsFromArkiv(kind)).filter((a) => all || !out.has(a.data.agentId)));
+    const sel = await selections();
+    return listing(async () => (await agentsFromArkiv(kind)).filter((a) => all || !out.has(a.data.agentId)).map((a) => ({ ...a, score: sel.get(a.data.agentId) ?? null })));
   });
 
   /**
@@ -423,6 +442,7 @@ export function buildApp(deps: Deps = defaultDeps()) {
       } else return reply.code(400).send({ error: "robotId or preview required" });
 
       const out = await excluded();
+      const sel = await selections();
       const agents = (await registry.listAgents().catch(() => [])).filter((a) => !out.has(a.data.agentId));
       // only agents priced in 0G can be paid by the robot
       const offers = agents.filter((a) => a.data.price.token === "0G").map((a) => ({
@@ -431,6 +451,7 @@ export function buildApp(deps: Deps = defaultDeps()) {
         kind: a.data.kind,
         price: a.data.price.amount,
         trustMode: (a.data.inference?.trustMode ?? "none") as "private" | "verified" | "standard" | "none",
+        selection: sel.get(a.data.agentId)?.selection,
       }));
       // inference calls the plan needs: one check per waypoint for looking jobs, one call otherwise
       const looks = (SKILL_NEEDS[plan.skill]?.kinds.length ?? 0) > 0;
@@ -662,6 +683,59 @@ export function buildApp(deps: Deps = defaultDeps()) {
     return r.ok ? { sent: true } : reply.code(409).send({ error: r.reason });
   });
 
+  /**
+   * The customer asks for one more stop while the robot works. Only the booking's wallet, only while the
+   * job is running. The platform only passes it on: the robot decides (place, budget, limit) and answers.
+   */
+  app.post<{ Params: { taskId: string }; Body: { stop?: string } }>("/api/tasks/:taskId/extras", async (req, reply) => {
+    const address = sessionAddress(req);
+    if (!address) return reply.code(401).send({ error: "sign in with the wallet that booked" });
+    if (!gateway) return reply.code(503).send({ error: "gateway not available" });
+    const stop = String(req.body?.stop ?? "");
+    if (!/^[a-z0-9_]{1,64}$/.test(stop)) return reply.code(400).send({ error: "stop must be a place name like living_room" });
+    const task = (await registry.listTasks({ taskId: req.params.taskId }).catch(() => []))[0];
+    if (!task) return reply.code(404).send({ error: "booking not found on Arkiv" });
+    if (task.data.customerWallet.toLowerCase() !== address.toLowerCase()) return reply.code(403).send({ error: "only the wallet that booked can add to the job" });
+    const t = gateway.trips.get(task.data.taskId);
+    const working = ["PAID", "DISCOVERING_SPECIALISTS", "HIRING_SPECIALISTS", "PLANNING", "EXECUTING", "VERIFYING", "WAITING_FOR_0G"];
+    if (!t?.state || !working.includes(t.state.state)) return reply.code(409).send({ error: "extra stops can be added only while the robot is working on the job" });
+    if ((t.extras ?? []).filter((x) => x.accepted === undefined).length >= 3) return reply.code(429).send({ error: "wait for the robot to answer your earlier requests" });
+    const r = gateway.requestExtra(task.data.robotId, task.data.taskId, stop);
+    return r.ok ? { sent: true, extraId: r.extraId } : reply.code(409).send({ error: r.reason });
+  });
+
+  /**
+   * What went to Arkiv for this job, read back from Arkiv itself: the robot-signed episode entity (schema,
+   * indexed columns, the stored body, owner, expiry) and the job score in it, with the published formulas.
+   */
+  app.get<{ Params: { taskId: string } }>("/api/tasks/:taskId/record", async (req, reply) => {
+    const address = sessionAddress(req)?.toLowerCase();
+    if (!address) return reply.code(401).send({ error: "sign in with the wallet that booked, or the robot's owner" });
+    const task = (await registry.listTasks({ taskId: req.params.taskId }).catch(() => []))[0];
+    const t = gateway?.trips.get(req.params.taskId);
+    const robotId = task?.data.robotId ?? t?.robotId;
+    if (!robotId) return reply.code(404).send({ error: "no such booking" });
+    const robot = (await robotsFromArkiv("").catch(() => [])).find((r) => r.data.robotId === robotId)?.data;
+    const allowed = task?.data.customerWallet.toLowerCase() === address || robot?.ownerWallet.toLowerCase() === address || t?.meta.ownerWallet?.toLowerCase() === address;
+    if (!allowed) return reply.code(403).send({ error: "only the customer or the robot's owner can see this" });
+    const record = await registry.episodeRecord(req.params.taskId).catch(() => null);
+    const [eps, incs] = await Promise.all([registry.listEpisodes(robotId).catch(() => []), registry.listIncidents(robotId).catch(() => [])]);
+    const robotScore = scoreRobot(eps.map((e) => e.data), incs.map((i) => i.data));
+    const all = await scores("").catch(() => null);
+    const hiredIds = new Set<string>((record?.body?.agentJobs ?? []).map((j: { agentId: string }) => j.agentId));
+    const agentScores = (all?.agents ?? []).filter((x) => hiredIds.has(x.subjectId)).map((x) => ({ agentId: x.subjectId, name: x.name, score: x.score, judged: x.judged, status: x.status, selection: x.selection, source: x.source }));
+    return {
+      taskId: req.params.taskId,
+      robotId,
+      state: t?.state ?? null,
+      extras: t?.extras ?? [],
+      record,
+      agentScores,
+      robotScore: { formula: SCORE_FORMULA, ...robotScore, selection: selectionScore(robotScore), episodesOnArkiv: eps.length, jobScores: eps.filter((e) => e.data.outcome === "COMPLETED" || e.data.outcome === "FAILED").map((e) => ({ taskId: e.data.taskId, outcome: e.data.outcome, score: e.data.score?.score ?? null })) },
+      formulas: { task: TASK_SCORE_FORMULA, weights: TASK_SCORE_WEIGHTS, agentJob: AGENT_JOB_SCORE_FORMULA, robot: SCORE_FORMULA, rules: SCORE_RULES, selection: SELECTION_PRIOR },
+    };
+  });
+
   /** Development (APP_MODE=simulation): the customer or the robot's owner can fast-forward the trip. */
   app.post<{ Params: { taskId: string } }>("/api/tasks/:taskId/fast-forward", async (req, reply) => {
     const address = sessionAddress(req)?.toLowerCase();
@@ -712,10 +786,11 @@ export function buildApp(deps: Deps = defaultDeps()) {
       taskId: req.params.taskId,
       state: t?.state ?? null,
       decisions: t?.decisions ?? [],
+      extras: t?.extras ?? [],
       method: {
         instructions: PROMPTS.vision,
         outputFormat: { observation: "short noun phrase", anomaly_detected: "true or false", anomaly_type: "short phrase or null", confidence: "0 to 1", recommended_action: "continue_mission | clear_and_continue | pause_and_request_inspection | return_to_dock | abort_mission" },
-        robotChecks: ["the answer is one JSON object in that exact format", "the action is one of the four allowed actions", "confidence is at least 0.6", "a failed, late or rejected answer is never replaced by a guess: the robot holds, retries once, then stops safely"],
+        robotChecks: ["the answer is one JSON object in that exact format", "the action is one of the five allowed actions", "confidence is at least 0.6", "a failed, late or rejected answer is never replaced by a guess: the robot holds, retries once, then stops safely"],
         docs: [
           { label: "0G Compute Network overview", url: "https://docs.0g.ai/developer-hub/building-on-0g/compute-network/overview" },
           { label: "0G Router (OpenAI-compatible endpoint, request IDs, billing)", url: "https://docs.0g.ai/developer-hub/building-on-0g/compute-network/router/overview" },

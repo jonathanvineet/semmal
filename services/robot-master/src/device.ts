@@ -21,11 +21,11 @@ import { createPublicClient as createViemClient, getAddress, http, keccak256, pa
 import { GALILEO_CHAIN_ID, galileo, memo, verifyTransfer, type PayKind } from "@semmal/zerog-pay";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { identityMessage } from "@semmal/contracts";
-import { EpisodeSchema, guardedWalletClient, IncidentSchema, JobClaimSchema, QuoteSchema, RABDI_CHAIN_ID } from "@semmal/arkiv-adapter";
+import { EpisodeSchema, EpisodeSchemaV2, guardedWalletClient, IncidentSchema, JobClaimSchema, QuoteSchema, RABDI_CHAIN_ID } from "@semmal/arkiv-adapter";
 import { Indexer, MemData } from "@0gfoundation/0g-storage-ts-sdk";
 import { ethers } from "ethers";
 
-export const ALLOWED_SCHEMAS = [QuoteSchema, JobClaimSchema, EpisodeSchema, IncidentSchema];
+export const ALLOWED_SCHEMAS = [QuoteSchema, JobClaimSchema, EpisodeSchema, EpisodeSchemaV2, IncidentSchema];
 
 /** Create the device key once. Refuses to overwrite an existing key. */
 export function generateDeviceKey(path: string) {

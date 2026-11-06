@@ -137,6 +137,8 @@ const waitSignal = <T>(key: string, waitMs: number) =>
   });
 
 const fastForwarded = new Set<string>();
+/** Extra stops the customer asked for, per task, until the mission picks them up (at most 10 waiting). */
+const extraQueue = new Map<string, { extraId: string; stop: string; requestedAt: string }[]>();
 
 let busy = false;
 link = new Link(env("SEMMAL_GATEWAY_URL", "ws://127.0.0.1:3001/api/gateway"), ROBOT_ID, env("SEMMAL_LINK_TOKEN"), "robot-master/0.1.0", {
@@ -163,6 +165,10 @@ link = new Link(env("SEMMAL_GATEWAY_URL", "ws://127.0.0.1:3001/api/gateway"), RO
   onArrivalConfirmed: (taskId) => {
     log(`task ${taskId}: the customer confirmed the robot is on site`);
     signal(`arrival:${taskId}`, true);
+  },
+  onExtra: (taskId, x) => {
+    log(`task ${taskId}: the customer asks for one more stop, ${x.stop}`);
+    extraQueue.set(taskId, [...(extraQueue.get(taskId) ?? []), x].slice(-10));
   },
   onFastForward: (taskId) => {
     log(`task ${taskId}: fast-forwarding the trip`);
@@ -207,6 +213,12 @@ link = new Link(env("SEMMAL_GATEWAY_URL", "ws://127.0.0.1:3001/api/gateway"), RO
       awaitOwner: (taskId, ms) => waitSignal<{ approved: boolean; reason?: string }>(`owner:${taskId}`, ms),
       awaitArrival: async (taskId, ms) => (await waitSignal<boolean>(`arrival:${taskId}`, ms)) === true,
       decision: (detail) => link.send({ type: "decision", taskId: detail.taskId, detail }),
+      extras: (taskId) => {
+        const q = extraQueue.get(taskId) ?? [];
+        extraQueue.delete(taskId);
+        return q;
+      },
+      extraResult: (taskId, r) => link.send({ type: "extra_result", taskId, extraId: r.extraId, stop: r.stop, accepted: r.accepted, reason: r.reason.slice(0, 200) }),
       log,
       travelSpeedup: Number(process.env.SEMMAL_TRAVEL_SPEEDUP || 1),
       fastForward: (taskId) => fastForwarded.has(taskId),

@@ -86,6 +86,8 @@ export type Trip = {
   state?: { state: string; detail?: string; at: string };
   /** Every 0G decision the robot reported, in full (no image or prompt bytes). */
   decisions: Record<string, unknown>[];
+  /** Extra stops the customer asked for during the job, and the robot's answer once it gives one. */
+  extras?: { extraId: string; stop: string; requestedAt: string; accepted?: boolean; reason?: string; decidedAt?: string }[];
 };
 
 export type LiveRobot = {
@@ -244,6 +246,18 @@ export class Gateway {
         case "hold_result":
           this.event(robotId, "safety", m.released ? `hold released${m.reason ? ` · ${m.reason}` : ""}` : `hold kept: ${m.reason ?? "refused by the robot"}`);
           break;
+        case "extra_result": {
+          const t = this.tripFor(m.taskId, robotId);
+          if (!t) break;
+          t.extras ??= [];
+          const x = t.extras.find((e) => e.extraId === m.extraId);
+          const answer = { accepted: m.accepted, reason: m.reason, decidedAt: m.ts };
+          if (x) Object.assign(x, answer);
+          else t.extras.push({ extraId: m.extraId, stop: m.stop, requestedAt: m.ts, ...answer });
+          this.event(robotId, "task", `${m.taskId}: extra stop ${m.stop} ${m.accepted ? "accepted" : "declined"} · ${m.reason}`);
+          this.emit(m.taskId, robotId, { kind: "extra", stop: m.stop, accepted: m.accepted, reason: m.reason });
+          break;
+        }
         case "task_ack":
           this.event(robotId, "task", `${m.taskId} ${m.accepted ? "accepted" : `declined${m.reason ? `: ${m.reason}` : ""}`}`);
           this.emit(m.taskId, robotId, { kind: "ack", accepted: m.accepted, reason: m.reason });
@@ -335,6 +349,19 @@ export class Gateway {
     this.send(s, { type: "fast_forward", taskId });
     this.event(robotId, "task", `${taskId}: fast-forward requested`);
     return { ok: true as const };
+  }
+
+  /** Pass a customer's extra stop to the robot (the caller has checked it is the customer). The robot decides. */
+  requestExtra(robotId: string, taskId: string, stop: string) {
+    const s = this.sessions.get(robotId);
+    if (!s?.hello) return { ok: false as const, reason: "The robot is not connected" };
+    const t = this.tripFor(taskId, robotId);
+    const extraId = `extra-${randomUUID().slice(0, 12)}`;
+    const requestedAt = new Date().toISOString();
+    if (t) (t.extras ??= []).push({ extraId, stop, requestedAt });
+    this.send(s, { type: "task_extra", taskId, extraId, stop, requestedAt });
+    this.event(robotId, "task", `${taskId}: customer asked for one more stop, ${stop}`);
+    return { ok: true as const, extraId };
   }
 
   /** Tell the robot a customer says they paid. The robot checks the transfer on chain itself. */

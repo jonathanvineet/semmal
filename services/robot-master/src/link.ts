@@ -9,6 +9,8 @@ export type LinkHandlers = {
   onOwnerDecision: (taskId: string, approved: boolean, reason?: string) => void;
   onArrivalConfirmed: (taskId: string) => void;
   onFastForward: (taskId: string) => void;
+  /** The customer asks for one more stop during the job; the mission decides. */
+  onExtra?: (taskId: string, x: { extraId: string; stop: string; requestedAt: string }) => void;
   /** The owner asks to end a soft hold; the robot decides and answers with hold_result. */
   onReleaseHold: (requestedBy: string) => void;
   /** Called after every (re)connect, once the platform has welcomed the robot. */
@@ -59,6 +61,7 @@ export class Link {
       else if (m.type === "owner_decision") this.h.onOwnerDecision(m.taskId, m.approved === true, m.reason);
       else if (m.type === "arrival_confirmed") this.h.onArrivalConfirmed(m.taskId);
       else if (m.type === "fast_forward") this.h.onFastForward(m.taskId);
+      else if (m.type === "task_extra" && /^[a-z0-9_]{1,64}$/.test(m.stop)) this.h.onExtra?.(m.taskId, { extraId: String(m.extraId).slice(0, 64), stop: m.stop, requestedAt: String(m.requestedAt).slice(0, 40) });
       else if (m.type === "release_hold") this.h.onReleaseHold(String(m.requestedBy ?? "").slice(0, 64));
       else if (m.type === "error") this.h.log(`gateway: ${m.code}: ${m.message}`);
     });

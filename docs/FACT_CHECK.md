@@ -275,3 +275,15 @@ Tests: `apps/api/src/gateway.test.ts` against a real WebSocket server.
   Evidence (episodes, incidents) now 120 days; registrations 90 days. Tests: `apps/api/src/scores.test.ts`.
 - Privacy change: camera frames are no longer handed to the platform or shown in the app; they go only to the vision
   agent's private 0G call.
+
+## Job scores, agent scores and selection (2026-11-07)
+- Arkiv named schemas need no registration: `defineSchema(name, …)` adds an indexed `arkiv.schema` tag to each entity
+  written through it, and queries through the schema see only entities with that tag (docs.arkiv.network
+  start-here/first-entity and the arkiv-graph package notes, via the Arkiv MCP, checked 2026-11-07). New episodes go to
+  `semmal_episode_v2` (adds indexed `task_score` i32); readers merge v2 and older `semmal_episode_v1` records.
+- Formulas (all in `packages/contracts`, deterministic, tested in `apps/api/src/scores.test.ts`):
+  task-score-v1 (robot scores each job), agent-job-score-v1 (robot scores each agent job it paid), score-v2
+  (reputation = mean job score; robots minus up to 20 for incidents), selection = (judged × score + 3 × 70) / (judged + 3).
+- Assumption: the robot takes agent selection scores from the platform's `/api/agents`; it does not recompute them
+  from Arkiv itself. The job scores behind them are robot-signed and on Arkiv, so anyone can recompute them.
+- Not yet observed live: a v2 episode written by a robot on Rabdi. Unit tests cover the encoded arguments only.

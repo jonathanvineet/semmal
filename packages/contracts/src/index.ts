@@ -504,7 +504,12 @@ export const GwDecision = z.object({
 export const GwTaskAck = z.object({ type: z.literal("task_ack"), seq, ts, taskId: z.string().max(64), accepted: z.boolean(), reason: z.string().max(200).optional() });
 /** The robot's answer to the owner's "release hold": it decides itself, from its own local state. */
 export const GwHoldResult = z.object({ type: z.literal("hold_result"), seq, ts, released: z.boolean(), reason: z.string().max(200).optional() });
-export const RobotToPlatform = z.discriminatedUnion("type", [GwHello, GwHeartbeat, GwMissionProgress, GwIncidentNotice, GwTaskAck, GwPosition, GwOffer, GwDecision, GwHoldResult]);
+/** The robot's answer to a customer's extra request during a job: it decides itself. */
+export const GwExtraResult = z.object({
+  type: z.literal("extra_result"), seq, ts, taskId: z.string().max(64), extraId: z.string().max(64), stop: z.string().max(64),
+  accepted: z.boolean(), reason: z.string().max(200),
+});
+export const RobotToPlatform = z.discriminatedUnion("type", [GwHello, GwHeartbeat, GwMissionProgress, GwIncidentNotice, GwTaskAck, GwPosition, GwOffer, GwDecision, GwHoldResult, GwExtraResult]);
 export type RobotToPlatform = z.infer<typeof RobotToPlatform>;
 
 export type PlatformToRobot =
@@ -526,6 +531,8 @@ export type PlatformToRobot =
   | { type: "arrival_confirmed"; taskId: string }
   /** Development (APP_MODE=simulation): leave now and finish the trip in a few seconds. */
   | { type: "fast_forward"; taskId: string }
+  /** The customer asks for one more stop during the job (checked as the booking's wallet). The robot decides. */
+  | { type: "task_extra"; taskId: string; extraId: string; stop: string; requestedAt: string }
   /**
    * The owner asks the robot to end a soft hold (e.g. after a SAFE_STOP). Advisory: the robot releases only
    * when no task or mission is running and the hold is the only thing stopping it. It never clears an
@@ -614,6 +621,10 @@ export const EpisodeIndex = z.object({
   agents: z.array(z.string().max(64)).max(10),
   seqFrom: z.number().int().min(0),
   seqTo: z.number().int().min(0),
+  /** The robot's score for each agent job it paid for in this episode (agent-job-score-v1). */
+  agentJobs: z.array(z.object({ agentId: z.string().max(64), at: z.string().datetime(), status: z.enum(["succeeded", "failed"]), score: z.number().int().min(0).max(100) })).max(30).optional(),
+  /** The robot's own score for this job (task-score-v1), the same object that is in the signed bundle. */
+  score: z.lazy(() => TaskScore).optional(),
 });
 export type EpisodeIndex = z.infer<typeof EpisodeIndex>;
 
@@ -637,22 +648,131 @@ export const IncidentIndex = z.object({
 });
 export type IncidentIndex = z.infer<typeof IncidentIndex>;
 
-// ---------------------------------------------------------------- reputation (score-v1)
+/**
+ * The places a robot visits for each kind of job, in its preference order (only those its world has).
+ * A customer can ask for one of these as an extra stop during a job; the robot decides.
+ */
+export const SKILL_STOPS: Record<string, readonly string[]> = {
+  "warehouse.inspection": ["inspection_point_A"],
+  "site.inspection": ["inspection_point_A", "log_check"],
+  "aerial.inspection": ["inspection_point_A"],
+  "warehouse.patrol": ["inspection_point_A", "destination"],
+  "indoor.delivery": ["destination", "kitchen"],
+  "home.cleaning": ["kitchen", "living_room", "bedroom", "bathroom", "office", "guest_room"],
+  "outdoor.patrol": ["creek_crossing", "log_check", "fire_lookout"],
+};
+
+// ---------------------------------------------------------------- job score (task-score-v1)
+/**
+ * The robot scores each job it finishes, from its own episode, before it signs and stores it. Every part
+ * shows its inputs; parts that do not apply to a job are "not judged" and leave the total:
+ *
+ *   completion   40  stops visited / stops planned (customer extras it accepted count as planned)
+ *   decisions    20  0G answers that passed the robot's checks / 0G answers it asked for
+ *   findings     20  findings it dealt with / findings (cleared, reported, or held for inspection as the job says)
+ *   extras       10  extras done / extras it accepted                      (not judged without extras)
+ *   on time      10  finished by the booking's deadline                      (not judged without a deadline)
+ *
+ *   score = round(100 * points / max of the judged parts)
+ *
+ * A safe stop is the right behaviour, never misconduct: on SAFE_STOP only the decisions part is judged.
+ */
+export const TASK_SCORE_FORMULA = "task-score-v1" as const;
+export const TASK_SCORE_WEIGHTS = { completion: 40, decisions: 20, findings: 20, extras: 10, onTime: 10 } as const;
+export const TaskScorePart = z.object({
+  id: z.enum(["completion", "decisions", "findings", "extras", "onTime"]),
+  label: z.string().max(40),
+  judged: z.boolean(),
+  points: z.number().int().min(0).max(100),
+  max: z.number().int().min(0).max(100),
+  detail: z.string().max(160),
+});
+export const TaskScore = z.object({
+  formula: z.literal(TASK_SCORE_FORMULA),
+  score: z.number().int().min(0).max(100),
+  points: z.number().int().min(0).max(100),
+  max: z.number().int().min(0).max(100),
+  parts: z.array(TaskScorePart).max(5),
+});
+export type TaskScore = z.infer<typeof TaskScore>;
+export type TaskScoreInput = {
+  outcome: "COMPLETED" | "FAILED" | "ABORTED" | "SAFE_STOP";
+  planned: number; visited: number;
+  decisionsAsked: number; decisionsAccepted: number;
+  findings: number; findingsHandled: number;
+  extrasAccepted: number; extrasDone: number;
+  deadline?: string | null; endedAt: string;
+};
+
+export function scoreTask(i: TaskScoreInput): TaskScore {
+  const W = TASK_SCORE_WEIGHTS;
+  const safe = i.outcome === "SAFE_STOP";
+  const ratio = (n: number, d: number) => (d > 0 ? Math.max(0, Math.min(1, n / d)) : 1);
+  const part = (id: z.infer<typeof TaskScorePart>["id"], label: string, max: number, judged: boolean, r: number, detail: string) =>
+    ({ id, label, judged, max: judged ? max : 0, points: judged ? Math.round(max * r) : 0, detail });
+  const parts = [
+    part("completion", "Stops completed", W.completion, !safe && i.planned > 0, ratio(i.visited, i.planned), safe ? "not judged: a safe stop is the right behaviour" : `${i.visited} of ${i.planned} stops`),
+    part("decisions", "Valid 0G decisions", W.decisions, i.decisionsAsked > 0, ratio(i.decisionsAccepted, i.decisionsAsked), i.decisionsAsked ? `${i.decisionsAccepted} of ${i.decisionsAsked} answers passed the robot's checks` : "not judged: no 0G answers asked for"),
+    part("findings", "Findings dealt with", W.findings, !safe && i.findings > 0, ratio(i.findingsHandled, i.findings), safe ? "not judged: safe stop" : i.findings ? `${i.findingsHandled} of ${i.findings} findings` : "not judged: nothing found"),
+    part("extras", "Extra stops done", W.extras, !safe && i.extrasAccepted > 0, ratio(i.extrasDone, i.extrasAccepted), safe ? "not judged: safe stop" : i.extrasAccepted ? `${i.extrasDone} of ${i.extrasAccepted} accepted extras` : "not judged: no extras accepted"),
+    part("onTime", "On time", W.onTime, !safe && Boolean(i.deadline), i.deadline && Date.parse(i.endedAt) <= Date.parse(i.deadline) ? 1 : 0, safe ? "not judged: safe stop" : i.deadline ? `finished ${Date.parse(i.endedAt) <= Date.parse(i.deadline) ? "before" : "after"} the deadline ${i.deadline}` : "not judged: no deadline"),
+  ];
+  const points = parts.reduce((t, p) => t + p.points, 0);
+  const max = parts.reduce((t, p) => t + p.max, 0);
+  return { formula: TASK_SCORE_FORMULA, score: max ? Math.round((100 * points) / max) : 100, points, max, parts };
+}
+
+// ---------------------------------------------------------------- agent job score (agent-job-score-v1)
+/**
+ * The hiring robot scores every agent job it paid for, from what it saw itself:
+ *
+ *   delivered     40  the agent returned an answer before the deadline
+ *   passed checks 40  the answer passed the robot's checks (format, allowed action, confidence / a usable plan)
+ *   speed         20  20 if it answered within half the deadline, 10 within the deadline, else 0
+ *
+ * A job that never ran because of the robot (not paid, over its budget) is not judged: not the agent's fault.
+ */
+export const AGENT_JOB_SCORE_FORMULA = "agent-job-score-v1" as const;
+export const AgentJobScore = z.object({
+  formula: z.literal(AGENT_JOB_SCORE_FORMULA),
+  score: z.number().int().min(0).max(100),
+  parts: z.array(z.object({ id: z.enum(["delivered", "checks", "speed"]), label: z.string().max(40), points: z.number().int().min(0).max(100), max: z.number().int().min(0).max(100), detail: z.string().max(120) })).max(3),
+});
+export type AgentJobScore = z.infer<typeof AgentJobScore>;
+export function scoreAgentJob(i: { delivered: boolean; passedChecks: boolean; latencyMs: number; deadlineMs: number }): AgentJobScore {
+  const speed = !i.delivered ? 0 : i.latencyMs <= i.deadlineMs / 2 ? 20 : i.latencyMs <= i.deadlineMs ? 10 : 0;
+  const parts = [
+    { id: "delivered" as const, label: "Delivered", points: i.delivered ? 40 : 0, max: 40, detail: i.delivered ? "answered before the deadline" : "no answer before the deadline" },
+    { id: "checks" as const, label: "Passed the robot's checks", points: i.delivered && i.passedChecks ? 40 : 0, max: 40, detail: !i.delivered ? "nothing to check" : i.passedChecks ? "format, action and confidence accepted" : "rejected by the robot's checks" },
+    { id: "speed" as const, label: "Speed", points: speed, max: 20, detail: i.delivered ? `${i.latencyMs} ms of a ${i.deadlineMs} ms deadline` : "no answer" },
+  ];
+  return { formula: AGENT_JOB_SCORE_FORMULA, score: parts.reduce((t, p) => t + p.points, 0), parts };
+}
+
+// ---------------------------------------------------------------- reputation (score-v2)
 /**
  * Performance scores for robots and agents. Deterministic and published (formula "score-v1"):
  *
  *  Robot (from its robot-signed Arkiv episodes and incidents):
- *    judged     = completed + failed            (safe stops and aborts are not counted against it:
+ *    judged     = completed + failed episodes   (safe stops and aborts are not counted against it:
  *                                                a correct safe stop is the right behaviour)
- *    score      = round(100 * completed / judged - 20 * min(1, incidents / episodes))
- *  Agent (from the runner's record of each paid job):
- *    judged     = succeeded + failed            (rejected jobs are input/payment problems, not the agent's)
- *    score      = round(100 * succeeded / judged)
+ *    job score  = the episode's own task-score-v1 score; an older episode without one counts 100 if
+ *                 completed and 0 if failed
+ *    score      = round(mean job score of judged episodes - 20 * min(1, incidents / episodes))
+ *  Agent (from the job scores the hiring robots wrote into their signed episodes on Arkiv; an agent no
+ *  robot has scored yet falls back to the runner's record of each paid job):
+ *    judged     = succeeded + failed jobs       (jobs that never ran because of the robot are not judged)
+ *    job score  = the robot's agent-job-score-v1 score; a runner-only job counts 100 if it succeeded, 0 if not
+ *    score      = round(mean job score of judged jobs)
+ *
+ *  Selection (who gets booked, who gets hired): the score blended with a neutral prior so one lucky job does
+ *  not beat a long record, and a new robot or agent is not buried:
+ *    selection  = round((judged * score + 3 * 70) / (judged + 3))       (excluded: never selected)
  *  Status: "new" under 3 judged jobs; "excluded" with >= 5 judged and score < 40, or no activity for
  *  180 days; "watch" under 60; otherwise "good". Excluded robots and agents are left out of discovery
  *  and hiring.
  */
-export const SCORE_FORMULA = "score-v1" as const;
+export const SCORE_FORMULA = "score-v2" as const;
 export const SCORE_RULES = { minJudged: 3, excludeMinJudged: 5, excludeBelow: 40, watchBelow: 60, inactiveDays: 180, checkpointDays: 120 } as const;
 export type ScoreStatus = "new" | "good" | "watch" | "excluded";
 export type Score = { score: number; status: ScoreStatus; judged: number; counts: Record<string, number>; lastActiveAt: string | null; reason: string };
@@ -666,39 +786,56 @@ function status(score: number, judged: number, lastActiveAt: string | null, now:
   return { status: "good", reason: `score ${score}` };
 }
 
-export function scoreRobot(episodes: { outcome: string; endedAt: string }[], incidents: { detectedAt: string }[], now = Date.now()): Score {
-  const c = { episodes: episodes.length, completed: 0, failed: 0, safeStops: 0, aborted: 0, incidents: incidents.length };
+export function scoreRobot(episodes: { outcome: string; endedAt: string; score?: { score: number } }[], incidents: { detectedAt: string }[], now = Date.now()): Score {
+  const c = { episodes: episodes.length, completed: 0, failed: 0, safeStops: 0, aborted: 0, incidents: incidents.length, scored: 0 };
+  const jobScores: number[] = [];
   for (const e of episodes) {
     if (e.outcome === "COMPLETED") c.completed++;
     else if (e.outcome === "FAILED") c.failed++;
     else if (e.outcome === "SAFE_STOP") c.safeStops++;
     else c.aborted++;
+    if (e.outcome === "COMPLETED" || e.outcome === "FAILED") {
+      if (e.score) c.scored++;
+      jobScores.push(e.score ? e.score.score : e.outcome === "COMPLETED" ? 100 : 0);
+    }
   }
   const judged = c.completed + c.failed;
-  const base = judged ? (100 * c.completed) / judged : 100;
+  const base = judged ? jobScores.reduce((t, x) => t + x, 0) / judged : 100;
   const score = Math.max(0, Math.min(100, Math.round(base - 20 * Math.min(1, c.episodes ? c.incidents / c.episodes : 0))));
   const times = [...episodes.map((e) => e.endedAt), ...incidents.map((i) => i.detectedAt)].filter(Boolean).sort();
   const lastActiveAt = times.at(-1) ?? null;
   return { score, judged, counts: c, lastActiveAt, ...status(score, judged, lastActiveAt, now) };
 }
 
-export function scoreAgent(jobs: { status: string; at: string }[], now = Date.now()): Score {
-  const c = { jobs: jobs.length, succeeded: 0, failed: 0, rejected: 0 };
+export function scoreAgent(jobs: { status: string; at: string; score?: { score: number } }[], now = Date.now()): Score {
+  const c = { jobs: jobs.length, succeeded: 0, failed: 0, rejected: 0, scored: 0 };
+  const jobScores: number[] = [];
   for (const j of jobs) {
     if (j.status === "succeeded") c.succeeded++;
     else if (j.status === "failed") c.failed++;
     else c.rejected++;
+    if (j.status === "succeeded" || j.status === "failed") {
+      if (j.score) c.scored++;
+      jobScores.push(j.score ? j.score.score : j.status === "succeeded" ? 100 : 0);
+    }
   }
   const judged = c.succeeded + c.failed;
-  const score = judged ? Math.round((100 * c.succeeded) / judged) : 100;
+  const score = judged ? Math.round(jobScores.reduce((t, x) => t + x, 0) / judged) : 100;
   const lastActiveAt = jobs.map((j) => j.at).sort().at(-1) ?? null;
   return { score, judged, counts: c, lastActiveAt, ...status(score, judged, lastActiveAt, now) };
+}
+
+export const SELECTION_PRIOR = { score: 70, weight: 3, band: 5 } as const;
+/** The score used to choose robots and agents: the reputation pulled toward 70 while there is little evidence. */
+export function selectionScore(s: Pick<Score, "score" | "judged" | "status">): number | null {
+  if (s.status === "excluded") return null;
+  return Math.round((s.judged * s.score + SELECTION_PRIOR.weight * SELECTION_PRIOR.score) / (s.judged + SELECTION_PRIOR.weight));
 }
 
 /** A published score checkpoint. Written by the instance owner's wallet; lives 120 days unless refreshed. */
 export const ReputationCheckpoint = z.object({
   schemaVersion: z.literal(SCHEMA_VERSION),
-  formula: z.literal(SCORE_FORMULA),
+  formula: z.enum(["score-v1", SCORE_FORMULA]),
   subjectKind: z.enum(["robot", "agent"]),
   subjectId: z.string().min(3).max(64),
   score: z.number().int().min(0).max(100),

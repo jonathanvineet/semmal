@@ -6,7 +6,8 @@ export type CatalogModel = { id: string; promptNeuron: string; completionNeuron:
 
 export interface PlatformApi {
   robot(robotId: string): Promise<RobotProfile | null>;
-  agents(): Promise<AgentListing[]>;
+  /** Agent listings with the platform's selection score for each (score-v2 with the prior; see contracts). */
+  agents(): Promise<(AgentListing & { selection?: number | null })[]>;
   catalog(): Promise<{ models: CatalogModel[] }>;
   runJob(agentId: string, job: Record<string, unknown>): Promise<AgentResult>;
   route(from: { lat: number; lon: number }, to: { lat: number; lon: number }): Promise<TravelRoute>;
@@ -26,7 +27,8 @@ export function httpPlatform(base: string, linkToken: string): PlatformApi {
       return d.items.find((e) => e.data.robotId === robotId)?.data ?? null;
     },
     async agents() {
-      return (await get<{ items: Entry<AgentListing>[] }>("/api/agents")).items.map((e) => e.data);
+      const d = await get<{ items: (Entry<AgentListing> & { score?: { selection: number | null } | null })[] }>("/api/agents");
+      return d.items.map((e) => ({ ...e.data, ...(e.score ? { selection: e.score.selection } : {}) }));
     },
     async catalog() {
       return get("/api/zerog/catalog");

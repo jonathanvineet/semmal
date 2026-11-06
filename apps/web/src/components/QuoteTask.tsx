@@ -58,8 +58,8 @@ export function QuoteTask() {
   const [site, setSite] = useState<Pt | null>(null);
   const [near, setNear] = useState<Near[] | null>(null);
   const [locMsg, setLocMsg] = useState<string | null>(null);
-  // each robot's score (score-v1), shown to the customer next to it
-  const [scoreOf, setScoreOf] = useState<Record<string, { score: number; status: string; judged: number }>>({});
+  // each robot's score (score-v2), shown to the customer next to it
+  const [scoreOf, setScoreOf] = useState<Record<string, { score: number; status: string; judged: number; selection: number | null }>>({});
   useEffect(() => {
     fetch("/api/scores").then((r) => (r.ok ? r.json() : null)).then((d) => d && setScoreOf(Object.fromEntries(d.robots.map((x: { subjectId: string; score: number; status: string; judged: number }) => [x.subjectId, x])))).catch(() => undefined);
   }, []);
@@ -187,7 +187,7 @@ export function QuoteTask() {
                   <b>{r.data.displayName}</b>
                   <span className="muted">{typeName(r.data)}</span>
                   <span className="rb__range">{r.data.pricing!.minFee}–{r.data.pricing!.maxQuote} 0G</span>
-                  {scoreOf[r.data.robotId] && <span className="rb__dist">{scoreOf[r.data.robotId]!.status === "new" ? "New robot (not yet scored)" : `Score ${scoreOf[r.data.robotId]!.score}/100 · ${scoreOf[r.data.robotId]!.judged} judged jobs`}</span>}
+                  {scoreOf[r.data.robotId] && <span className="rb__dist">{scoreOf[r.data.robotId]!.status === "new" ? "New robot (not yet scored)" : `Score ${scoreOf[r.data.robotId]!.score}/100 · ${scoreOf[r.data.robotId]!.judged} judged jobs · ranked by ${scoreOf[r.data.robotId]!.selection ?? "—"}`}</span>}
                   {r.near && <span className="rb__dist">{r.near.distanceKm} km away{out ? " · outside its area" : ""} · {r.near.online ? r.near.availability : "offline"}</span>}
                 </span>
               </button>
