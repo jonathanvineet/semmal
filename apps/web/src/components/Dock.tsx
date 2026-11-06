@@ -6,6 +6,7 @@
  */
 import Link from "next/link";
 import { NotificationBell } from "./NotificationBell";
+import { AccountButton } from "./AccountButton";
 import { usePathname } from "next/navigation";
 import { motion, useMotionValue, useSpring, useTransform, type MotionValue } from "motion/react";
 import { useEffect, useRef, useState } from "react";
@@ -129,6 +130,7 @@ export function Dock() {
           <DockIcon key={it.id} item={it} mouseX={mouseX} active={isActive(it)} magnify={magnify} />
         ))}
         <NotificationBell />
+        <AccountButton />
         <Link href="/agents" className="btn btn--primary dock__cta">Browse agents</Link>
       </nav>
     </header>

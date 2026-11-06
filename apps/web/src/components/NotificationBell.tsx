@@ -84,13 +84,7 @@ export function NotificationBell() {
           </div>
           {!signedIn ? (
             <div className="nb__empty">
-              <p className="t-small muted">Sign in with your wallet to hear about bookings for your robots, and about robots you booked: offers, the trip, arrival and the result.</p>
-              {!w.account ? (
-                <button type="button" className="btn btn--primary btn--sm" onClick={w.connect}>Connect wallet</button>
-              ) : (
-                <button type="button" className="btn btn--primary btn--sm" onClick={w.signIn}>Sign in</button>
-              )}
-              {w.error && <p className="t-small soft-warn">{w.error}</p>}
+              <p className="t-small muted">Sign in with the account button at the top to hear about bookings for your robots, and about robots you booked: offers, the trip, arrival and the result.</p>
             </div>
           ) : items.length === 0 ? (
             <p className="t-small muted nb__empty">Nothing yet. Book a robot or register one to start getting updates.</p>

@@ -82,9 +82,7 @@ export function Orders() {
     return (
       <div className="empty">
         <h3 className="t-card">Sign in to see your orders</h3>
-        <p className="muted">Your orders are the bookings your wallet made. Sign in with that wallet.</p>
-        {!w.account ? <button className="btn btn--primary" type="button" onClick={w.connect}>Connect wallet</button> : <button className="btn btn--primary" type="button" onClick={w.signIn}>Sign in</button>}
-        {w.error && <p className="soft-warn t-small">{w.error}</p>}
+        <p className="muted">Your orders are the bookings your wallet made. Sign in with that wallet using the account button at the top.</p>
       </div>
     );
   if (err) return <p className="notice">{err}</p>;

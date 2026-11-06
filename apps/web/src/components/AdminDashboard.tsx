@@ -72,9 +72,8 @@ export function AdminDashboard() {
           <span className="mono">01</span>
           <div>
             <h3 className="t-card">Connect your wallet</h3>
-            <p className="muted t-small">{w.account ? <span className="mono">{w.account}</span> : "MetaMask or any browser wallet."}</p>
+            <p className="muted t-small">{w.account ? <span className="mono">{w.account}</span> : "Use Connect wallet at the top right (MetaMask or any browser wallet)."}</p>
           </div>
-          {!w.account && <button className="btn btn--primary" type="button" onClick={w.connect}>Connect wallet</button>}
         </div>
         <div className={`pub-step ${w.me?.address && !w.mismatch ? "is-done" : ""}`}>
           <span className="mono">02</span>
@@ -84,13 +83,11 @@ export function AdminDashboard() {
               {w.me?.address ? (
                 <>Signed in as <span className="mono">{short(w.me.address)}</span> · role <b>{w.me.role}</b></>
               ) : (
-                "You sign a short text message. It is not a transaction and costs nothing."
+                "Use Sign in at the top right. You sign a short text message; it is not a transaction and costs nothing."
               )}
             </p>
             {w.mismatch && <p className="t-small" style={{ color: "var(--warn)" }}>Your wallet switched accounts. Sign in again.</p>}
           </div>
-          {w.account && (!w.me?.address || w.mismatch) && <button className="btn btn--primary" type="button" onClick={w.signIn}>Sign in</button>}
-          {w.me?.address && !w.mismatch && <button className="btn btn--secondary" type="button" onClick={w.signOut}>Sign out</button>}
         </div>
         <div className={`pub-step ${w.me?.ownerSet ? "is-done" : ""}`}>
           <span className="mono">03</span>

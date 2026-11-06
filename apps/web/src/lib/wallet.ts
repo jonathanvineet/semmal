@@ -1,6 +1,6 @@
 "use client";
 /** Browser wallet (EIP-1193) + Sign-In With Ethereum. The wallet signs a text message; no key leaves it. */
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useSyncExternalStore } from "react";
 import { createSiweMessage } from "viem/siwe";
 import { getAddress } from "viem";
 
@@ -34,85 +34,107 @@ if (typeof window !== "undefined" && !(window as { __semmalTabSession?: boolean 
 }
 export const provider = () => (globalThis as { ethereum?: Eip1193 }).ethereum;
 
-export function useWallet() {
-  const [account, setAccount] = useState<string | null>(null);
-  const [chainId, setChainId] = useState<number | null>(null);
-  const [me, setMe] = useState<Me | null>(null);
-  const [error, setError] = useState<string | null>(null);
+/**
+ * One wallet and sign-in state for the whole page: every component (the dock's account button, the bell,
+ * Your orders, the dashboard) reads and updates the same store, so signing in anywhere shows everywhere.
+ */
+type WalletState = { account: string | null; chainId: number | null; me: Me | null; error: string | null };
+const EMPTY: WalletState = { account: null, chainId: null, me: null, error: null };
+let state: WalletState = EMPTY;
+const listeners = new Set<() => void>();
+const set = (patch: Partial<WalletState>) => {
+  state = { ...state, ...patch };
+  listeners.forEach((l) => l());
+};
+const subscribe = (l: () => void) => {
+  listeners.add(l);
+  return () => listeners.delete(l);
+};
 
-  const refreshMe = useCallback(async () => {
-    try {
-      setMe(await (await fetch("/api/auth/me", { credentials: "same-origin" })).json());
-    } catch {
-      setError("The SEMMAL API is not reachable.");
-    }
-  }, []);
+async function refreshMe() {
+  try {
+    set({ me: await (await fetch("/api/auth/me", { credentials: "same-origin" })).json() });
+  } catch {
+    set({ error: "The SEMMAL API is not reachable." });
+  }
+}
 
-  useEffect(() => {
-    refreshMe();
-    const p = provider();
-    if (!p) return;
-    p.request({ method: "eth_accounts" }).then((a) => setAccount(((a as string[])[0]) ?? null));
-    p.request({ method: "eth_chainId" }).then((c) => setChainId(Number(c)));
-    const onAcc = (a: unknown) => setAccount(((a as string[])[0]) ?? null);
-    const onChain = (c: unknown) => setChainId(Number(c));
-    p.on?.("accountsChanged", onAcc);
-    p.on?.("chainChanged", onChain);
-    return () => {
-      p.removeListener?.("accountsChanged", onAcc);
-      p.removeListener?.("chainChanged", onChain);
-    };
-  }, [refreshMe]);
+let started = false;
+function start() {
+  if (started || typeof window === "undefined") return;
+  started = true;
+  refreshMe();
+  const p = provider();
+  if (!p) return;
+  p.request({ method: "eth_accounts" }).then((a) => set({ account: ((a as string[])[0]) ?? null }));
+  p.request({ method: "eth_chainId" }).then((c) => set({ chainId: Number(c) }));
+  p.on?.("accountsChanged", (a: unknown) => set({ account: ((a as string[])[0]) ?? null }));
+  p.on?.("chainChanged", (c: unknown) => set({ chainId: Number(c) }));
+}
 
-  const connect = useCallback(async () => {
-    setError(null);
-    const p = provider();
-    if (!p) return setError("No browser wallet found. Install MetaMask or another EIP-1193 wallet.");
+async function connect() {
+  set({ error: null });
+  const p = provider();
+  if (!p) return set({ error: "No browser wallet found. Install MetaMask or another EIP-1193 wallet." });
+  try {
     const a = (await p.request({ method: "eth_requestAccounts" })) as string[];
-    setAccount(a[0] ?? null);
-  }, []);
+    set({ account: a[0] ?? null });
+  } catch (e) {
+    set({ error: (e as Error).message });
+  }
+}
 
-  const signIn = useCallback(async () => {
-    setError(null);
-    const p = provider();
-    if (!p || !account) return;
-    try {
-      const { nonce } = await (await fetch("/api/auth/nonce")).json();
-      const message = createSiweMessage({
-        address: getAddress(account),
-        chainId: chainId ?? RABDI_CHAIN_ID,
-        domain: location.host,
-        uri: location.origin,
-        version: "1",
-        nonce,
-        statement: "Sign in to your SEMMAL dashboard. This is not a transaction and costs nothing.",
-        issuedAt: new Date(),
-        expirationTime: new Date(Date.now() + 5 * 60 * 1000),
-      });
-      const signature = (await p.request({ method: "personal_sign", params: [message, account] })) as string;
-      const res = await fetch("/api/auth/verify", {
-        method: "POST",
-        credentials: "same-origin",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ message, signature }),
-      });
-      const d = await res.json();
-      if (!res.ok) throw new Error(d.error ?? "Sign-in failed");
-      if (d.sid) sessionStorage.setItem(TAB_SID, d.sid); // this tab keeps this wallet's session
-      await refreshMe();
-    } catch (e) {
-      setError((e as Error).message);
-    }
-  }, [account, chainId, refreshMe]);
-
-  const signOut = useCallback(async () => {
-    await fetch("/api/auth/logout", { method: "POST", credentials: "same-origin" });
-    sessionStorage.removeItem(TAB_SID);
+async function signIn() {
+  set({ error: null });
+  const p = provider();
+  if (!p) return set({ error: "No browser wallet found." });
+  let account = state.account;
+  if (!account) {
+    await connect();
+    account = state.account;
+    if (!account) return;
+  }
+  try {
+    const { nonce } = await (await fetch("/api/auth/nonce")).json();
+    const message = createSiweMessage({
+      address: getAddress(account),
+      chainId: state.chainId ?? RABDI_CHAIN_ID,
+      domain: location.host,
+      uri: location.origin,
+      version: "1",
+      nonce,
+      statement: "Sign in to SEMMAL. This is not a transaction and costs nothing.",
+      issuedAt: new Date(),
+      expirationTime: new Date(Date.now() + 5 * 60 * 1000),
+    });
+    const signature = (await p.request({ method: "personal_sign", params: [message, account] })) as string;
+    const res = await fetch("/api/auth/verify", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ message, signature }),
+    });
+    const d = await res.json();
+    if (!res.ok) throw new Error(d.error ?? "Sign-in failed");
+    if (d.sid) sessionStorage.setItem(TAB_SID, d.sid); // this tab keeps this wallet's session
     await refreshMe();
-  }, [refreshMe]);
+  } catch (e) {
+    set({ error: (e as Error).message });
+  }
+}
 
+async function signOut() {
+  await fetch("/api/auth/logout", { method: "POST", credentials: "same-origin" }).catch(() => undefined);
+  sessionStorage.removeItem(TAB_SID);
+  await refreshMe();
+}
+
+const setError = (error: string | null) => set({ error });
+
+export function useWallet() {
+  const s = useSyncExternalStore(subscribe, () => state, () => EMPTY);
+  useEffect(start, []);
   /** Signed-in session belongs to a different wallet than the one currently selected. */
-  const mismatch = Boolean(me?.address && account && getAddress(account) !== me.address);
-
-  return { account, chainId, me, error, setError, connect, signIn, signOut, refreshMe, mismatch };
+  const mismatch = Boolean(s.me?.address && s.account && getAddress(s.account) !== s.me.address);
+  return { ...s, setError, connect, signIn, signOut, refreshMe, mismatch };
 }
