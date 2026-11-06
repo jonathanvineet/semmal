@@ -1,0 +1,15 @@
+# Only the web app and the workspace packages it builds from are needed on Vercel.
+.env
+.env.*
+!.env.example
+data
+.venv
+ros2_ws
+tests
+docs
+simulation
+scripts
+**/node_modules
+**/.next
+**/*.log
+**/.DS_Store

@@ -48,7 +48,15 @@ export function defaultDeps(): Deps {
   // sign-in works on the configured origin and on this machine's own network addresses (same port)
   const web = new URL(config.WEB_ORIGIN);
   const lan = Object.values(networkInterfaces()).flat().filter((a) => a && a.family === "IPv4" && !a.internal).map((a) => `${a!.address}${web.port ? `:${web.port}` : ""}`);
-  return { config, admin, auth: new WalletAuth([web.host, ...lan]), registry, router, runner, gateway, notes };
+  // extra public origins the web app is served from (e.g. https://semmal.vercel.app), comma-separated
+  const extra = (process.env.WEB_EXTRA_ORIGINS ?? "").split(",").map((o) => o.trim()).filter(Boolean).flatMap((o) => {
+    try {
+      return [new URL(o).host];
+    } catch {
+      return [];
+    }
+  });
+  return { config, admin, auth: new WalletAuth([web.host, ...lan, ...extra]), registry, router, runner, gateway, notes };
 }
 
 const SID = "semmal_sid";
@@ -78,7 +86,7 @@ export function buildApp(deps: Deps = defaultDeps()) {
     },
     bodyLimit: 256 * 1024,
   });
-  app.register(cors, { origin: config.WEB_ORIGIN });
+  app.register(cors, { origin: [config.WEB_ORIGIN, ...(process.env.WEB_EXTRA_ORIGINS ?? "").split(",").map((o) => o.trim()).filter(Boolean)] });
 
   // a tab's own session (header) wins over the browser-wide cookie, so tabs can be signed in as different wallets
   const sessionId = (req: FastifyRequest) => {
@@ -103,7 +111,8 @@ export function buildApp(deps: Deps = defaultDeps()) {
       return reply.code(400).send({ error: "message and signature required" });
     try {
       const { sid, address } = await auth.verify(message, signature as `0x${string}`);
-      const secure = config.WEB_ORIGIN.startsWith("https://") ? "; Secure" : "";
+      // behind the web app's proxy (Vercel) the original scheme arrives as x-forwarded-proto
+      const secure = req.headers["x-forwarded-proto"] === "https" || config.WEB_ORIGIN.startsWith("https://") ? "; Secure" : "";
       reply.header("set-cookie", `${SID}=${sid}; HttpOnly; SameSite=Strict; Path=/; Max-Age=28800${secure}`);
       return { address, role: admin.roleOf(address), ownerSet: Boolean(admin.snapshot.owner), sid };
     } catch (e) {
