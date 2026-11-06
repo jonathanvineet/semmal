@@ -8,8 +8,7 @@ import Link from "next/link";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { formatEther, getAddress, isAddress } from "viem";
-import { HARDWARE, ROBOT_SKILLS, RobotProfile, type RobotIdentity, type HardwareCheck, SERVICE_AREAS, robotIdFromWallet, type RobotProfile as TRobot } from "@semmal/contracts";
-import { Select } from "./ui/Select";
+import { HARDWARE, ROBOT_SKILLS, RobotProfile, type RobotIdentity, type HardwareCheck, robotIdFromWallet, type RobotProfile as TRobot } from "@semmal/contracts";
 import { ApprovalCard } from "./ui/ApprovalCard";
 import { robotCreateArgs } from "@semmal/arkiv-adapter/browser";
 import { useWallet } from "@/lib/wallet";
@@ -49,7 +48,6 @@ export function RegisterRobot() {
   const [margin, setMargin] = useState(25);
   const [spendCap, setSpendCap] = useState("0.1");
   const [example, setExample] = useState<QuoteResult | null>(null);
-  const [area, setArea] = useState<string>("");
   const [check, setCheck] = useState<Check | null>(null);
   const [checking, setChecking] = useState(false);
   const [maxFee, setMaxFee] = useState("0.01");
@@ -66,6 +64,8 @@ export function RegisterRobot() {
   const vf = verified?.identity.facts;
   const base = vf?.baseLat && vf?.baseLon ? { lat: Number(vf.baseLat), lon: Number(vf.baseLon) } : null;
   const radiusKm = vf?.serviceRadiusKm ? Number(vf.serviceRadiusKm) : undefined;
+  // where it works comes from the robot itself (its base, to ~1 km, and its travel radius); nothing to ask again
+  const area = base ? `${radiusKm ?? 15} km around ${base.lat.toFixed(2)}, ${base.lon.toFixed(2)}` : "";
 
   const connect = async () => {
     setConnecting(true);
@@ -160,8 +160,8 @@ export function RegisterRobot() {
 
   const valid = [
     /^[\p{L}\p{N} .'-]{2,40}$/u.test(name.trim()),
-    Boolean(verified),
-    skills.length > 0 && area !== "",
+    Boolean(verified && base),
+    skills.length > 0,
     policyOk,
     walletOk && !check?.takenByOther && !checking,
     Boolean(profile) && ark.onRabdi,
@@ -170,7 +170,7 @@ export function RegisterRobot() {
   const summary = [
     name.trim(),
     verified ? m.name : "",
-    skills.length ? `${skills.length} skill${skills.length === 1 ? "" : "s"}${area ? ` · ${area}` : ""}` : "",
+    skills.length ? `${skills.length} skill${skills.length === 1 ? "" : "s"}` : "",
     policyOk ? `${norm(minFee)}–${norm(maxQuote)} 0G · ${margin}%` : "",
     walletOk ? short(robotWallet) : "",
     "",
@@ -328,16 +328,7 @@ export function RegisterRobot() {
                       );
                     })}
                   </div>
-                  <div className="reg-row">
-                    <Select
-                      label="Where it works (city or region, never an exact site)"
-                      value={area}
-                      onChange={setArea}
-                      groups={SERVICE_AREAS.map((g) => ({ label: g.region, options: g.areas }))}
-                      placeholder="Choose a city or region"
-                      searchPlaceholder="Search 88 cities and regions"
-                    />
-                  </div>
+                  {area && <p className="t-small muted">Works {area}, as the robot reported when you connected it.</p>}
                 </>
               )}
 
