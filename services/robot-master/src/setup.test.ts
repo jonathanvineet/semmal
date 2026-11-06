@@ -12,10 +12,12 @@ const TOKEN = `slk_${randomBytes(32).toString("base64url")}`;
 import { generateDeviceKey } from "./device";
 import { readEnv, writeEnv } from "./profile";
 
-test("platform address: keeps an explicit port, adds the API default when missing, rejects paths", () => {
+test("platform address: keeps an explicit port, adds the API default to plain http, leaves https tunnels on 443, rejects paths", () => {
   assert.deepEqual(normalisePlatform("http://172.20.10.2"), { url: "http://172.20.10.2:3001", addedPort: true });
   assert.deepEqual(normalisePlatform("http://172.20.10.2:3001/"), { url: "http://172.20.10.2:3001", addedPort: false });
   assert.deepEqual(normalisePlatform("https://api.example.org:8443"), { url: "https://api.example.org:8443", addedPort: false });
+  // an https tunnel already listens on 443; adding :3001 made the link fail with HTTP 404
+  assert.deepEqual(normalisePlatform("https://7w7685tt-3001.inc1.devtunnels.ms/"), { url: "https://7w7685tt-3001.inc1.devtunnels.ms", addedPort: false });
   assert.equal(normalisePlatform("172.20.10.2:3001"), null); // scheme required
   assert.equal(normalisePlatform("http://host:3001/api"), null);
   assert.equal(normalisePlatform("http://host:70000"), null);

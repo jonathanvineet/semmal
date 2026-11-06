@@ -33,7 +33,10 @@ export class Link {
   }
 
   private connect() {
-    const ws = new WebSocket(this.url, { headers: { authorization: `Bearer ${this.token}` } });
+    const ws = new WebSocket(this.url, {
+      // the skip headers stop ngrok / VS Code dev tunnels serving their browser warning page instead of the API
+      headers: { authorization: `Bearer ${this.token}`, "ngrok-skip-browser-warning": "1", "X-Tunnel-Skip-AntiPhishing-Page": "true" },
+    });
     this.ws = ws;
     ws.on("open", () => {
       this.backoff = 1000;

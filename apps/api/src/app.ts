@@ -607,6 +607,8 @@ export function buildApp(deps: Deps = defaultDeps()) {
     const task = (await registry.listTasks({ taskId: req.params.taskId }).catch(() => []))[0];
     if (!task) return reply.code(404).send({ error: "booking not found on Arkiv yet; try again in a few seconds" });
     if (Date.parse(task.data.deadline) <= Date.now()) return reply.code(409).send({ error: "the booking's deadline has passed" });
+    // sent once: a second assignment would start a second trip for the same booking
+    if (gateway.trips.has(task.data.taskId)) return reply.code(409).send({ error: "this booking was already sent to the robot" });
     const robot = (await registry.listRobots({ robotId: task.data.robotId }).catch(() => []))[0];
     if (!robot) return reply.code(404).send({ error: "robot not on Arkiv" });
     if (!robot.data.capabilities.includes(task.data.skill)) return reply.code(409).send({ error: "this robot does not offer that skill" });

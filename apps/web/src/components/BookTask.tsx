@@ -52,7 +52,9 @@ export function BookTask({ robotId, robotName, robotBase, site, area, plan, quot
   // resume: open an existing order (from Your orders) straight in its tracking view
   const [taskId, setTaskId] = useState<string | null>(resume ?? null);
   const [view, setView] = useState<TaskView | null>(null);
-  const [dispatched, setDispatched] = useState<string | null>(null);
+  // what happened when the booking was sent to the robot (null: not tried yet in this page)
+  const [dispatched, setDispatched] = useState<{ ok: boolean; text: string } | null>(null);
+  const [sending, setSending] = useState(false);
   const [payTx, setPayTx] = useState<string | null>(null);
   const [bookingTx, setBookingTx] = useState<string | null>(null);
   // delivery: how long the drive takes decides the earliest time the robot can be on site
@@ -123,6 +125,27 @@ export function BookTask({ robotId, robotName, robotBase, site, area, plan, quot
     return () => clearInterval(t);
   }, [taskId]);
 
+  /** Send the booking to the robot through the platform. The site goes this way, never onto Arkiv. */
+  const dispatch = async (id: string) => {
+    setSending(true);
+    setDispatched(null);
+    try {
+      // Arkiv indexes in a few seconds (longer when its public endpoint is busy); dispatch reads the booking back first
+      for (let i = 0; i < 24; i++) {
+        if (i) await new Promise((r) => setTimeout(r, 2500));
+        const r = await fetch(`/api/tasks/${id}/dispatch`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(site ? { site } : {}) });
+        const d = await r.json().catch(() => ({}));
+        if (r.ok) return setDispatched({ ok: true, text: "Sent to the robot." });
+        if (r.status !== 404) return setDispatched({ ok: false, text: d.error ?? `The platform answered ${r.status}` });
+      }
+      setDispatched({ ok: false, text: "Arkiv has not shown the booking yet, so it could not be sent. Try again in a moment." });
+    } catch (e) {
+      setDispatched({ ok: false, text: (e as Error).message });
+    } finally {
+      setSending(false);
+    }
+  };
+
   const book = async () => {
     if (!w.account) return w.connect();
     if (!ark.onRabdi) return ark.switchToRabdi();
@@ -148,15 +171,7 @@ export function BookTask({ robotId, robotName, robotBase, site, area, plan, quot
       const res = await ark.publish(`task:${id}`, w.account, args, "0.01");
       setBookingTx(res.txHash);
       setTaskId(id);
-      // Arkiv indexes in a few seconds; dispatch reads the booking back from Arkiv before sending it
-      for (let i = 0; i < 6; i++) {
-        await new Promise((r) => setTimeout(r, 2500));
-        // the site goes to the robot through the platform, never onto Arkiv
-        const r = await fetch(`/api/tasks/${id}/dispatch`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(site ? { site } : {}) });
-        const d = await r.json();
-        if (r.ok) { setDispatched("Sent to the robot."); break; }
-        if (r.status !== 404) { setDispatched(d.error); break; }
-      }
+      await dispatch(id);
     } catch (e) {
       setErr((e as Error).message);
     } finally {
@@ -191,7 +206,18 @@ export function BookTask({ robotId, robotName, robotBase, site, area, plan, quot
           <span className="t-label muted">Booked on Arkiv</span>
           <span className="mono t-small">{taskId}{bookingTx ? <> · <ExplorerLink href={arkivTx(bookingTx)} value={bookingTx} label="booking on Arkiv" /></> : null}</span>
         </div>
-        {dispatched && <p className="t-small muted">{dispatched}</p>}
+        {dispatched?.ok && <p className="t-small muted">{dispatched.text}</p>}
+        {/* not with the robot yet: no state, quote or event from it. Say so and offer to send it again. */}
+        {!view?.state && !view?.quotes.length && !view?.events.length && (dispatched ? !dispatched.ok : view !== null && !sending) && (
+          <div className="notice">
+            <p className="t-small">
+              {dispatched && !dispatched.ok ? <>Not sent to the robot: {dispatched.text}</> : <>The robot has not received this booking yet.</>}
+            </p>
+            <button type="button" className="btn btn--secondary btn--sm" disabled={sending} onClick={() => dispatch(taskId)}>
+              {sending ? "Sending…" : "Send to the robot again"}
+            </button>
+          </div>
+        )}
         <ol className="bk__steps">
           <li className={view?.robot.online ? "is-done" : ""}>Robot {view?.robot.online ? `online (${view.robot.availability})` : "offline"}{offer ? ` · offer ${offer.amount} 0G` : ""}</li>
           <li className={past("APPROVED") ? "is-done" : ""}>{past("APPROVED") ? "The owner approved your booking" : now === "AWAITING_OWNER" ? "Waiting for the robot's owner to approve" : "The robot's owner approves the booking"}</li>

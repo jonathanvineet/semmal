@@ -41,6 +41,8 @@ export function normalisePlatform(input: string): { url: string; addedPort: bool
     const port = Number(m[3]);
     return port >= 1 && port <= 65535 ? { url: v, addedPort: false } : null;
   }
+  // https without a port is a tunnel or proxy on 443 (ngrok, VS Code dev tunnels): keep it as given
+  if (m[1] === "https") return { url: v, addedPort: false };
   return { url: `${m[1]}://${m[2]}:${DEFAULT_API_PORT}`, addedPort: true };
 }
 
