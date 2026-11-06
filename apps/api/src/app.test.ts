@@ -140,3 +140,33 @@ test("quote: a delivery needs no specialist and is priced inside the policy", as
   assert.equal(res.json().quote, "2.00");
   assert.ok(!res.json().lines.some((l: { source: string }) => l.source === "0g-router"));
 });
+
+test("two wallets can be signed in at once, one per tab (session header), each sees only itself", async () => {
+  const { createSiweMessage } = await import("viem/siwe");
+  const { generatePrivateKey, privateKeyToAccount } = await import("viem/accounts");
+  const { NotificationStore } = await import("./notifications");
+  const admin = new AdminStore(join(mkdtempSync(join(tmpdir(), "semmal-")), "admin.json"));
+  const notes = new NotificationStore(join(mkdtempSync(join(tmpdir(), "semmal-")), "n.db"));
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const a = buildApp({ config: loadConfig({}), registry: failingRegistry as any, router: unconfiguredRouter as any, admin, auth: new WalletAuth("localhost:3000"), notes });
+  const signIn = async () => {
+    const acct = privateKeyToAccount(generatePrivateKey());
+    const { nonce } = (await a.inject({ method: "GET", url: "/api/auth/nonce" })).json();
+    const message = createSiweMessage({ address: acct.address, chainId: 7794095, domain: "localhost:3000", uri: "http://localhost:3000", version: "1", nonce });
+    const r = await a.inject({ method: "POST", url: "/api/auth/verify", payload: { message, signature: await acct.signMessage({ message }) } });
+    assert.equal(r.statusCode, 200);
+    return { address: acct.address, sid: r.json().sid as string };
+  };
+  const one = await signIn();
+  const two = await signIn();
+  notes.add({ wallet: one.address, taskId: "task-abc123", kind: "request", title: "for one", body: "x", to: "owner" });
+  const me = async (sid: string) => (await a.inject({ method: "GET", url: "/api/auth/me", headers: { "x-semmal-session": sid } })).json().address;
+  assert.equal(await me(one.sid), one.address);
+  assert.equal(await me(two.sid), two.address);
+  const list = async (sid: string) => (await a.inject({ method: "GET", url: "/api/notifications", headers: { "x-semmal-session": sid } })).json().items.length;
+  assert.equal(await list(one.sid), 1);
+  assert.equal(await list(two.sid), 0);
+  await a.inject({ method: "POST", url: "/api/auth/logout", headers: { "x-semmal-session": two.sid } });
+  assert.equal(await me(two.sid), null);
+  assert.equal(await me(one.sid), one.address, "signing one tab out leaves the other signed in");
+});

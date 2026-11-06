@@ -115,13 +115,13 @@ export function AdminDashboard() {
       {(w.error || msg) && <p className="notice" role="status">{w.error ?? msg}</p>}
 
       {w.me?.address && !w.mismatch && w.me.ownerSet && !isAdmin && (
-        <p className="notice">This wallet is not the owner of this Semmal instance.</p>
+        <p className="t-small muted">You manage your own robots and agents here. Platform settings belong to the instance owner.</p>
       )}
 
-      {isAdmin && state && !w.mismatch && (
+      {w.me?.address && !w.mismatch && (isAdmin ? Boolean(state) : true) && (
         <div className="grid admin-grid">
           <MyRobots owner={w.me!.address!} />
-          <article className="card integ span-6">
+          {isAdmin && <article className="card integ span-6">
             <h3 className="t-card">Integrations</h3>
             <dl>
               <div><dt>Arkiv Rabdi</dt><dd>{status ? (status.arkiv.reachable ? `chain ${status.arkiv.chainId}, reachable` : "unreachable") : "…"}</dd></div>
@@ -130,8 +130,8 @@ export function AdminDashboard() {
               <div><dt>0G vision model</dt><dd className="mono">{status?.zerog.visionModel ? `${status.zerog.visionModel.id} · ${status.zerog.visionModel.status}` : "—"}</dd></div>
             </dl>
             <ProbeButton />
-          </article>
-          <article className="card integ span-6">
+          </article>}
+          <article className={`card integ ${isAdmin ? "span-6" : "span-12"}`}>
             <h3 className="t-card">Registry</h3>
             <p className="t-small muted">Everything you publish is owned by this wallet on Arkiv. Each write is signed in your wallet after you approve the fee.</p>
             <div className="btn-row">
@@ -155,7 +155,7 @@ export function AdminDashboard() {
             </div>
             <AgentConsole owner={w.me!.address!} />
           </article>
-          <article className="card integ span-12">
+          {isAdmin && state && <article className="card integ span-12">
             <h3 className="t-card">Audit log</h3>
             <ol className="audit">
               {state.audit.slice().reverse().slice(0, 20).map((e, i) => (
@@ -164,7 +164,7 @@ export function AdminDashboard() {
                 </li>
               ))}
             </ol>
-          </article>
+          </article>}
         </div>
       )}
     </div>

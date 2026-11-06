@@ -12,6 +12,26 @@ export type Eip1193 = {
 export type Me = { address: string | null; role: "owner" | "admin" | "none"; ownerSet: boolean };
 
 export const RABDI_CHAIN_ID = 7794095;
+
+/**
+ * Per-tab sign-in: each tab keeps its own session id (sessionStorage) and sends it with its API calls,
+ * so two tabs can be signed in as two different wallets at once. Without one, the browser cookie is used.
+ */
+const TAB_SID = "semmal:sid";
+if (typeof window !== "undefined" && !(window as { __semmalTabSession?: boolean }).__semmalTabSession) {
+  (window as { __semmalTabSession?: boolean }).__semmalTabSession = true;
+  const original = window.fetch.bind(window);
+  window.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
+    const sid = sessionStorage.getItem(TAB_SID);
+    const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+    if (sid && (url.startsWith("/api/") || url.startsWith(`${location.origin}/api/`))) {
+      const headers = new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined));
+      headers.set("x-semmal-session", sid);
+      return original(input, { ...init, headers });
+    }
+    return original(input, init);
+  };
+}
 export const provider = () => (globalThis as { ethereum?: Eip1193 }).ethereum;
 
 export function useWallet() {
@@ -76,7 +96,9 @@ export function useWallet() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ message, signature }),
       });
-      if (!res.ok) throw new Error((await res.json()).error ?? "Sign-in failed");
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error ?? "Sign-in failed");
+      if (d.sid) sessionStorage.setItem(TAB_SID, d.sid); // this tab keeps this wallet's session
       await refreshMe();
     } catch (e) {
       setError((e as Error).message);
@@ -85,6 +107,7 @@ export function useWallet() {
 
   const signOut = useCallback(async () => {
     await fetch("/api/auth/logout", { method: "POST", credentials: "same-origin" });
+    sessionStorage.removeItem(TAB_SID);
     await refreshMe();
   }, [refreshMe]);
 

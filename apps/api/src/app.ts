@@ -70,7 +70,13 @@ export function buildApp(deps: Deps = defaultDeps()) {
   });
   app.register(cors, { origin: config.WEB_ORIGIN });
 
-  const sessionAddress = (req: FastifyRequest) => auth.addressFor(readCookie(req.headers.cookie, SID));
+  // a tab's own session (header) wins over the browser-wide cookie, so tabs can be signed in as different wallets
+  const sessionId = (req: FastifyRequest) => {
+    const h = req.headers["x-semmal-session"];
+    const v = Array.isArray(h) ? h[0] : h;
+    return v && /^[0-9a-f-]{36}$/i.test(v) ? v : readCookie(req.headers.cookie, SID);
+  };
+  const sessionAddress = (req: FastifyRequest) => auth.addressFor(sessionId(req));
   /** The instance owner's wallet, signed in with SIWE. */
   const requireAdmin = async (req: FastifyRequest, reply: FastifyReply) => {
     const address = sessionAddress(req);
@@ -89,14 +95,14 @@ export function buildApp(deps: Deps = defaultDeps()) {
       const { sid, address } = await auth.verify(message, signature as `0x${string}`);
       const secure = config.WEB_ORIGIN.startsWith("https://") ? "; Secure" : "";
       reply.header("set-cookie", `${SID}=${sid}; HttpOnly; SameSite=Strict; Path=/; Max-Age=28800${secure}`);
-      return { address, role: admin.roleOf(address), ownerSet: Boolean(admin.snapshot.owner) };
+      return { address, role: admin.roleOf(address), ownerSet: Boolean(admin.snapshot.owner), sid };
     } catch (e) {
       return reply.code(401).send({ error: (e as Error).message });
     }
   });
 
   app.post("/api/auth/logout", async (req, reply) => {
-    auth.end(readCookie(req.headers.cookie, SID));
+    auth.end(sessionId(req));
     reply.header("set-cookie", `${SID}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0`);
     return { ok: true };
   });
@@ -575,7 +581,18 @@ export function buildApp(deps: Deps = defaultDeps()) {
       else if (++b.n > JOBS_PER_MIN) return reply.code(429).send({ error: `at most ${JOBS_PER_MIN} jobs a minute per robot` });
       return;
     }
-    return requireAdmin(req, reply);
+    // a signed-in wallet may test-run its own agents (rate limited; it spends 0G); the instance owner any agent
+    const address = sessionAddress(req);
+    if (!address) return reply.code(401).send({ error: "Sign in with your wallet first" });
+    if (admin.roleOf(address) === "owner") return;
+    const agentId = (req.params as { agentId: string }).agentId;
+    const listing = (await registry.listAgents({ agentId }).catch(() => []))[0];
+    if (!listing || listing.data.ownerWallet.toLowerCase() !== address.toLowerCase()) return reply.code(403).send({ error: "You can only test-run agents your wallet owns" });
+    const k = `wallet:${address.toLowerCase()}`;
+    const b = jobBucket.get(k);
+    const now = Date.now();
+    if (!b || now - b.at > 60_000) jobBucket.set(k, { n: 1, at: now });
+    else if (++b.n > 10) return reply.code(429).send({ error: "at most 10 test jobs a minute" });
   };
 
   app.post<{ Params: { agentId: string } }>(
