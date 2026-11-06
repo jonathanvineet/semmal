@@ -4,7 +4,7 @@ export const metadata = { title: "Your orders · Semmal" };
 
 export default function OrdersPage() {
   return (
-    <section className="section" aria-labelledby="o-h">
+    <section className="section page-flow" aria-labelledby="o-h">
       <div className="wrap">
         <header className="wb-head">
           <h1 id="o-h">Your orders</h1>

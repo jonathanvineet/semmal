@@ -1146,3 +1146,7 @@ main > section.workbench > .wrap { height: auto; display: grid; gap: 18px; }
 .acct__menu a, .acct__menu button { all: unset; box-sizing: border-box; cursor: pointer; padding: 9px 10px; border-radius: 12px; font-size: 14px; }
 .acct__menu a:hover, .acct__menu button:hover { background: var(--soft-fill); }
 .acct__menu a:focus-visible, .acct__menu button:focus-visible { outline: 2px solid var(--ice); outline-offset: -2px; }
+
+/* pages whose content grows (orders, long lists): no fixed one-screen height, never clipped */
+main > section.page-flow { height: auto !important; min-height: 100svh; padding: 104px 0 64px !important; }
+main > section.page-flow > .wrap { height: auto; display: grid; gap: 18px; align-content: start; }
