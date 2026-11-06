@@ -32,6 +32,10 @@ export class TaskStore {
   private log(taskId: string, state: string, reason: string, actor: string) {
     this.db.prepare("INSERT INTO transitions (task_id, at, state, reason, actor) VALUES (?, ?, ?, ?, ?)").run(taskId, new Date().toISOString(), state, reason, actor);
   }
+  /** True if this robot-master ever received the task (any state). */
+  has(taskId: string) {
+    return this.db.prepare("SELECT 1 FROM tasks WHERE task_id = ?").get(taskId) !== undefined;
+  }
   history(taskId: string) {
     return this.db.prepare("SELECT at, state, reason, actor FROM transitions WHERE task_id = ? ORDER BY rowid").all(taskId) as { at: string; state: string; reason: string; actor: string }[];
   }

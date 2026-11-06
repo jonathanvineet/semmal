@@ -403,3 +403,51 @@ test("if the agent could not check the payment (network), the same paid job is r
   assert.equal(calls.pays.filter((p) => p.kind === "job").length, 1, "one payment for two sends");
   assert.equal(calls.jobs, 2);
 });
+
+// ---- the hired agent cannot serve: the robot hires the next one itself (CLAUDE.md 14: "Specialist unavailable")
+const wrongModel: AgentListing = { ...vision, agentId: "agt-test1-000001", displayName: "test1", price: { amount: "0.01", token: "0G", unit: "job" }, inference: { model: "qwen2.5-vl-72b-instruct", trustMode: "private" } };
+const cannotServe = (agentId: string): AgentResult => ({ jobId: "j", agentId, status: "failed", code: "no_provider_for_trust_mode", reason: "No 0G provider can serve private mode for qwen2.5-vl-72b-instruct right now; the call was not downgraded" });
+// some 0G gateway instances return the model catalog without trust levels: the robot cannot rule test1 out up front
+const catalogWithoutTrust = async () => ({ rate: "1", models: [{ id: "m-vis", promptNeuron: "1000000000", completionNeuron: "1000000000" }] });
+
+test("the cheapest agent cannot serve its trust mode: the robot hires the next-best one and finishes", async () => {
+  const { calls, deps, store } = harness();
+  const asked: string[] = [];
+  const platform = {
+    ...deps.platform,
+    agents: async () => [wrongModel, vision],
+    catalog: catalogWithoutTrust,
+    runJob: async (id: string) => { asked.push(id); return id === wrongModel.agentId ? cannotServe(id) : ok("continue_mission"); },
+  };
+  const t = task();
+  const ep = (await runTask(t, { ...deps, platform } as typeof deps))!;
+  assert.equal(ep.outcome, "COMPLETED");
+  assert.deepEqual(asked, [wrongModel.agentId, vision.agentId]); // test1 first (cheapest), then the next in hiring order
+  assert.deepEqual(ep.hired, [wrongModel.agentId, vision.agentId]);
+  assert.deepEqual(calls.pays.filter((p) => p.kind === "job").map((p) => p.to), [W, W]); // each agent paid once, never twice
+  assert.ok(store.history(t.taskId).some((h) => h.state === "HIRING_SPECIALISTS" && /test1 cannot serve \(no_provider_for_trust_mode\); hiring Panel Vision/.test(h.reason)));
+  assert.equal(ep.decisions.at(-1)!.outcome, "accepted");
+});
+
+test("no other agent can serve: SAFE_STOP, holding, nothing invented, no endless switching", async () => {
+  const { deps } = harness();
+  let n = 0;
+  const platform = { ...deps.platform, agents: async () => [wrongModel], catalog: catalogWithoutTrust, runJob: async (id: string) => { n++; return cannotServe(id); } };
+  const ep = (await runTask(task(), { ...deps, platform } as typeof deps))!;
+  assert.equal(ep.outcome, "SAFE_STOP");
+  assert.equal(n, 2); // its two attempts at the stop, nothing more
+});
+
+test("an ordinary failure (timeout, bad answer) does not switch agents", async () => {
+  const { deps } = harness();
+  const asked: string[] = [];
+  const platform = {
+    ...deps.platform,
+    agents: async () => [wrongModel, vision],
+    catalog: catalogWithoutTrust,
+    runJob: async (id: string): Promise<AgentResult> => { asked.push(id); return { jobId: "j", agentId: id, status: "failed", code: "timeout", reason: "0G did not answer before the deadline" }; },
+  };
+  const ep = (await runTask(task(), { ...deps, platform } as typeof deps))!;
+  assert.equal(ep.outcome, "SAFE_STOP");
+  assert.deepEqual(asked, [wrongModel.agentId, wrongModel.agentId]);
+});

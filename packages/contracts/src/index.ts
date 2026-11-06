@@ -426,6 +426,8 @@ export type AgentResult = {
   agentId: string;
   status: "succeeded" | "failed" | "rejected";
   reason?: string;
+  /** Machine-readable cause of a failed 0G call (0G Router error code, e.g. no_provider_for_trust_mode). */
+  code?: string;
   output?: unknown;
   cost?: { amount: string; token: string };
   receipt?: AgentReceipt;
@@ -500,7 +502,9 @@ export const GwDecision = z.object({
   detail: z.record(z.string(), z.unknown()).refine((d) => JSON.stringify(d).length <= 8000, "decision too large"),
 });
 export const GwTaskAck = z.object({ type: z.literal("task_ack"), seq, ts, taskId: z.string().max(64), accepted: z.boolean(), reason: z.string().max(200).optional() });
-export const RobotToPlatform = z.discriminatedUnion("type", [GwHello, GwHeartbeat, GwMissionProgress, GwIncidentNotice, GwTaskAck, GwPosition, GwOffer, GwDecision]);
+/** The robot's answer to the owner's "release hold": it decides itself, from its own local state. */
+export const GwHoldResult = z.object({ type: z.literal("hold_result"), seq, ts, released: z.boolean(), reason: z.string().max(200).optional() });
+export const RobotToPlatform = z.discriminatedUnion("type", [GwHello, GwHeartbeat, GwMissionProgress, GwIncidentNotice, GwTaskAck, GwPosition, GwOffer, GwDecision, GwHoldResult]);
 export type RobotToPlatform = z.infer<typeof RobotToPlatform>;
 
 export type PlatformToRobot =
@@ -521,7 +525,13 @@ export type PlatformToRobot =
   /** The customer confirmed the robot is on site (checked as the booking's wallet by the platform). */
   | { type: "arrival_confirmed"; taskId: string }
   /** Development (APP_MODE=simulation): leave now and finish the trip in a few seconds. */
-  | { type: "fast_forward"; taskId: string };
+  | { type: "fast_forward"; taskId: string }
+  /**
+   * The owner asks the robot to end a soft hold (e.g. after a SAFE_STOP). Advisory: the robot releases only
+   * when no task or mission is running and the hold is the only thing stopping it. It never clears an
+   * emergency stop; that needs the operator on the robot (/safety/request_recovery).
+   */
+  | { type: "release_hold"; requestedBy: string; requestedAt: string };
 
 // ---------------------------------------------------------------- coordination + evidence on Arkiv
 const addrZ = z.string().regex(/^0x[0-9a-fA-F]{40}$/);

@@ -71,6 +71,15 @@ export function RobotLink({ robotId, capabilities }: { robotId: string; capabili
       setMsg((e as Error).message);
     }
   };
+  const releaseHold = async () => {
+    try {
+      await call("POST", `/api/robots/${robotId}/release-hold`);
+      setMsg("Asked the robot to release its hold. It checks its own state first; its answer appears in the log below.");
+      load();
+    } catch (e) {
+      setMsg((e as Error).message);
+    }
+  };
   const sendTask = async (skill: string) => {
     try {
       const d = await call("POST", `/api/robots/${robotId}/tasks`, { skill, waypoints: 3, distanceM: 120, privacy: "private" });
@@ -105,6 +114,9 @@ export function RobotLink({ robotId, capabilities }: { robotId: string; capabili
         <span className="rl__actions">
           <button type="button" className="btn btn--secondary btn--sm" onClick={link}>{live?.linked ? "New token" : "Link robot"}</button>
           {live?.linked && <button type="button" className="btn btn--secondary btn--sm" onClick={revoke}>Revoke</button>}
+          {live?.online && live.safetyState === "STOPPING" && (
+            <button type="button" className="btn btn--secondary btn--sm" onClick={releaseHold} title="The robot is holding still after a stopped task. It releases only if nothing is running; an emergency stop needs the operator at the robot.">Release hold</button>
+          )}
           {live?.online && capabilities.slice(0, 4).map((c) => (
             <button key={c} type="button" className="btn btn--primary btn--sm" onClick={() => sendTask(c)}>Send task: {c}</button>
           ))}

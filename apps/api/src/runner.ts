@@ -277,7 +277,7 @@ export class AgentRunner {
             : err.code === "timeout"
               ? "0G did not answer before the deadline"
               : `0G call failed (${err.code ?? "error"})`;
-      result = { ...base, status: "failed", reason: why, evidenceRefs: err.providerRequestId ? [err.providerRequestId] : [] };
+      result = { ...base, status: "failed", reason: why, ...(err.code ? { code: String(err.code).slice(0, 64) } : {}), evidenceRefs: err.providerRequestId ? [err.providerRequestId] : [] };
       // configuration and transient failures are not stored, so the same job can be retried
       if (err.code === "not_configured" || err.code === "timeout" || err.code === "unreachable" || err.code === "key_setup_failed" || err.code === "credit_limit_exceeded") return result;
     }

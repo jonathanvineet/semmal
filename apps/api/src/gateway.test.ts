@@ -125,3 +125,30 @@ test("runner: a robot's link token may send jobs only in its own name", async ()
   assert.equal(ok.statusCode, 503);
   await app.close();
 });
+
+test("release hold: the owner's request reaches the robot, and the robot's answer lands in the owner's log", async () => {
+  const { app, gateway, url } = await start();
+  assert.equal(gateway.releaseHold("rbt-test-3", "0xowner").ok, false); // not connected yet
+  const token = gateway.links.issue("rbt-test-3", "0x00000000000000000000000000000000000000aa");
+  const c = connect(url, token);
+  await c.open;
+  c.send({ type: "hello", seq: 1, ts: now(), robotId: "rbt-test-3", softwareVersion: "0.1.0" });
+  assert.equal((await c.next()).type, "welcome");
+
+  assert.equal(gateway.releaseHold("rbt-test-3", "0xowner").ok, true);
+  const req = await c.next();
+  assert.equal(req.type, "release_hold");
+  assert.equal(req.requestedBy, "0xowner");
+
+  c.send({ type: "hold_result", seq: 2, ts: now(), released: false, reason: "safety is E_STOP: an emergency stop needs the operator at the robot" });
+  assert.deepEqual(await c.next(), { type: "ack", seq: 2 });
+  c.send({ type: "hold_result", seq: 3, ts: now(), released: true, reason: "released by the owner; safety NORMAL" });
+  assert.deepEqual(await c.next(), { type: "ack", seq: 3 });
+  const log = gateway.ownerView("rbt-test-3").events.map((e) => e.detail);
+  assert.ok(log.some((d) => d.startsWith("hold kept: safety is E_STOP")), log.join(" | "));
+  assert.ok(log.some((d) => d.startsWith("hold released")), log.join(" | "));
+
+  c.ws.close();
+  await c.closed;
+  await app.close();
+});

@@ -139,15 +139,23 @@ export function agentJobPrice(kind: string, price: { promptNeuron: string; compl
 
 const strength = { private: 3, verified: 2, standard: 1, none: 0 } as const;
 
+/**
+ * Every offer that may do `kind` for this plan, best first (the hiring rule, CLAUDE.md 6.3): right kind,
+ * trust at least the plan's, then strongest trust, then lowest price, then agent id (stable order).
+ * The robot hires the first; the rest are its alternatives if the first cannot serve.
+ */
+export function rankSpecialists(plan: Pick<TaskPlan, "privacy">, offers: SpecialistOffer[], kind: string) {
+  return offers
+    .filter((o) => o.kind === kind && strength[o.trustMode] >= strength[plan.privacy])
+    .sort((a, b) => strength[b.trustMode] - strength[a.trustMode] || Number(toMicro(a.price) - toMicro(b.price)) || a.agentId.localeCompare(b.agentId));
+}
+
 /** The hiring rule (CLAUDE.md 6.3): right kind, trust at least the plan's, then strongest trust, then lowest price. */
 export function pickSpecialists(plan: TaskPlan, offers: SpecialistOffer[]) {
   const need = SKILL_NEEDS[plan.skill];
   const hired: SpecialistOffer[] = [];
   const missing: string[] = [];
-  const best = (kind: string) =>
-    offers
-      .filter((o) => o.kind === kind && strength[o.trustMode] >= strength[plan.privacy])
-      .sort((a, b) => strength[b.trustMode] - strength[a.trustMode] || Number(toMicro(a.price) - toMicro(b.price)))[0];
+  const best = (kind: string) => rankSpecialists(plan, offers, kind)[0];
   for (const kind of need?.kinds ?? []) {
     const fit = best(kind);
     if (fit) hired.push(fit);

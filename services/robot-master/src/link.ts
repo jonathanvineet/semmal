@@ -9,6 +9,10 @@ export type LinkHandlers = {
   onOwnerDecision: (taskId: string, approved: boolean, reason?: string) => void;
   onArrivalConfirmed: (taskId: string) => void;
   onFastForward: (taskId: string) => void;
+  /** The owner asks to end a soft hold; the robot decides and answers with hold_result. */
+  onReleaseHold: (requestedBy: string) => void;
+  /** Called after every (re)connect, once the platform has welcomed the robot. */
+  onLinked?: () => void;
   log: (msg: string) => void;
 };
 
@@ -46,11 +50,13 @@ export class Link {
         const tick = async () => this.send({ type: "heartbeat", ...(await this.h.heartbeat()) });
         void tick();
         this.beat = setInterval(() => void tick(), m.heartbeatSeconds * 1000);
+        this.h.onLinked?.();
       } else if (m.type === "task_assignment") this.h.onTask(m);
       else if (m.type === "payment_notice" && /^0x[0-9a-fA-F]{64}$/.test(m.txHash)) this.h.onPayment(m.taskId, m.txHash);
       else if (m.type === "owner_decision") this.h.onOwnerDecision(m.taskId, m.approved === true, m.reason);
       else if (m.type === "arrival_confirmed") this.h.onArrivalConfirmed(m.taskId);
       else if (m.type === "fast_forward") this.h.onFastForward(m.taskId);
+      else if (m.type === "release_hold") this.h.onReleaseHold(String(m.requestedBy ?? "").slice(0, 64));
       else if (m.type === "error") this.h.log(`gateway: ${m.code}: ${m.message}`);
     });
     ws.on("close", (code) => {

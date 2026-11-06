@@ -488,6 +488,16 @@ export function buildApp(deps: Deps = defaultDeps()) {
     return { revoked: gateway.links.revoke(req.params.robotId) };
   });
 
+  /** Owner only: ask the robot to end a soft hold (it decides; see the robot's event log for its answer). */
+  app.post<{ Params: { robotId: string } }>("/api/robots/:robotId/release-hold", async (req, reply) => {
+    if (!gateway) return reply.code(503).send({ error: "gateway not available" });
+    const own = await ownedRobot(req, req.params.robotId);
+    if ("error" in own) return reply.code(own.error as number).send({ error: own.message });
+    const r = gateway.releaseHold(req.params.robotId, own.address);
+    if (!r.ok) return reply.code(409).send({ error: r.reason });
+    return { sent: true, note: "The robot checks its own state and answers in its event log." };
+  });
+
   /** Public, coarse live status for the marketplace: online and availability only. */
   app.get("/api/robots/live", async () => ({ robots: gateway ? gateway.publicView() : [] }));
 

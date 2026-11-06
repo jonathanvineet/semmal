@@ -243,6 +243,9 @@ export class Gateway {
           this.event(robotId, "task", `${m.taskId}: offer ${m.amount} 0G`);
           break;
         }
+        case "hold_result":
+          this.event(robotId, "safety", m.released ? `hold released${m.reason ? ` · ${m.reason}` : ""}` : `hold kept: ${m.reason ?? "refused by the robot"}`);
+          break;
         case "task_ack":
           this.event(robotId, "task", `${m.taskId} ${m.accepted ? "accepted" : `declined${m.reason ? `: ${m.reason}` : ""}`}`);
           this.emit(m.taskId, robotId, { kind: "ack", accepted: m.accepted, reason: m.reason });
@@ -303,6 +306,18 @@ export class Gateway {
     if (!s?.hello) return { ok: false as const, reason: "The robot is not connected" };
     this.send(s, { type: "owner_decision", taskId, approved, ...(reason ? { reason } : {}) });
     this.event(robotId, "task", `${taskId}: owner ${approved ? "approved" : "declined"}`);
+    return { ok: true as const };
+  }
+
+  /**
+   * The owner asks the robot to end a soft hold. Advisory only: the robot checks its own state and
+   * answers with hold_result (shown in the owner's event log). Never clears an emergency stop.
+   */
+  releaseHold(robotId: string, requestedBy: string) {
+    const s = this.sessions.get(robotId);
+    if (!s?.hello) return { ok: false as const, reason: "The robot is not connected" };
+    this.send(s, { type: "release_hold", requestedBy, requestedAt: new Date().toISOString() });
+    this.event(robotId, "safety", "owner asked to release the hold");
     return { ok: true as const };
   }
 

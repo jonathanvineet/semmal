@@ -6,6 +6,7 @@ import { ApprovalCard } from "./ui/ApprovalCard";
 import { useWallet } from "@/lib/wallet";
 import { AgentBuilder } from "./AgentBuilder";
 import { AgentConsole } from "./AgentConsole";
+import { MyAgents } from "./MyAgents";
 import { RobotLink } from "./RobotLink";
 import { OwnerRequests } from "./OwnerRequests";
 import { RobotEvidence } from "./RobotEvidence";
@@ -146,6 +147,13 @@ export function AdminDashboard() {
               <span className="t-small muted">On a live 0G model · signed by your wallet</span>
             </div>
             <AgentBuilder />
+          </article>
+          <article id="agents" className="card integ span-12">
+            <div className="integ__head">
+              <h3 className="t-card">Your agents on Arkiv</h3>
+              <span className="t-small muted">Robots hire from these themselves · delete one so no robot picks it</span>
+            </div>
+            <MyAgents owner={w.me!.address!} />
           </article>
           <article id="run" className="card integ span-12">
             <div className="integ__head">

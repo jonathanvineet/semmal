@@ -41,6 +41,8 @@ export type Entry<T> = {
   owner?: string;
   creator?: string;
   expiresAtBlock?: string;
+  /** Arkiv $createdAt (block number), when the API returns it. */
+  createdAt?: string;
   data: T;
 };
 

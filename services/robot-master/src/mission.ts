@@ -17,7 +17,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { NavigationPlanOutput, VisionInspectionOutput, type AgentListing, type JobClaim, type TaskQuote } from "@semmal/contracts";
-import { quoteTask, toWei, weiToMicro, type SpecialistOffer } from "@semmal/quote";
+import { quoteTask, rankSpecialists, toWei, weiToMicro, type SpecialistOffer, type TaskPlan } from "@semmal/quote";
 import type { TransferCheck } from "@semmal/zerog-pay";
 import type { LocalApi } from "./local";
 import type { PlatformApi, TravelRoute } from "./platform";
@@ -126,6 +126,8 @@ export const SKILL_PLANS: Record<string, SkillPlan> = {
 };
 
 const CONFIDENCE_FLOOR = 0.6;
+/** 0G Router error codes that mean "this agent cannot serve right now", not "the input was bad". */
+const AGENT_CANNOT_SERVE = new Set(["no_provider_for_trust_mode", "credit_limit_exceeded"]);
 const ACTIONS = new Set(["continue_mission", "pause_and_request_inspection", "return_to_dock", "abort_mission"]);
 const CLEANING_PASS_S = 8;
 const micro = (a: string) => {
@@ -515,7 +517,14 @@ export async function runTask(a: Assignment, d: Deps): Promise<EpisodeRecord | n
     } else move("PLANNING", "navigation answer not usable; keeping the robot's own order");
   }
 
-  const visionAgent = agents.find((x) => x.agentId === vision.agentId)!;
+  // Alternatives in hiring order (same rule as the quote). If the hired agent cannot serve, i.e. 0G has no
+  // provider for its model in its trust mode, or its daily 0G cap is used up, the robot hires the next one.
+  // Never a weaker trust mode than the task needs, and job() still refuses anything over the agent budget.
+  const visionChoices = rankSpecialists({ privacy: a.plan.privacy as TaskPlan["privacy"] }, offers, "vision")
+    .map((o) => agents.find((x) => x.agentId === o.agentId))
+    .filter((x): x is AgentListing => Boolean(x));
+  let visionAgent = agents.find((x) => x.agentId === vision.agentId)!;
+  const unusable = new Set<string>();
 
   // ---- visit each stop: drive, look, decide, act
   for (const stop of stops) {
@@ -551,6 +560,19 @@ export async function runTask(a: Assignment, d: Deps): Promise<EpisodeRecord | n
       if (!r || r.status !== "succeeded") {
         decisions.push({ ...base, providerRequestId: r?.receipt?.providerRequestId, outcome: r ? "failed" : "timeout", action: "hold" });
         tell({ outcome: r ? "failed" : "timeout", action: "hold", reason: r ? (r.reason ?? r.status) : "no answer before the deadline", checks: { format: false, actionAllowed: false, confidence: null, confidenceFloor: CONFIDENCE_FLOOR } });
+        if (r?.status === "failed" && r.code && AGENT_CANNOT_SERVE.has(r.code)) {
+          unusable.add(visionAgent.agentId);
+          const next = visionChoices.find((x) => !unusable.has(x.agentId));
+          if (next) {
+            move("HIRING_SPECIALISTS", `${visionAgent.displayName} cannot serve (${r.code}); hiring ${next.displayName} ${next.price.amount} 0G instead`);
+            const offer = offers.find((o) => o.agentId === next.agentId);
+            if (offer) hired = [...hired, offer];
+            visionAgent = next;
+            reuse = undefined;
+            attempt -= 1; // a different agent: this does not use up one of the stop's attempts
+            continue;
+          }
+        }
         await local.hold(true);
         move("WAITING_FOR_0G", r ? (r.reason ?? r.status) : "no answer before the deadline");
         continue;

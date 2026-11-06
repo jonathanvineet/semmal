@@ -21,6 +21,7 @@ import { toWei } from "@semmal/quote";
 import { identityFile, serveIdentity } from "./identify";
 import { loadProfile, paths, readEnv } from "./profile";
 import { runSetup } from "./setup";
+import { decideRelease, orphanedMission } from "./recovery";
 
 // One robot PC can host several robots (one at a time): pnpm start house
 const NAME = process.argv[2] || process.env.SEMMAL_ROBOT_NAME;
@@ -167,6 +168,30 @@ link = new Link(env("SEMMAL_GATEWAY_URL", "ws://127.0.0.1:3001/api/gateway"), RO
     log(`task ${taskId}: fast-forwarding the trip`);
     fastForwarded.add(taskId);
   },
+  onReleaseHold: (by) => {
+    void (async () => {
+      const answer = (released: boolean, reason: string) => {
+        log(`owner ${by || "?"} asked to release the hold: ${released ? "released" : `refused, ${reason}`}`);
+        link.send({ type: "hold_result", released, reason: reason.slice(0, 200) });
+      };
+      const d = decideRelease(await local.state().catch(() => null), busy);
+      if (!d.ok) return answer(false, d.reason);
+      if (busy) return answer(false, "a task started meanwhile; it decides when the robot moves");
+      try {
+        await local.hold(false);
+      } catch {
+        return answer(false, "could not reach the ROS gateway to release the hold");
+      }
+      await new Promise((r) => setTimeout(r, 500));
+      const after = await local.state().catch(() => null);
+      if (after && !after.hold) answer(true, `released by the owner; safety ${after.safetyState}`);
+      else answer(false, "the hold did not clear on the robot");
+    })();
+  },
+  onLinked: () => {
+    // tasks abandoned by a restart: tell the platform how they ended (repeat on every reconnect; same state)
+    for (const id of recovered) link.send({ type: "mission_progress", taskId: id, state: "SAFE_STOP", detail: "robot-master restarted mid-task; not resumed" });
+  },
   onTask: (m) => {
     if (busy) return link.send({ type: "task_ack", taskId: m.taskId, accepted: false, reason: "robot is already on a task" });
     busy = true;
@@ -198,8 +223,20 @@ link = new Link(env("SEMMAL_GATEWAY_URL", "ws://127.0.0.1:3001/api/gateway"), RO
   },
 });
 
+// ---- restart recovery: never resume blindly, never leave the robot driving for an abandoned task
 const recovered = store.recover();
 if (recovered.length) log(`marked ${recovered.length} unfinished task(s) SAFE_STOP after restart`);
+{
+  const orphan = orphanedMission(await local.state().catch(() => null), (id) => store.has(id));
+  if (orphan) {
+    try {
+      await local.cancel();
+      log(`cancelled the mission still running for ${orphan} (left by the previous run)`);
+    } catch {
+      log(`could not cancel the mission still running for ${orphan}: ROS gateway unreachable`);
+    }
+  }
+}
 log(`robot ${ROBOT_ID}, device wallet ${device.address}`);
 device
   .balanceWei()
