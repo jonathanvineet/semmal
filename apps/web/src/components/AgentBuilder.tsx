@@ -11,7 +11,7 @@ import { AgentListing } from "@semmal/contracts";
 import { agentCreateArgs } from "@semmal/arkiv-adapter/browser";
 import { useWallet } from "@/lib/wallet";
 import { useArkivWriter } from "@/lib/arkiv-writer";
-import { ARKIV_EXPLORER } from "@/lib/api";
+import { ARKIV_EXPLORER, announceArkivChange } from "@/lib/api";
 import { ApprovalCard } from "./ui/ApprovalCard";
 
 type CatalogModel = { id: string; name: string; inputs: string[]; verifiability: string | null; promptNeuron: string; completionNeuron: string; contextLength: number | null };
@@ -19,14 +19,14 @@ type Catalog = { token: "0G"; models: CatalogModel[] };
 type Trust = "private" | "verified" | "standard";
 
 const KINDS = [
-  { id: "vision", label: "Vision", cap: "vision.inspection", needsImage: true, tasks: ["warehouse.inspection", "aerial.inspection", "site.inspection", "warehouse.patrol", "outdoor.patrol"], hint: "Reads one camera frame and reports what it sees." },
+  { id: "vision", label: "Vision", cap: "vision.inspection", needsImage: true, tasks: ["warehouse.inspection", "aerial.inspection", "site.inspection", "warehouse.patrol", "outdoor.patrol", "home.cleaning"], hint: "Reads one camera frame and reports what it sees." },
   { id: "inspection", label: "Inspection", cap: "inspection.survey", needsImage: false, tasks: ["warehouse.inspection", "aerial.inspection", "site.inspection"], hint: "Plans an inspection and may hire a vision agent." },
   { id: "maintenance", label: "Maintenance", cap: "maintenance.diagnosis", needsImage: false, tasks: ["warehouse.inspection", "warehouse.patrol", "indoor.delivery", "site.inspection"], hint: "Reads motor and sensor diagnostics and suggests a cause." },
-  { id: "navigation", label: "Navigation", cap: "navigation.planning", needsImage: false, tasks: ["warehouse.patrol", "indoor.delivery", "outdoor.patrol"], hint: "Plans routes and stop order for a job." },
+  { id: "navigation", label: "Navigation", cap: "navigation.planning", needsImage: false, tasks: ["warehouse.patrol", "indoor.delivery", "outdoor.patrol", "home.cleaning"], hint: "Plans routes and stop order for a job." },
   { id: "delivery-verification", label: "Delivery check", cap: "delivery.verification", needsImage: true, tasks: ["indoor.delivery"], hint: "Checks a drop-off photo against the order." },
 ] as const;
 
-const ROBOT_TYPES = ["diff-drive-indoor", "aerial-multirotor", "legged-quadruped", "fixed-arm", "dexterous-hand", "humanoid", "mobile-manipulator"] as const;
+const ROBOT_TYPES = ["diff-drive-indoor", "diff-drive-outdoor", "aerial-multirotor", "legged-quadruped", "fixed-arm", "dexterous-hand", "humanoid", "mobile-manipulator"] as const;
 
 const trustOf = (v: string | null): "TeeML" | "TeeTLS" | "none" | "unknown" => (v === "TeeML" ? "TeeML" : v === "TeeTLS" ? "TeeTLS" : v === null ? "unknown" : "none");
 const allowed = (v: string | null): Trust[] => {
@@ -128,6 +128,7 @@ export function AgentBuilder() {
     try {
       const r = await ark.publish(`agent:${listing.agentId}:${listing.serviceVersion}`, w.account, agentCreateArgs(listing), maxFee);
       setDone({ agentId: listing.agentId, entityKey: r.entityKey, txHash: r.txHash });
+      announceArkivChange();
     } catch (e) {
       setMsg((e as Error).message);
     } finally {

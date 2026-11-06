@@ -67,7 +67,10 @@ specialists at their live Arkiv listing price (hired by the 6.3 rule), 0G infere
 `/v1/models` `pricing.prompt`/`pricing.completion` (neuron per token, 1e18 neuron = 1 0G) x estimated tokens
 per call (exact, in 0G: no exchange rate since 2026-11-06), plus an operating-time estimate per robot
 type (engineering estimates in `OPERATING_MICRO_PER_MIN`, sized for testnet amounts, labelled "estimate" on
-every quote). Vision agents are charged once per stop. Live check 2026-11-06: model `0gm-1.0-35b-a3b`
+every quote). Vision agents are charged once per stop. The quote has no separate inference line: each
+agent's price already covers its own 0G inference (measured 2026-11-06 on `0gm-1.0-35b-a3b`, private: one
+64 px frame used 279 prompt + 483 completion tokens, most of the completion being hidden reasoning, 12.6 s;
+estimates are 1500 in / 800 out per vision call, and the runner allows 2000 completion tokens). Live check 2026-11-06: model `0gm-1.0-35b-a3b`
 priced from the catalog. **Open:** token estimates per call are assumptions until measured from real calls.
 
 ## Payments in 0G (added 2026-11-06)

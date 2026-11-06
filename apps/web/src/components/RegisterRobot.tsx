@@ -38,9 +38,9 @@ export function RegisterRobot() {
   const [hoverModel, setHoverModel] = useState<string | null>(null);
   const [skills, setSkills] = useState<string[]>(["warehouse.inspection"]);
   const [minFee, setMinFee] = useState("0.01");
-  const [maxQuote, setMaxQuote] = useState("0.1");
+  const [maxQuote, setMaxQuote] = useState("0.15");
   const [margin, setMargin] = useState(25);
-  const [spendCap, setSpendCap] = useState("0.06");
+  const [spendCap, setSpendCap] = useState("0.1");
   const [example, setExample] = useState<QuoteResult | null>(null);
   const [area, setArea] = useState<string>("");
   const [robotWallet, setRobotWallet] = useState("");

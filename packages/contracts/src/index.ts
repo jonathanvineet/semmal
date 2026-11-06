@@ -143,7 +143,7 @@ export const Capability = z.object({
   capabilityId: z.string().max(64).regex(/^[a-z]+(\.[a-z-]+)+$/),
   inputSchemaVersion: z.string().max(16),
   outputSchemaVersion: z.string().max(16),
-  supportedRobotTypes: z.array(RobotType).min(1).max(4),
+  supportedRobotTypes: z.array(RobotType).min(1).max(8),
   supportedTaskTypes: z.array(z.string().max(40)).min(1).max(6),
 });
 
@@ -222,6 +222,8 @@ export interface InferenceResult {
   latencyMs: number;
   billing?: { inputCost?: string; outputCost?: string; totalCost?: string; unit: "neuron" };
   usage?: { promptTokens?: number; completionTokens?: number; totalTokens?: number };
+  /** OpenAI-style finish reason, e.g. "stop" or "length" (ran out of tokens). */
+  finishReason?: string;
 }
 
 /** The vision specialist's strict application schema (CLAUDE.md section 7). */

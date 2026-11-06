@@ -3,8 +3,8 @@
  * control over money). A model may help PLAN a task (checkpoints, which specialists); this turns
  * that plan into a price:
  *
- *   cost  = specialists (live Arkiv prices, per job) + 0G inference (live Router token prices x
- *           estimated tokens) + operating time (per robot type)
+ *   cost  = specialists (live Arkiv prices, per job; each agent's price already includes its own 0G
+ *           inference) + operating time (per robot type)
  *   quote = cost x (1 + margin), then kept inside the owner's policy:
  *           below minFee -> minFee; above maxQuote -> maxQuote if that still covers cost;
  *           cost above maxQuote, or spend above maxSpendPerTask -> declined.
@@ -78,12 +78,12 @@ const ceilDiv = (a: bigint, b: bigint) => (a + b - 1n) / b;
 /** Which specialist each skill needs. Delivery and manipulation run on the robot alone. */
 /** Required specialists (`kinds`) and ones the robot hires only if one is on Arkiv (`optional`). */
 export const SKILL_NEEDS: Record<string, { kinds: string[]; optional?: string[]; tokensIn: number; tokensOut: number }> = {
-  "warehouse.inspection": { kinds: ["vision"], tokensIn: 1500, tokensOut: 200 },
-  "aerial.inspection": { kinds: ["vision"], tokensIn: 1500, tokensOut: 200 },
-  "site.inspection": { kinds: ["vision"], tokensIn: 1500, tokensOut: 200 },
-  "warehouse.patrol": { kinds: ["vision"], optional: ["navigation"], tokensIn: 1200, tokensOut: 150 },
-  "outdoor.patrol": { kinds: ["vision"], optional: ["navigation"], tokensIn: 1200, tokensOut: 150 },
-  "home.cleaning": { kinds: ["vision"], optional: ["navigation"], tokensIn: 1300, tokensOut: 180 },
+  "warehouse.inspection": { kinds: ["vision"], tokensIn: 1500, tokensOut: 800 },
+  "aerial.inspection": { kinds: ["vision"], tokensIn: 1500, tokensOut: 800 },
+  "site.inspection": { kinds: ["vision"], tokensIn: 1500, tokensOut: 800 },
+  "warehouse.patrol": { kinds: ["vision"], optional: ["navigation"], tokensIn: 1200, tokensOut: 800 },
+  "outdoor.patrol": { kinds: ["vision"], optional: ["navigation"], tokensIn: 1200, tokensOut: 800 },
+  "home.cleaning": { kinds: ["vision"], optional: ["navigation"], tokensIn: 1300, tokensOut: 800 },
   "aerial.mapping": { kinds: [], tokensIn: 600, tokensOut: 150 },
   "indoor.delivery": { kinds: [], tokensIn: 400, tokensOut: 100 },
   "manipulation.pick-place": { kinds: [], tokensIn: 800, tokensOut: 150 },
@@ -114,11 +114,12 @@ export function estimateMinutes(plan: TaskPlan) {
 
 /** Tokens one job of each agent kind typically uses (input incl. one image where relevant, output). */
 export const AGENT_TOKENS: Record<string, { tokensIn: number; tokensOut: number; needsImage: boolean }> = {
-  vision: { tokensIn: 1500, tokensOut: 200, needsImage: true },
+  // completion includes the model's hidden reasoning: measured ~480 tokens for one frame on 0gm-1.0-35b-a3b
+  vision: { tokensIn: 1500, tokensOut: 800, needsImage: true },
   inspection: { tokensIn: 1200, tokensOut: 400, needsImage: false },
   maintenance: { tokensIn: 1000, tokensOut: 400, needsImage: false },
   navigation: { tokensIn: 800, tokensOut: 200, needsImage: false },
-  "delivery-verification": { tokensIn: 1500, tokensOut: 150, needsImage: true },
+  "delivery-verification": { tokensIn: 1500, tokensOut: 800, needsImage: true },
 };
 
 /** 0G cost of `calls` inference calls in micro-0G, rounded up. Exact: no exchange rate. */
@@ -180,25 +181,20 @@ export function quoteTask(input: QuoteInput): Quote {
     lines.push({ label: `${h.name}`, detail: `${h.kind} agent · ${h.trustMode} · ${jobs === 1 ? "1 job" : `${jobs} jobs × ${h.price}`}`, amount: fromMicro(p), source: "arkiv" });
   }
 
-  // 2. 0G inference: live token prices x estimated tokens, at the configured rate
-  const need = SKILL_NEEDS[plan.skill] ?? { tokensIn: 800, tokensOut: 150, kinds: [] };
-  let inference = 0n;
-  if (plan.checkpoints > 0) {
-    if (!input.inference) return { status: "declined", reason: "0G model price not available; the robot will not guess it", lines, hired, notes };
-    // neuron -> micro-0G, rounded up so the robot never under-recovers
-    inference = inferenceCostMicro(input.inference, need.tokensIn, need.tokensOut, plan.checkpoints);
-    lines.push({
-      label: "0G private inference",
-      detail: `${plan.checkpoints} call${plan.checkpoints === 1 ? "" : "s"} × ~${need.tokensIn + need.tokensOut} tokens · ${input.inference.model} · ${plan.privacy}`,
-      amount: fromMicro(inference),
-      source: "0g-router",
-    });
+  // 2. 0G inference: the robot calls 0G only through its agents, and each agent's price already covers
+  //    its own model cost (agent price = live model cost + its owner's margin). So no separate line:
+  //    adding one would charge the customer twice. Shown as a note for transparency.
+  const inference = 0n;
+  const need = SKILL_NEEDS[plan.skill];
+  if (plan.checkpoints > 0 && input.inference && need?.kinds.length) {
+    const inside = inferenceCostMicro(input.inference, need.tokensIn, need.tokensOut, plan.checkpoints);
+    notes.push(`About ${fromMicro(inside)} 0G of the agents' prices is their own 0G inference (${plan.checkpoints} × ~${need.tokensIn + need.tokensOut} tokens on ${input.inference.model}).`);
   }
 
   if (specialists + inference > spendCap)
     return {
       status: "declined",
-      reason: `Specialists and inference cost ${fromMicro(specialists + inference)} 0G, over the owner's cap of ${policy.maxSpendPerTask}`,
+      reason: `Agents cost ${fromMicro(specialists + inference)} 0G, over the owner's cap of ${policy.maxSpendPerTask}`,
       cost: fromMicro(specialists + inference),
       lines,
       hired,

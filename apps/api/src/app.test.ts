@@ -135,7 +135,8 @@ test("quote: a delivery needs no specialist and is priced inside the policy", as
     payload: { preview: { robotType: "diff-drive-indoor", policy: { token: "0G", minFee: "2", maxQuote: "40", marginPct: 20, maxSpendPerTask: "10" } },
       plan: { skill: "indoor.delivery", waypoints: 1, distanceM: 60, privacy: "private" } },
   });
-  // the test router has no catalog, so the one inference call has no price: declined rather than guessed
-  assert.equal(res.json().status, "declined");
-  assert.match(res.json().reason, /0G model price/);
+  // no agents means no 0G calls: operating time + margin, raised to the owner's minimum fee
+  assert.equal(res.json().status, "ok");
+  assert.equal(res.json().quote, "2.00");
+  assert.ok(!res.json().lines.some((l: { source: string }) => l.source === "0g-router"));
 });

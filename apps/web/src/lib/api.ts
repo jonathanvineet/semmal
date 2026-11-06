@@ -59,9 +59,14 @@ export type Status = {
 
 export const ARKIV_EXPLORER = "https://rabdi.explorer.arkiv.network";
 
-export function useApi<T>(path: string) {
+/** Fired after this browser publishes or removes something on Arkiv, so open lists reload. */
+export const ARKIV_CHANGED = "semmal:arkiv-changed";
+export const announceArkivChange = () => window.dispatchEvent(new Event(ARKIV_CHANGED));
+
+export function useApi<T>(path: string, opts: { refreshMs?: number; onArkivChange?: boolean } = {}) {
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [tick, setTick] = useState(0);
   useEffect(() => {
     let live = true;
     fetch(path)
@@ -69,12 +74,25 @@ export function useApi<T>(path: string) {
         if (!r.ok) throw new Error(`${r.status}`);
         return (await r.json()) as T;
       })
-      .then((d) => live && setData(d))
+      .then((d) => live && (setData(d), setError(null)))
       .catch(() => live && setError("The SEMMAL API is not reachable. Start it with pnpm dev:api."));
     return () => {
       live = false;
     };
-  }, [path]);
+  }, [path, tick]);
+  useEffect(() => {
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    const again = () => setTick((t) => t + 1);
+    // Arkiv indexes a new entity within seconds and the API caches lists for 15 s: reload a few times
+    const onChange = () => [3_000, 10_000, 20_000].forEach((ms) => timers.push(setTimeout(again, ms)));
+    if (opts.onArkivChange) window.addEventListener(ARKIV_CHANGED, onChange);
+    const every = opts.refreshMs ? setInterval(again, opts.refreshMs) : undefined;
+    return () => {
+      window.removeEventListener(ARKIV_CHANGED, onChange);
+      if (every) clearInterval(every);
+      timers.forEach(clearTimeout);
+    };
+  }, [opts.onArkivChange, opts.refreshMs]);
   return { data, error, loading: !data && !error };
 }
 

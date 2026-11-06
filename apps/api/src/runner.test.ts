@@ -117,7 +117,7 @@ function paid(check: (w: { to: string; from: string; minWei: bigint; memo: strin
     ...f.router,
     config: { timeoutMs: 30_000, managementKey: mgmt },
     chat: async (req: unknown, opts: unknown) => { keys.push(opts); return f.router.chat(req); },
-    createKey: async (k: unknown) => { keyArgs.push(k); return { key: "sk-agent-secret", keyId: "k1", currency: "0g", creditLimit: "0.05" }; },
+    createKey: async (k: unknown) => { keyArgs.push(k); return { key: "sk-agent-secret", keyId: "k1", currency: "0g", creditLimit: "0.5" }; },
   };
   const seen: unknown[] = [];
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -166,7 +166,7 @@ test("with a management key each agent gets its own capped Router key, created o
   await t.runner.run(listing.agentId, job(), { kind: "owner" });
   await t.runner.run(listing.agentId, job(), { kind: "owner" });
   assert.equal(t.keyArgs.length, 1);
-  assert.deepEqual(t.keyArgs[0], { name: `semmal-${listing.agentId}`, creditLimit: "0.05", resetPeriod: "daily", allowedModels: ["m-vision"], trustMode: "private" });
+  assert.deepEqual(t.keyArgs[0], { name: `semmal-${listing.agentId}`, creditLimit: "0.5", resetPeriod: "daily", allowedModels: ["m-vision"], trustMode: "private" });
   assert.deepEqual(t.keys[1], { apiKey: "sk-agent-secret" });
   assert.ok(!JSON.stringify(t.runner.agentKeys()).includes("sk-agent-secret"), "the secret is never listed");
   const none = paid(() => ({ ok: true }));

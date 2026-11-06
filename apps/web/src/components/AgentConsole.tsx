@@ -37,7 +37,7 @@ async function shrink(file: File): Promise<string> {
 }
 
 export function AgentConsole({ owner }: { owner: string }) {
-  const { data } = useApi<Listing<AgentListing>>("/api/agents");
+  const { data } = useApi<Listing<AgentListing>>("/api/agents", { onArkivChange: true });
   const mine = useMemo(() => (data?.items ?? []).filter((e) => e.data.ownerWallet.toLowerCase() === owner.toLowerCase()), [data, owner]);
   const [agentId, setAgentId] = useState("");
   const agent = mine.find((e) => e.data.agentId === agentId)?.data ?? mine[0]?.data;
@@ -123,7 +123,7 @@ export function AgentConsole({ owner }: { owner: string }) {
           searchPlaceholder="Search your agents"
         />
         <p className="t-small muted">
-          {agent.inference?.model} · {agent.inference?.trustMode} · {agent.price.amount} 0G per job
+          {agent.inference?.model} · {agent.inference?.trustMode} · {agent.price.amount} {agent.price.token} per job
         </p>
         {looks && (
           <label className="ac__drop">

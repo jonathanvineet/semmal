@@ -116,6 +116,20 @@ export class ZeroGRouter {
     return { key: body.key as string, keyId: body.key_id as string, currency: typeof body.currency === "string" ? (body.currency as string) : "unknown", creditLimit: String(body.credit_limit ?? k.creditLimit) };
   }
 
+  /** Change a key's spend cap: PATCH /v1/api-keys/{keyId} (management key, scope keys:manage). */
+  async setKeyLimit(keyId: string, creditLimit: string) {
+    if (!this.config.baseUrl || !this.config.managementKey) throw new ZeroGError("no 0G management key configured", "not_configured");
+    const res = await fetch(`${this.config.baseUrl}/api-keys/${encodeURIComponent(keyId)}`, {
+      method: "PATCH",
+      signal: AbortSignal.timeout(15_000),
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${this.config.managementKey}` },
+      body: JSON.stringify({ credit_limit: creditLimit }),
+    }).catch(() => {
+      throw new ZeroGError("0G Router unreachable", "unreachable");
+    });
+    if (!res.ok) throw new ZeroGError(`0G key update ${res.status}`, "http_error", res.status);
+  }
+
   async chat(req: InferenceRequest, opts: { apiKey?: string } = {}): Promise<InferenceResult> {
     if (!this.configured) throw new ZeroGError("0G Router is not configured; refusing to fabricate a result", "not_configured");
     const started = performance.now();
@@ -175,6 +189,7 @@ export class ZeroGRouter {
       billing: trace.billing
         ? { inputCost: trace.billing.input_cost, outputCost: trace.billing.output_cost, totalCost: trace.billing.total_cost, unit: "neuron" }
         : undefined,
+      finishReason: typeof body?.choices?.[0]?.finish_reason === "string" ? body.choices[0].finish_reason : undefined,
       usage: body.usage
         ? { promptTokens: body.usage.prompt_tokens, completionTokens: body.usage.completion_tokens, totalTokens: body.usage.total_tokens }
         : undefined,

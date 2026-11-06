@@ -33,7 +33,7 @@ No image bytes, prompts or personal data go into the bundle.
 
 ## Before you start (platform Mac)
 
-1. `.env` has `ZEROG_ROUTER_API_KEY`, `ARKIV_ACCESS_KEY` and `API_HOST=0.0.0.0`. Optional but recommended: `ZEROG_ROUTER_MANAGEMENT_KEY` (pc.testnet.0g.ai → Settings → Management Keys → "Key Manager"). With it, every agent gets its own 0G key capped at `ZEROG_AGENT_CREDIT_LIMIT` (default 0.05) per day. `ZEROG_USDC_RATE` is no longer used; everything is in 0G.
+1. `.env` has `ZEROG_ROUTER_API_KEY`, `ARKIV_ACCESS_KEY` and `API_HOST=0.0.0.0`. Optional but recommended: `ZEROG_ROUTER_MANAGEMENT_KEY` (pc.testnet.0g.ai → Settings → Management Keys → "Key Manager"). With it, every agent gets its own 0G key capped at `ZEROG_AGENT_CREDIT_LIMIT` (default 0.5 0G) per day; one vision call costs about 0.02 0G. `ZEROG_USDC_RATE` is no longer used; everything is in 0G.
 2. In /admin there is a **vision** agent published with trust mode **private**, priced in **0G**, on a 0G model that accepts images. Agents published before this change are priced in USDC; robots skip them, so publish the vision agent again. Test it once in "Run an agent". A **navigation** agent is optional; if one exists, the robot hires it to order its stops.
 3. Restart the API after pulling: `pnpm --filter @semmal/api dev`.
 
@@ -63,7 +63,7 @@ At /robots/new, once per robot:
 | Warehouse | Compact rover | Inspection | robot-key-warehouse address |
 | Forest | Field rover | Outdoor patrol | robot-key-forest address |
 
-Guardrails, in 0G (the defaults fit testnet amounts): minimum fee **0.01**, maximum quote **0.1**, max spend per task **0.06**. Max spend per task must cover one vision job per stop (the house run buys three). Keep the maximum quote at or below the robot's `ROBOT_MAX_PAYMENT_0G` (0.1), since the margin goes back to you as one payment. Note each robot's `rbt-…` id.
+Guardrails, in 0G (the defaults fit testnet amounts): minimum fee **0.01**, maximum quote **0.15**, max spend per task **0.1**. A vision job costs about 0.02 0G (its 0G inference plus the agent's margin, about 1,500 input and 800 output tokens), so the house run (three jobs) costs about 0.065 0G in agents and quotes about 0.08 0G. Keep the maximum quote at or below the robot's `ROBOT_MAX_PAYMENT_0G` (0.15), since the margin goes back to you as one payment. Note each robot's `rbt-…` id.
 
 Robots registered before this change are priced in USDC and decline paid tasks. Delete them in /admin and register them again.
 

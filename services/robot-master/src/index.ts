@@ -38,8 +38,8 @@ const device = new Device({
   storageIndexer: env("ZEROG_STORAGE_INDEXER_URL", "https://indexer-storage-testnet-turbo.0g.ai"),
   maxUploadsPerDay: Number(process.env.ROBOT_MAX_UPLOADS_PER_DAY ?? 100),
   payRpc: env("ZEROG_PAY_RPC_URL", "https://evmrpc-testnet.0g.ai"),
-  maxPaymentWei: toWei(env("ROBOT_MAX_PAYMENT_0G", "0.1")),
-  maxPaidWeiPerDay: toWei(env("ROBOT_MAX_PAID_PER_DAY_0G", "0.5")),
+  maxPaymentWei: toWei(env("ROBOT_MAX_PAYMENT_0G", "0.15")),
+  maxPaidWeiPerDay: toWei(env("ROBOT_MAX_PAID_PER_DAY_0G", "1")),
   maxPaymentFeeWei: toWei(env("ROBOT_MAX_PAYMENT_FEE_0G", "0.001")),
 });
 const local = httpLocal(env("SEMMAL_LOCAL_API", "http://127.0.0.1:8765"));
