@@ -11,7 +11,14 @@ export function canonicalJson(value: unknown): string {
   );
 }
 
-export function robotCreateArgs(input: TRobot, ttlDays = 30) {
+/**
+ * How long a registration (robot profile, agent listing) stays on Arkiv: 3 months. Rabdi allows up
+ * to MAX_LIFETIME = 7,884,000 blocks (about 182 days at 2 s per block, SDK 1.0.1); re-publish or extend
+ * before it lapses.
+ */
+export const REGISTRATION_DAYS = 90;
+
+export function robotCreateArgs(input: TRobot, ttlDays = REGISTRATION_DAYS) {
   const p = RobotProfile.parse(input);
   const has = (c: string) => bool(p.capabilities.includes(c as TRobot["capabilities"][number]));
   return {
@@ -37,7 +44,7 @@ export function robotCreateArgs(input: TRobot, ttlDays = 30) {
   };
 }
 
-export function agentCreateArgs(input: TAgent, ttlDays = 30) {
+export function agentCreateArgs(input: TAgent, ttlDays = REGISTRATION_DAYS) {
   const a = AgentListing.parse(input);
   return {
     schema: AgentProfileSchema,

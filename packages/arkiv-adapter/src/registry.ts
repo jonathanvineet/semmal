@@ -24,7 +24,7 @@ export type ArkivConfig = {
 };
 
 export function arkivConfigFromEnv(env = process.env): ArkivConfig {
-  return { accessKey: env.ARKIV_ACCESS_KEY ?? "", profileTtlDays: Number(env.ARKIV_PROFILE_TTL_DAYS || 30) };
+  return { accessKey: env.ARKIV_ACCESS_KEY ?? "", profileTtlDays: Number(env.ARKIV_PROFILE_TTL_DAYS || 90) };
 }
 
 function decodeJson(value: unknown): unknown {
