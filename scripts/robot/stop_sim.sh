@@ -7,6 +7,11 @@ PATS=(
   # Gazebo renames its server/GUI processes to exactly this, dropping the world path; a server left
   # behind by a crashed launch only shows up this way (it then serves the same world topics).
   '^gz sim (server|gui)$'
+  # the window, started on its own after the robot spawns (semmal_bringup gui.launch.py / scripts/robot/gui.sh)
+  '^(/bin/sh -c )?ruby [^ ]*/gz sim -g( |$)'
+  '^gz sim -g( |$)'
+  '^/usr/bin/python3 /opt/ros/jazzy/bin/ros2 launch semmal_bringup gui.launch.py'
+  '^python3 [^ ]*/semmal_bringup/launch/follow_camera.py'
   '^/opt/ros/jazzy/lib/ros_gz_bridge/parameter_bridge'
   '^/opt/ros/jazzy/lib/robot_state_publisher/robot_state_publisher'
   '^/opt/ros/jazzy/lib/tf2_ros/static_transform_publisher .*map'

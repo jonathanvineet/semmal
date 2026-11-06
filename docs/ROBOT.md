@@ -9,7 +9,9 @@ scripts/robot/check_env.sh                     # versions; fails clearly if some
 scripts/robot/build.sh                         # regenerate world/map from layout.yaml + colcon build
 scripts/robot/fetch_models.sh                  # once, needs internet: Fuel furniture for the house world
 scripts/robot/run_sim.sh world:=house          # Gazebo GUI + full robot stack (world:=warehouse is the default;
-                                               #   add rviz:=true / headless:=true)
+                                               #   add rviz:=true / headless:=true / follow:=false)
+scripts/robot/gui.sh                           # reopen the Gazebo window (closing it never stops the robot);
+                                               #   the camera follows the robot
 (cd services/robot-master && pnpm run setup house)   # once per robot: hardware, wallet, platform, token
 scripts/robot/scenario.sh house                    # that robot's hardware + its world (+ identity node)
 (cd services/robot-master && pnpm start house)   # identity service + robot agent; see docs/SCENARIOS.md
