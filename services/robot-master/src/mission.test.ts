@@ -408,7 +408,7 @@ test("if the agent could not check the payment (network), the same paid job is r
 const wrongModel: AgentListing = { ...vision, agentId: "agt-test1-000001", displayName: "test1", price: { amount: "0.01", token: "0G", unit: "job" }, inference: { model: "qwen2.5-vl-72b-instruct", trustMode: "private" } };
 const cannotServe = (agentId: string): AgentResult => ({ jobId: "j", agentId, status: "failed", code: "no_provider_for_trust_mode", reason: "No 0G provider can serve private mode for qwen2.5-vl-72b-instruct right now; the call was not downgraded" });
 // some 0G gateway instances return the model catalog without trust levels: the robot cannot rule test1 out up front
-const catalogWithoutTrust = async () => ({ rate: "1", models: [{ id: "m-vis", promptNeuron: "1000000000", completionNeuron: "1000000000" }] });
+const catalogWithoutTrust = async () => ({ rate: "1", models: [{ id: "m-vis", promptNeuron: "1000000000", completionNeuron: "1000000000", verifiability: null }] });
 
 test("the cheapest agent cannot serve its trust mode: the robot hires the next-best one and finishes", async () => {
   const { calls, deps, store } = harness();
