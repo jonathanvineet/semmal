@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { networkInterfaces } from "node:os";
 import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
 import cors from "@fastify/cors";
 import { ArkivRegistry, arkivConfigFromEnv } from "@semmal/arkiv-adapter";
@@ -333,7 +334,11 @@ export function buildApp(deps: Deps = defaultDeps()) {
     if ("error" in own) return reply.code(own.error as number).send({ error: own.message });
     gateway.disconnect(req.params.robotId);
     const token = gateway.links.issue(req.params.robotId, own.address);
-    return { robotId: req.params.robotId, token, gatewayPath: "/api/gateway", note: "Shown once. Store it on the robot host only." };
+    // the addresses a robot PC on the same network can use to reach this API
+    const platformHosts = (process.env.API_HOST && process.env.API_HOST !== "127.0.0.1")
+      ? Object.values(networkInterfaces()).flat().filter((n) => n && n.family === "IPv4" && !n.internal).map((n) => n!.address)
+      : [];
+    return { robotId: req.params.robotId, token, gatewayPath: "/api/gateway", port: config.API_PORT, platformHosts, note: "Shown once. Store it on the robot host only." };
   });
 
   app.delete<{ Params: { robotId: string } }>("/api/robots/:robotId/link", async (req, reply) => {

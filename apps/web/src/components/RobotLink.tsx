@@ -24,6 +24,8 @@ const ago = (iso?: string) => {
 export function RobotLink({ robotId, capabilities }: { robotId: string; capabilities: string[] }) {
   const [live, setLive] = useState<Live | null>(null);
   const [token, setToken] = useState<string | null>(null);
+  const [hosts, setHosts] = useState<string[]>([]);
+  const [port, setPort] = useState(3001);
   const [msg, setMsg] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
@@ -49,6 +51,8 @@ export function RobotLink({ robotId, capabilities }: { robotId: string; capabili
     try {
       const d = await call("POST", `/api/robots/${robotId}/link`);
       setToken(d.token);
+      setHosts(d.platformHosts ?? []);
+      setPort(d.port ?? 3001);
       setCopied(false);
       load();
     } catch (e) {
@@ -75,9 +79,24 @@ export function RobotLink({ robotId, capabilities }: { robotId: string; capabili
     }
   };
 
-  const gw = typeof window === "undefined" ? "" : `ws://${window.location.hostname}:3001/api/gateway`;
+  // the robot PC must reach this machine over the network, so never "localhost"
+  const host = hosts[0] ?? "<this-mac-ip>";
   const cmd = token
-    ? `cd services/robot-link\nprintf 'SEMMAL_GATEWAY_URL=${gw}\\nSEMMAL_ROBOT_ID=${robotId}\\nSEMMAL_LINK_TOKEN=${token}\\n' > .env.robot\npnpm start`
+    ? [
+        "cd services/robot-master",
+        "pnpm install",
+        "[ -f ~/.semmal/robot-key ] || pnpm keygen   # once; the address must match this robot's wallet on Arkiv",
+        "cat > .env.robot <<'EOF'",
+        `SEMMAL_ROBOT_ID=${robotId}`,
+        `SEMMAL_LINK_TOKEN=${token}`,
+        `SEMMAL_PLATFORM_URL=http://${host}:${port}`,
+        `SEMMAL_GATEWAY_URL=ws://${host}:${port}/api/gateway`,
+        "SEMMAL_LOCAL_API=http://127.0.0.1:8765",
+        "ARKIV_ACCESS_KEY=",
+        "EOF",
+        'echo "SEMMAL_DATA_DIR=$(cd ../.. && pwd)/data" >> .env.robot',
+        "pnpm start",
+      ].join("\n")
     : "";
 
   return (
@@ -99,7 +118,9 @@ export function RobotLink({ robotId, capabilities }: { robotId: string; capabili
 
       {token && (
         <div className="rl__token">
-          <p className="t-small"><b>Shown once.</b> Run this on the robot host. It is a revocable link token, not a wallet key; anyone with it can speak as this robot until you revoke it.</p>
+          <p className="t-small"><b>Shown once.</b> Run this in the repo on the robot PC, with the ROS stack started with <span className="mono">ROBOT_ID={robotId}</span>. The token is revocable and not a wallet key; anyone with it can speak as this robot until you revoke it.</p>
+          {hosts.length === 0 && <p className="t-small soft-warn">This API only listens on this machine. Set <span className="mono">API_HOST=0.0.0.0</span> in .env and restart it, then click New token, so the robot PC can reach it.</p>}
+          {hosts.length > 1 && <p className="t-small muted">Other addresses for this machine: {hosts.slice(1).join(", ")}</p>}
           <pre className="mono">{cmd}</pre>
           <button type="button" className="btn btn--secondary btn--sm" onClick={async () => { await navigator.clipboard.writeText(cmd); setCopied(true); }}>{copied ? "Copied" : "Copy command"}</button>
         </div>
