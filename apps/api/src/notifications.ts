@@ -52,9 +52,22 @@ export function notesFor(t: TripMeta, e: TaskEvent): Note[] {
     case "progress": {
       const d = e.detail ?? "";
       switch (e.state) {
+        case "AWAITING_OWNER":
+          owner("approve", `Approve a booking for ${r}`, `${skillName(t.skill)}${t.startAt ? `, on site ${time(t.startAt)}` : ""}. ${d.split(";")[0]}. Approve or decline it in Your dashboard.`);
+          customer("waiting-owner", "Waiting for the owner", `${r}'s owner is reviewing your booking.`);
+          break;
+        case "APPROVED":
+          customer("approved", "Booking approved", `${r} is getting ready to come to you.`);
+          break;
+        case "AWAITING_CONFIRMATION":
+          customer("confirm", `${r} has arrived: please confirm`, "Check it is there, then confirm in Your orders. You pay after you confirm.");
+          break;
+        case "CONFIRMED":
+          owner("confirmed", `Arrival confirmed for ${r}`, "The customer confirmed the robot is on site.");
+          break;
         case "AWAITING_PAYMENT": {
           const amount = /pay ([\d.]+) 0G/.exec(d)?.[1];
-          customer("offer", `Offer from ${r}`, amount ? `Pay ${amount} 0G to confirm. The offer is valid for 5 minutes.` : "Its offer is ready to pay.");
+          customer("offer", `Pay ${r} to start`, amount ? `Pay ${amount} 0G and it starts the job. You have 15 minutes.` : "Its offer is ready to pay.");
           break;
         }
         case "PAID":
@@ -77,7 +90,8 @@ export function notesFor(t: TripMeta, e: TaskEvent): Note[] {
           owner("ended", `${r} could not finish a job`, d || e.state);
           break;
         case "ABORTED":
-          if (/not paid/.test(d)) customer("expired", "Offer expired", `${r}'s offer was not paid in time. Book again for a new one.`);
+          if (/declined|did not answer/.test(d)) customer("declined", `${r}'s owner did not take the booking`, `${d}. Nothing was charged.`);
+          else if (/not paid/.test(d)) customer("expired", "Offer expired", `${r}'s offer was not paid in time. Book again for a new one.`);
           else {
             customer("ended", `${r} stopped the job`, d || "Aborted.");
             owner("ended", `${r} stopped a job`, d || "Aborted.");

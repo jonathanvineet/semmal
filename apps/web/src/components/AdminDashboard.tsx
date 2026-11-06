@@ -7,6 +7,7 @@ import { useWallet } from "@/lib/wallet";
 import { AgentBuilder } from "./AgentBuilder";
 import { AgentConsole } from "./AgentConsole";
 import { RobotLink } from "./RobotLink";
+import { OwnerRequests } from "./OwnerRequests";
 import { RobotEvidence } from "./RobotEvidence";
 import { ARKIV_EXPLORER, type Status } from "@/lib/api";
 
@@ -120,6 +121,7 @@ export function AdminDashboard() {
 
       {w.me?.address && !w.mismatch && (isAdmin ? Boolean(state) : true) && (
         <div className="grid admin-grid">
+          <OwnerRequests />
           <MyRobots owner={w.me!.address!} />
           {isAdmin && <article className="card integ span-6">
             <h3 className="t-card">Integrations</h3>

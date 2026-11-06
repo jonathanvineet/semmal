@@ -109,6 +109,32 @@ const awaitPayment = (taskId: string, waitMs: number) =>
     });
   });
 
+// the owner's decision and the customer's arrival confirmation arrive the same way (one waiter per task)
+const signals = new Map<string, unknown>();
+const signalWaiters = new Map<string, (v: unknown) => void>();
+const signal = (key: string, v: unknown) => {
+  const w = signalWaiters.get(key);
+  if (w) w(v);
+  else signals.set(key, v);
+};
+const waitSignal = <T>(key: string, waitMs: number) =>
+  new Promise<T | null>((resolve) => {
+    if (signals.has(key)) {
+      const v = signals.get(key) as T;
+      signals.delete(key);
+      return resolve(v);
+    }
+    const t = setTimeout(() => {
+      signalWaiters.delete(key);
+      resolve(null);
+    }, waitMs);
+    signalWaiters.set(key, (v) => {
+      clearTimeout(t);
+      signalWaiters.delete(key);
+      resolve(v as T);
+    });
+  });
+
 let busy = false;
 link = new Link(env("SEMMAL_GATEWAY_URL", "ws://127.0.0.1:3001/api/gateway"), ROBOT_ID, env("SEMMAL_LINK_TOKEN"), "robot-master/0.1.0", {
   log,
@@ -127,6 +153,14 @@ link = new Link(env("SEMMAL_GATEWAY_URL", "ws://127.0.0.1:3001/api/gateway"), RO
     if (w) w(txHash);
     else payments.set(taskId, [...(payments.get(taskId) ?? []).slice(-4), txHash]);
   },
+  onOwnerDecision: (taskId, approved, reason) => {
+    log(`task ${taskId}: the owner ${approved ? "approved" : "declined"} it`);
+    signal(`owner:${taskId}`, { approved, reason });
+  },
+  onArrivalConfirmed: (taskId) => {
+    log(`task ${taskId}: the customer confirmed the robot is on site`);
+    signal(`arrival:${taskId}`, true);
+  },
   onTask: (m) => {
     if (busy) return link.send({ type: "task_ack", taskId: m.taskId, accepted: false, reason: "robot is already on a task" });
     busy = true;
@@ -138,6 +172,11 @@ link = new Link(env("SEMMAL_GATEWAY_URL", "ws://127.0.0.1:3001/api/gateway"), RO
       awaitPayment,
       ...(process.env.SEMMAL_BASE_LAT && process.env.SEMMAL_BASE_LON ? { base: { lat: Number(process.env.SEMMAL_BASE_LAT), lon: Number(process.env.SEMMAL_BASE_LON) } } : {}),
       position: (p) => link.send({ type: "position", ...p }),
+      offer: (o) => link.send({ type: "offer", ...o }),
+      awaitOwner: (taskId, ms) => waitSignal<{ approved: boolean; reason?: string }>(`owner:${taskId}`, ms),
+      awaitArrival: async (taskId, ms) => (await waitSignal<boolean>(`arrival:${taskId}`, ms)) === true,
+      decision: (detail) => link.send({ type: "decision", taskId: detail.taskId, detail }),
+      log,
       travelSpeedup: Number(process.env.SEMMAL_TRAVEL_SPEEDUP || 1),
       local,
       platform,

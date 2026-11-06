@@ -139,6 +139,18 @@ export type Wallet = {
   checkIncoming(w: { hash: `0x${string}`; from: string; minWei: bigint; kind: "quote"; id: string }): Promise<TransferCheck>;
 };
 
+/** One 0G call and what the robot did with it: everything except the image itself and the prompt bytes. */
+export type DecisionDetail = {
+  taskId: string; at: string; stop: string; attempt: number;
+  agentId: string; agentName: string; agentPrice0G: string; paymentTx?: string;
+  question: string; frame: string;
+  model: string; trustMode: string;
+  receipt?: Record<string, unknown>;
+  output?: unknown;
+  checks: { format: boolean; actionAllowed: boolean; confidence: number | null; confidenceFloor: number };
+  outcome: string; action: string; reason?: string;
+};
+
 export type Deps = {
   robotId: string;
   robotWallet: string;
@@ -154,6 +166,17 @@ export type Deps = {
   /** Development only: travel this many times faster than the route's driving time. */
   travelSpeedup?: number;
   travelTickMs?: number;
+  /** Send the offer straight to the platform (the customer can pay before Arkiv has indexed it). */
+  offer?: (o: { taskId: string; quoteId: string; amount: string; validUntil: string; payTo: string }) => void;
+  /** The robot owner's answer to a booking (approve before the robot moves). null = no answer in time. */
+  awaitOwner?: (taskId: string, waitMs: number) => Promise<{ approved: boolean; reason?: string } | null>;
+  /** The customer confirming the robot is on site. false = not confirmed in time. */
+  awaitArrival?: (taskId: string, waitMs: number) => Promise<boolean>;
+  ownerWaitMs?: number;
+  confirmWaitMs?: number;
+  /** Every 0G decision, in full, as it happens (for the customer's "how it decided" view). */
+  decision?: (d: DecisionDetail) => void;
+  log?: (m: string) => void;
   local: LocalApi;
   platform: PlatformApi;
   evidence: EvidenceSink;
@@ -166,7 +189,12 @@ export type Deps = {
 
 export async function runTask(a: Assignment, d: Deps): Promise<EpisodeRecord | null> {
   const { store, local, platform } = d;
-  if (!store.begin(a.taskId, a)) return null; // re-delivered: never run twice
+  if (!store.begin(a.taskId, a)) {
+    // re-delivered: never run twice, but say so
+    const last = store.history(a.taskId).at(-1);
+    d.ack(a.taskId, false, `this robot already has this task${last ? ` (${last.state}: ${last.reason.slice(0, 80)})` : ""}`);
+    return null;
+  }
   const episodeId = `ep-${randomUUID().slice(0, 12)}`;
   const startedAt = new Date().toISOString();
   const decisions: Decision[] = [];
@@ -277,12 +305,73 @@ export async function runTask(a: Assignment, d: Deps): Promise<EpisodeRecord | n
   if (q.status !== "ok") return decline(q.reason);
   if (a.maxBudget && micro(q.quote) > micro(a.maxBudget)) return decline(`quote ${q.quote} 0G is over the customer's budget of ${a.maxBudget}`);
   const quoteId = `quote-${randomUUID().slice(0, 18)}`;
-  const validMs = d.quoteValidMs ?? 5 * 60_000;
+  // payment comes after arrival, so the offer holds until the booking's deadline; paying has its own window
+  const validMs = d.quoteValidMs ?? 15 * 60_000;
   quoteDoc = { quoteId, amount: q.quote, cost: q.cost, lines: q.lines.map((l) => ({ label: l.label.slice(0, 60), amount: l.amount, source: l.source })) };
-  await d.evidence
-    .quote({ schemaVersion: "1.0", quoteId, taskId: a.taskId, robotId: d.robotId, robotWallet: d.robotWallet, amount: q.quote, cost: q.cost, lines: quoteDoc.lines, validUntil: new Date(Date.now() + validMs).toISOString() })
-    .catch(() => undefined);
+  const validUntil = a.deadline && Date.parse(a.deadline) > Date.now() + validMs ? new Date(a.deadline).toISOString() : new Date(Date.now() + 2 * 3600_000).toISOString();
+  // the offer goes to the customer now; its Arkiv record is written in the background (evidence never blocks the job)
+  d.offer?.({ taskId: a.taskId, quoteId, amount: q.quote, validUntil, payTo: d.robotWallet });
+  void d.evidence
+    .quote({ schemaVersion: "1.0", quoteId, taskId: a.taskId, robotId: d.robotId, robotWallet: d.robotWallet, amount: q.quote, cost: q.cost, lines: quoteDoc.lines, validUntil })
+    .catch((e) => d.log?.(`offer ${quoteId} not written to Arkiv: ${(e as Error).message}`));
   d.ack(a.taskId, true);
+
+  // ---- the robot's owner approves the booking before the robot moves
+  if (a.customerWallet) {
+    move("AWAITING_OWNER", `offer ${q.quote} 0G; waiting for the robot's owner to approve`);
+    const decision = d.awaitOwner ? await d.awaitOwner(a.taskId, d.ownerWaitMs ?? 30 * 60_000) : { approved: true };
+    if (!decision || !decision.approved) {
+      const why = !decision ? "the owner did not answer in time" : `the owner declined${decision.reason ? `: ${decision.reason}` : ""}`;
+      store.move(a.taskId, "ABORTED", why);
+      d.progress("ABORTED", a.taskId, `${why}; nothing was done or charged`);
+      return null;
+    }
+    move("APPROVED", "the owner approved the booking");
+  }
+
+  // ---- travel to the customer's site, timed to arrive at the booked time
+  if (a.site) {
+    if (!d.base) return finish("FAILED", "this robot has no base location set (pnpm run setup); it cannot plan the trip");
+    const route: TravelRoute = await platform.route(d.base, a.site).catch(() => straight(d.base!, a.site!));
+    const speed = Math.max(1, d.travelSpeedup ?? 1);
+    const travelMs = (route.durationS * 1000) / speed;
+    const startAtMs = a.startAt ? Date.parse(a.startAt) : Date.now();
+    const departMs = Math.max(Date.now(), startAtMs - travelMs);
+    touch("customer site", "booking (platform)", `about ${coarse(a.site.lat)}, ${coarse(a.site.lon)}; exact address used for the trip only, not kept here`);
+    touch("route", route.source === "osrm" ? "OSRM driving route" : "straight line (routing unavailable)", `${(route.distanceM / 1000).toFixed(1)} km, ${Math.round(route.durationS / 60)} min driving`);
+    if (departMs > Date.now()) {
+      move("APPROVED", `leaving at ${new Date(departMs).toISOString().slice(11, 16)} to arrive by ${new Date(startAtMs).toISOString().slice(11, 16)}`);
+      await sleep(departMs - Date.now());
+    }
+    const departedAt = now();
+    move("TRAVELLING", `${(route.distanceM / 1000).toFixed(1)} km to the site, about ${Math.round(travelMs / 60_000)} min`);
+    const cum = [0];
+    for (let i = 1; i < route.coords.length; i++) cum.push(cum[i - 1]! + distanceM(pt(route.coords[i - 1]!), pt(route.coords[i]!)));
+    const total = cum.at(-1) || 1;
+    const t0 = Date.now();
+    const eta = new Date(t0 + travelMs).toISOString();
+    for (;;) {
+      const f = Math.min(1, (Date.now() - t0) / Math.max(1, travelMs));
+      const p = along(route.coords, cum, f * total);
+      if (f >= 1) break;
+      d.position?.({ taskId: a.taskId, lat: p.lat, lon: p.lon, phase: "TRAVELLING", etaAt: eta, remainingM: Math.round(total * (1 - f)) });
+      await sleep(d.travelTickMs ?? 2000);
+    }
+    d.position?.({ taskId: a.taskId, lat: a.site.lat, lon: a.site.lon, phase: "ARRIVED", remainingM: 0 });
+    travel = {
+      from: { lat: coarse(d.base.lat), lon: coarse(d.base.lon) }, to: { lat: coarse(a.site.lat), lon: coarse(a.site.lon) },
+      distanceM: route.distanceM, plannedS: route.durationS, routeSource: route.source, departedAt, arrivedAt: now(), ...(a.startAt ? { startAt: a.startAt } : {}),
+    };
+    move("ARRIVED", "on site");
+  }
+
+  // ---- the customer confirms the robot is there: only then is the booking fully started
+  if (a.customerWallet && a.site) {
+    move("AWAITING_CONFIRMATION", "at the site; waiting for the customer to confirm it has arrived");
+    const ok = d.awaitArrival ? await d.awaitArrival(a.taskId, d.confirmWaitMs ?? 30 * 60_000) : true;
+    if (!ok) return finish("ABORTED", "the customer did not confirm the arrival in time; nothing was charged");
+    move("CONFIRMED", "the customer confirmed the robot is on site");
+  }
 
   // ---- payment: the customer pays the quote to this robot's wallet; the robot checks it on chain
   const cap = micro(profile.pricing.maxSpendPerTask);
@@ -305,6 +394,8 @@ export async function runTask(a: Assignment, d: Deps): Promise<EpisodeRecord | n
       }
     }
     if (!paid) {
+      // after a trip the robot keeps a record of it; before one, nothing happened
+      if (travel) return finish("ABORTED", "the offer was not paid in time after arrival; nothing was charged");
       store.move(a.taskId, "ABORTED", "the quote was not paid before it expired");
       d.progress("ABORTED", a.taskId, "the quote was not paid before it expired; nothing was done");
       return null;
@@ -320,42 +411,6 @@ export async function runTask(a: Assignment, d: Deps): Promise<EpisodeRecord | n
   }
   money.budget0G = fromMicro(budget);
 
-  // ---- travel to the customer's site, timed to arrive at the booked time
-  if (a.site) {
-    if (!d.base) return finish("FAILED", "this robot has no base location set (pnpm run setup); it cannot plan the trip");
-    const route: TravelRoute = await platform.route(d.base, a.site).catch(() => straight(d.base!, a.site!));
-    const speed = Math.max(1, d.travelSpeedup ?? 1);
-    const travelMs = (route.durationS * 1000) / speed;
-    const startAtMs = a.startAt ? Date.parse(a.startAt) : Date.now();
-    const departMs = Math.max(Date.now(), startAtMs - travelMs);
-    touch("customer site", "booking (platform)", `about ${coarse(a.site.lat)}, ${coarse(a.site.lon)}; exact address used for the trip only, not kept here`);
-    touch("route", route.source === "osrm" ? "OSRM driving route" : "straight line (routing unavailable)", `${(route.distanceM / 1000).toFixed(1)} km, ${Math.round(route.durationS / 60)} min driving`);
-    if (departMs > Date.now()) {
-      move("PAID", `leaving at ${new Date(departMs).toISOString().slice(11, 16)} to arrive by ${new Date(startAtMs).toISOString().slice(11, 16)}`);
-      await sleep(departMs - Date.now());
-    }
-    const departedAt = now();
-    move("TRAVELLING", `${(route.distanceM / 1000).toFixed(1)} km to the site, about ${Math.round(travelMs / 60_000)} min`);
-    const cum = [0];
-    for (let i = 1; i < route.coords.length; i++) cum.push(cum[i - 1]! + distanceM(pt(route.coords[i - 1]!), pt(route.coords[i]!)));
-    const total = cum.at(-1) || 1;
-    const t0 = Date.now();
-    const eta = new Date(t0 + travelMs).toISOString();
-    for (;;) {
-      const f = Math.min(1, (Date.now() - t0) / Math.max(1, travelMs));
-      const p = along(route.coords, cum, f * total);
-      if (f >= 1) break;
-      d.position?.({ taskId: a.taskId, lat: p.lat, lon: p.lon, phase: "TRAVELLING", etaAt: eta, remainingM: Math.round(total * (1 - f)) });
-      await sleep(d.travelTickMs ?? 2000);
-    }
-    d.position?.({ taskId: a.taskId, lat: a.site.lat, lon: a.site.lon, phase: "ARRIVED", remainingM: 0 });
-    travel = {
-      from: { lat: coarse(d.base.lat), lon: coarse(d.base.lon) }, to: { lat: coarse(a.site.lat), lon: coarse(a.site.lon) },
-      distanceM: route.distanceM, plannedS: route.durationS, routeSource: route.source, departedAt, arrivedAt: now(), ...(a.startAt ? { startAt: a.startAt } : {}),
-    };
-    move("ARRIVED", `on site${a.startAt && Date.parse(a.startAt) > Date.now() ? `; starting at ${a.startAt.slice(11, 16)}` : ""}`);
-    if (a.startAt && Date.parse(a.startAt) > Date.now()) await sleep(Date.parse(a.startAt) - Date.now());
-  }
 
   // ---- hire (the robot chooses)
   move("DISCOVERING_SPECIALISTS", `${offers.length} agents on Arkiv`);
@@ -366,7 +421,10 @@ export async function runTask(a: Assignment, d: Deps): Promise<EpisodeRecord | n
   move("HIRING_SPECIALISTS", hired.map((h) => `${h.name} ${h.price}`).join(", "));
   const jobDeadline = new Date(Date.now() + (d.missionTimeoutMs ?? 300_000) * (stops.length + 1)).toISOString();
   for (const h of hired) {
-    await d.evidence.claim({ schemaVersion: "1.0", jobId: `job-${randomUUID().slice(0, 16)}`, taskId: a.taskId, robotId: d.robotId, robotWallet: d.robotWallet, agentId: h.agentId, price: h.price, deadline: jobDeadline }).catch(() => undefined);
+    // job claims are evidence: written in the background, never holding up the job
+    void d.evidence
+      .claim({ schemaVersion: "1.0", jobId: `job-${randomUUID().slice(0, 16)}`, taskId: a.taskId, robotId: d.robotId, robotWallet: d.robotWallet, agentId: h.agentId, price: h.price, deadline: jobDeadline })
+      .catch((e) => d.log?.(`job claim for ${h.agentId} not written to Arkiv: ${(e as Error).message}`));
   }
 
   /**
@@ -414,7 +472,7 @@ export async function runTask(a: Assignment, d: Deps): Promise<EpisodeRecord | n
       providerRequestId: r?.receipt?.providerRequestId,
       billing: r?.receipt?.billing,
     });
-    return { r: r ?? null, latencyMs: r?.receipt?.latencyMs ?? Date.now() - t0, blocked: undefined as string | undefined };
+    return { r: r ?? null, latencyMs: r?.receipt?.latencyMs ?? Date.now() - t0, blocked: undefined as string | undefined, rec };
   };
 
   // ---- optional: a navigation agent orders the stops (the robot keeps its own order otherwise)
@@ -444,7 +502,15 @@ export async function runTask(a: Assignment, d: Deps): Promise<EpisodeRecord | n
 
     let answer: { action: string; confidence: number; observation: string; anomaly: string | null; found: boolean } | null = null;
     for (let attempt = 1; attempt <= 2 && !answer; attempt++) {
-      const { r, latencyMs, blocked } = await job(visionAgent, `look at ${stop}`, { image: img.dataUrl, context: sp.ask(stop) });
+      const question = sp.ask(stop);
+      const { r, latencyMs, blocked, rec } = await job(visionAgent, `look at ${stop}`, { image: img.dataUrl, context: question });
+      const tell = (x: Pick<DecisionDetail, "outcome" | "action" | "checks"> & { output?: unknown; reason?: string }) =>
+        d.decision?.({
+          taskId: a.taskId, at: now(), stop, attempt, agentId: visionAgent.agentId, agentName: visionAgent.displayName, agentPrice0G: visionAgent.price.amount,
+          paymentTx: rec?.paymentTx, question, frame: `${img.width}x${img.height} PNG, kept on the robot`,
+          model: visionAgent.inference?.model ?? "", trustMode: visionAgent.inference?.trustMode ?? "",
+          receipt: r?.receipt as Record<string, unknown> | undefined, ...x,
+        });
       if (blocked) {
         await local.hold(true);
         return finish("SAFE_STOP", `${blocked}; holding at ${stop}, nothing invented`);
@@ -452,6 +518,7 @@ export async function runTask(a: Assignment, d: Deps): Promise<EpisodeRecord | n
       const base = { at: now(), checkpoint: stop, agentId: visionAgent.agentId, model: visionAgent.inference?.model ?? "", trustMode: visionAgent.inference?.trustMode ?? "", latencyMs };
       if (!r || r.status !== "succeeded") {
         decisions.push({ ...base, providerRequestId: r?.receipt?.providerRequestId, outcome: r ? "failed" : "timeout", action: "hold" });
+        tell({ outcome: r ? "failed" : "timeout", action: "hold", reason: r ? (r.reason ?? r.status) : "no answer before the deadline", checks: { format: false, actionAllowed: false, confidence: null, confidenceFloor: CONFIDENCE_FLOOR } });
         await local.hold(true);
         move("WAITING_FOR_0G", r ? (r.reason ?? r.status) : "no answer before the deadline");
         continue;
@@ -461,6 +528,11 @@ export async function runTask(a: Assignment, d: Deps): Promise<EpisodeRecord | n
       decisions.push({
         ...base, providerRequestId: r.receipt?.providerRequestId, outcome: ok ? "accepted" : "rejected", action: ok ? out.data.recommended_action : "hold",
         observation: out.success ? out.data.observation : undefined, anomaly: out.success ? out.data.anomaly_type : undefined, confidence: out.success ? out.data.confidence : undefined,
+      });
+      tell({
+        outcome: ok ? "accepted" : "rejected", action: ok ? out.data.recommended_action : "hold", output: r.output,
+        reason: ok ? undefined : out.success ? (ACTIONS.has(out.data.recommended_action) ? `confidence ${out.data.confidence} is below ${CONFIDENCE_FLOOR}` : `action ${out.data.recommended_action} is not allowed`) : "the answer did not match the required format",
+        checks: { format: out.success, actionAllowed: out.success && ACTIONS.has(out.data.recommended_action), confidence: out.success ? out.data.confidence : null, confidenceFloor: CONFIDENCE_FLOOR },
       });
       if (ok)
         answer = { action: out.data.recommended_action, confidence: out.data.confidence, observation: out.data.observation, anomaly: out.data.anomaly_type, found: out.data.anomaly_detected };

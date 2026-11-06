@@ -303,3 +303,64 @@ test("without a base location the robot cannot plan the trip and says so", async
   assert.equal(ep.outcome, "FAILED");
   assert.match(ep.transitions.at(-1)!.reason, /no base location/);
 });
+
+test("a slow or stuck Arkiv write never holds up the job; the offer goes straight to the platform", async () => {
+  const { deps } = harness();
+  const offers: { amount: string; payTo: string }[] = [];
+  const never = () => new Promise<void>(() => undefined);
+  const ep = await runTask(task({ customerWallet: CUSTOMER }), {
+    ...deps,
+    evidence: { ...deps.evidence, quote: never, claim: never },
+    offer: (o) => offers.push(o),
+  });
+  assert.equal(ep!.outcome, "COMPLETED");
+  assert.equal(offers.length, 1);
+  assert.equal(offers[0]!.payTo, W);
+});
+
+test("a task sent again is answered, not silently ignored", async () => {
+  const { calls, deps } = harness();
+  const t = task();
+  await runTask(t, deps);
+  assert.equal(await runTask(t, deps), null);
+  assert.match(calls.acks.at(-1)![1]!, /already has this task \(COMPLETED/);
+});
+
+// ---------------------------------------------------------------- approve, travel, confirm, pay, work
+const SITE = { lat: 13.0611, lon: 80.2547 };
+test("the booking flow: owner approves, robot travels, customer confirms arrival, pays, then the robot works", async () => {
+  const { calls, deps } = harness();
+  const decisions: { outcome: string; receipt?: Record<string, unknown>; question: string; checks: { format: boolean } }[] = [];
+  const ep = (await runTask(task({ customerWallet: CUSTOMER, site: SITE }), {
+    ...deps,
+    awaitOwner: async () => ({ approved: true }),
+    awaitArrival: async () => true,
+    decision: (x) => decisions.push(x),
+  }))!;
+  assert.equal(ep.outcome, "COMPLETED");
+  const order = ["AWAITING_OWNER", "APPROVED", "TRAVELLING", "ARRIVED", "AWAITING_CONFIRMATION", "CONFIRMED", "AWAITING_PAYMENT", "PAID", "EXECUTING"].map((s) => calls.states.indexOf(s));
+  assert.ok(order.every((i, k) => i >= 0 && (k === 0 || i > order[k - 1]!)), `states out of order: ${calls.states.join(" > ")}`);
+  assert.equal(decisions.length, 1);
+  assert.equal(decisions[0]!.outcome, "accepted");
+  assert.equal(decisions[0]!.receipt?.providerRequestId, "req-777");
+  assert.match(decisions[0]!.question, /inspection/i);
+  assert.ok(decisions[0]!.checks.format);
+});
+
+test("the owner declines: the robot does not move and nothing is charged", async () => {
+  const { calls, deps } = harness();
+  const r = await runTask(task({ customerWallet: CUSTOMER, site: SITE }), { ...deps, awaitOwner: async () => ({ approved: false, reason: "busy that day" }) });
+  assert.equal(r, null);
+  assert.equal(calls.positions.length, 0);
+  assert.equal(calls.pays.length, 0);
+  assert.ok(calls.states.includes("ABORTED"));
+});
+
+test("the customer never confirms the arrival: no payment is taken, the trip is on record", async () => {
+  const { calls, deps } = harness();
+  const ep = (await runTask(task({ customerWallet: CUSTOMER, site: SITE }), { ...deps, awaitOwner: async () => ({ approved: true }), awaitArrival: async () => false }))!;
+  assert.equal(ep.outcome, "ABORTED");
+  assert.ok(ep.travel);
+  assert.equal(calls.pays.length, 0);
+  assert.equal(calls.jobs, 0);
+});

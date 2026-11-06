@@ -11,7 +11,7 @@ import { agentJobPrice, AGENT_TOKENS, quoteTask, SKILL_NEEDS } from "@semmal/quo
 import { z } from "zod";
 import { arkivRpcProxy } from "./arkiv-rpc-proxy";
 import { AdminStore, readCookie, WalletAuth } from "./admin";
-import { AgentRunner, type Caller } from "./runner";
+import { AgentRunner, PROMPTS, type Caller } from "./runner";
 import { fetchBundle, verifyEpisode, verifyIncident } from "./verify";
 import { Gateway, LinkStore, MAX_MESSAGE_BYTES } from "./gateway";
 import websocket from "@fastify/websocket";
@@ -121,8 +121,8 @@ export function buildApp(deps: Deps = defaultDeps()) {
           const robot = robots.find((r) => r.data.robotId === t.data.robotId)?.data;
           const quotes = await registry.listQuotes(t.data.taskId).catch(() => []);
           const events = gateway ? gateway.taskEvents(t.data.robotId, t.data.taskId) : [];
-          const state = events.map((e) => /: ([A-Z_]+)/.exec(e.detail)?.[1]).find(Boolean) ?? null; // newest first
           const trip = gateway?.trips.get(t.data.taskId);
+          const state = trip?.state?.state ?? events.map((e) => /: ([A-Z_]+)/.exec(e.detail)?.[1]).find(Boolean) ?? null; // newest first
           return {
             taskId: t.data.taskId,
             entityKey: t.entityKey,
@@ -134,7 +134,7 @@ export function buildApp(deps: Deps = defaultDeps()) {
             createdAt: t.data.createdAt ?? null,
             startAt: t.data.startAt ?? null,
             deadline: t.data.deadline,
-            offer: quotes[0] ? { amount: quotes[0].data.amount, validUntil: quotes[0].data.validUntil } : null,
+            offer: quotes[0] ? { amount: quotes[0].data.amount, validUntil: quotes[0].data.validUntil } : trip?.offer ? { amount: trip.offer.amount, validUntil: trip.offer.validUntil } : null,
             state,
             latest: trip?.points.at(-1) ? { phase: trip.points.at(-1)!.phase, etaAt: trip.points.at(-1)!.etaAt ?? null, remainingM: trip.points.at(-1)!.remainingM ?? null } : null,
             lastEvent: events[0] ?? null,
@@ -512,7 +512,8 @@ export function buildApp(deps: Deps = defaultDeps()) {
       const [quotes, claims] = await Promise.all([registry.listQuotes(req.params.taskId), registry.listJobClaims(req.params.taskId)]);
       const live = gateway?.publicView().find((r) => r.robotId === task.data.robotId);
       const events = gateway ? gateway.taskEvents(task.data.robotId, task.data.taskId) : [];
-      return { task, quotes, claims, events, robot: live ?? { robotId: task.data.robotId, online: false, availability: "offline" } };
+      const offer = gateway?.trips.get(task.data.taskId)?.offer ?? null;
+      return { task, quotes, claims, events, liveOffer: offer, state: gateway?.trips.get(task.data.taskId)?.state ?? null, robot: live ?? { robotId: task.data.robotId, online: false, availability: "offline" } };
     } catch {
       return reply.code(502).send({ error: "Arkiv could not be reached" });
     }
@@ -550,6 +551,86 @@ export function buildApp(deps: Deps = defaultDeps()) {
       customerWallet: task.data.customerWallet,
     }, { robotName: robot.data.displayName, ownerWallet: robot.data.ownerWallet });
     return r.ok ? { taskId: r.taskId, dispatched: true } : reply.code(409).send({ error: r.reason });
+  });
+
+  // ---------------------------------------------------------------- the booking flow: approve, arrive, confirm
+  /** The robot's owner approves or declines a booking. Only then does the robot move. */
+  app.post<{ Params: { taskId: string }; Body: { approved?: boolean; reason?: string } }>("/api/tasks/:taskId/approve", async (req, reply) => {
+    if (!gateway) return reply.code(503).send({ error: "gateway not available" });
+    const task = (await registry.listTasks({ taskId: req.params.taskId }).catch(() => []))[0];
+    if (!task) return reply.code(404).send({ error: "booking not found on Arkiv" });
+    const own = await ownedRobot(req, task.data.robotId);
+    if (!own.robot) return reply.code(own.error ?? 403).send({ error: own.message });
+    const t = gateway.trips.get(task.data.taskId);
+    if (t?.state && t.state.state !== "AWAITING_OWNER") return reply.code(409).send({ error: `the robot is past that step (${t.state.state})` });
+    const reason = typeof req.body?.reason === "string" ? req.body.reason.slice(0, 120) : undefined;
+    const r = gateway.ownerDecision(task.data.robotId, task.data.taskId, req.body?.approved === true, reason);
+    return r.ok ? { sent: true } : reply.code(409).send({ error: r.reason });
+  });
+
+  /** The customer confirms the robot is on site: the booking is now fully started (then they pay). */
+  app.post<{ Params: { taskId: string } }>("/api/tasks/:taskId/confirm-arrival", async (req, reply) => {
+    const address = sessionAddress(req);
+    if (!address) return reply.code(401).send({ error: "sign in with the wallet that booked" });
+    if (!gateway) return reply.code(503).send({ error: "gateway not available" });
+    const task = (await registry.listTasks({ taskId: req.params.taskId }).catch(() => []))[0];
+    if (!task) return reply.code(404).send({ error: "booking not found on Arkiv" });
+    if (task.data.customerWallet.toLowerCase() !== address.toLowerCase()) return reply.code(403).send({ error: "only the wallet that booked can confirm" });
+    const t = gateway.trips.get(task.data.taskId);
+    if (t?.state?.state !== "AWAITING_CONFIRMATION") return reply.code(409).send({ error: "the robot has not reported arriving yet" });
+    const r = gateway.confirmArrival(task.data.robotId, task.data.taskId);
+    return r.ok ? { sent: true } : reply.code(409).send({ error: r.reason });
+  });
+
+  /** Booking requests for the signed-in owner's robots that wait for an answer, plus recent ones. */
+  app.get("/api/owner/requests", async (req, reply) => {
+    const address = sessionAddress(req);
+    if (!address) return reply.code(401).send({ error: "sign in first" });
+    const mine = await robotsFromArkiv(address.toLowerCase()).catch(() => []);
+    const ids = new Set(mine.map((r) => r.data.robotId));
+    const items = [...(gateway?.trips.entries() ?? [])]
+      .filter(([, t]) => ids.has(t.robotId) && t.meta.customerWallet)
+      .map(([taskId, t]) => {
+        const robot = mine.find((r) => r.data.robotId === t.robotId)?.data;
+        const km = t.site && robot?.location ? Math.round(distanceM(robot.location, t.site) / 100) / 10 : null;
+        return { taskId, robotId: t.robotId, robotName: robot?.displayName ?? t.robotId, skill: t.meta.skill ?? null, startAt: t.startAt ?? null, distanceKm: km, offer: t.offer ? t.offer.amount : null, state: t.state?.state ?? "TASK_RECEIVED", detail: t.state?.detail ?? null, at: t.state?.at ?? null };
+      })
+      .sort((a, b) => (a.state === "AWAITING_OWNER" ? -1 : 0) - (b.state === "AWAITING_OWNER" ? -1 : 0) || Date.parse(b.at ?? "0") - Date.parse(a.at ?? "0"));
+    return { items: items.slice(0, 30) };
+  });
+
+  /**
+   * How the robot decided: every 0G call it made for this task (the agent, its payment, the model and
+   * trust mode, the 0G request ID and receipt, the answer, the robot's own checks and what it did),
+   * with the fixed instructions the agent gives the model and links to the 0G docs. Never the image.
+   * For the booking's customer and the robot's owner only.
+   */
+  app.get<{ Params: { taskId: string } }>("/api/tasks/:taskId/compute", async (req, reply) => {
+    const address = sessionAddress(req)?.toLowerCase();
+    if (!address) return reply.code(401).send({ error: "sign in with the wallet that booked, or the robot's owner" });
+    const task = (await registry.listTasks({ taskId: req.params.taskId }).catch(() => []))[0];
+    const t = gateway?.trips.get(req.params.taskId);
+    const robotId = task?.data.robotId ?? t?.robotId;
+    if (!robotId) return reply.code(404).send({ error: "no such booking" });
+    const robot = (await robotsFromArkiv("").catch(() => [])).find((r) => r.data.robotId === robotId)?.data;
+    const allowed = task?.data.customerWallet.toLowerCase() === address || robot?.ownerWallet.toLowerCase() === address || t?.meta.ownerWallet?.toLowerCase() === address;
+    if (!allowed) return reply.code(403).send({ error: "only the customer or the robot's owner can see this" });
+    return {
+      taskId: req.params.taskId,
+      state: t?.state ?? null,
+      decisions: t?.decisions ?? [],
+      method: {
+        instructions: PROMPTS.vision,
+        outputFormat: { observation: "short noun phrase", anomaly_detected: "true or false", anomaly_type: "short phrase or null", confidence: "0 to 1", recommended_action: "continue_mission | pause_and_request_inspection | return_to_dock | abort_mission" },
+        robotChecks: ["the answer is one JSON object in that exact format", "the action is one of the four allowed actions", "confidence is at least 0.6", "a failed, late or rejected answer is never replaced by a guess: the robot holds, retries once, then stops safely"],
+        docs: [
+          { label: "0G Compute Network overview", url: "https://docs.0g.ai/developer-hub/building-on-0g/compute-network/overview" },
+          { label: "0G Router (OpenAI-compatible endpoint, request IDs, billing)", url: "https://docs.0g.ai/developer-hub/building-on-0g/compute-network/router/overview" },
+          { label: "Router API keys, per-key caps and trust modes", url: "https://docs.0g.ai/developer-hub/building-on-0g/compute-network/router/authentication" },
+          { label: "Inference providers and TEE hardware (Intel TDX, H100/H200)", url: "https://docs.0g.ai/developer-hub/building-on-0g/compute-network/inference-provider" },
+        ],
+      },
+    };
   });
 
   /**

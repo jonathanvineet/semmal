@@ -455,7 +455,7 @@ export const GwMissionProgress = z.object({
   seq,
   ts,
   taskId: z.string().max(64),
-  state: z.enum(["TASK_RECEIVED", "AWAITING_PAYMENT", "PAID", "TRAVELLING", "ARRIVED", "VALIDATING", "PLANNING", "DISCOVERING_SPECIALISTS", "HIRING_SPECIALISTS", "EXECUTING", "VERIFYING", "COMPLETED", "FAILED", "ABORTED", "PAUSED", "DEGRADED", "INCIDENT", "WAITING_FOR_0G", "SAFE_STOP"]),
+  state: z.enum(["TASK_RECEIVED", "AWAITING_OWNER", "APPROVED", "AWAITING_CONFIRMATION", "CONFIRMED", "AWAITING_PAYMENT", "PAID", "TRAVELLING", "ARRIVED", "VALIDATING", "PLANNING", "DISCOVERING_SPECIALISTS", "HIRING_SPECIALISTS", "EXECUTING", "VERIFYING", "COMPLETED", "FAILED", "ABORTED", "PAUSED", "DEGRADED", "INCIDENT", "WAITING_FOR_0G", "SAFE_STOP"]),
   detail: z.string().max(200).optional(),
 });
 export const GwIncidentNotice = z.object({
@@ -480,8 +480,27 @@ export const GwPosition = z.object({
   etaAt: z.string().datetime().optional(),
   remainingM: z.number().min(0).max(1_000_000).optional(),
 });
+/** The robot's offer, sent straight to the platform so the customer can pay without waiting for Arkiv. */
+export const GwOffer = z.object({
+  type: z.literal("offer"),
+  seq,
+  ts,
+  taskId: z.string().max(64),
+  quoteId: z.string().regex(/^quote-[a-z0-9-]{6,58}$/),
+  amount: z.string().regex(/^\d+(\.\d{1,6})?$/),
+  validUntil: z.string().datetime(),
+  payTo: z.string().regex(/^0x[0-9a-fA-F]{40}$/),
+});
+/** One 0G decision in full, for the customer's "how it decided" view. Never the image or prompt bytes. */
+export const GwDecision = z.object({
+  type: z.literal("decision"),
+  seq,
+  ts,
+  taskId: z.string().max(64),
+  detail: z.record(z.string(), z.unknown()).refine((d) => JSON.stringify(d).length <= 8000, "decision too large"),
+});
 export const GwTaskAck = z.object({ type: z.literal("task_ack"), seq, ts, taskId: z.string().max(64), accepted: z.boolean(), reason: z.string().max(200).optional() });
-export const RobotToPlatform = z.discriminatedUnion("type", [GwHello, GwHeartbeat, GwMissionProgress, GwIncidentNotice, GwTaskAck, GwPosition]);
+export const RobotToPlatform = z.discriminatedUnion("type", [GwHello, GwHeartbeat, GwMissionProgress, GwIncidentNotice, GwTaskAck, GwPosition, GwOffer, GwDecision]);
 export type RobotToPlatform = z.infer<typeof RobotToPlatform>;
 
 export type PlatformToRobot =
@@ -496,7 +515,11 @@ export type PlatformToRobot =
     }
   | { type: "recovery_approval"; incidentId: string; approvedBy: string; approvedAt: string }
   /** The customer says they paid. The robot checks the transfer on chain itself before it starts. */
-  | { type: "payment_notice"; taskId: string; txHash: string };
+  | { type: "payment_notice"; taskId: string; txHash: string }
+  /** The robot's owner approved or declined a booking (checked as the owner wallet by the platform). */
+  | { type: "owner_decision"; taskId: string; approved: boolean; reason?: string }
+  /** The customer confirmed the robot is on site (checked as the booking's wallet by the platform). */
+  | { type: "arrival_confirmed"; taskId: string };
 
 // ---------------------------------------------------------------- coordination + evidence on Arkiv
 const addrZ = z.string().regex(/^0x[0-9a-fA-F]{40}$/);

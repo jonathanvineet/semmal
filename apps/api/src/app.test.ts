@@ -175,3 +175,13 @@ test("orders are only for the signed-in wallet", async () => {
   const r = await app().inject({ method: "GET", url: "/api/orders" });
   assert.equal(r.statusCode, 401);
 });
+
+test("only the right wallets can approve, confirm arrival, or see how the robot decided", async () => {
+  const a = app();
+  for (const [method, url] of [["POST", "/api/tasks/task-abc123def/confirm-arrival"], ["GET", "/api/tasks/task-abc123def/compute"], ["GET", "/api/owner/requests"]] as const) {
+    assert.equal((await a.inject({ method, url })).statusCode, 401, url);
+  }
+  // approving needs the robot's owner: with no booking on Arkiv it is not found, never approved
+  const r = await a.inject({ method: "POST", url: "/api/tasks/task-abc123def/approve", payload: { approved: true } });
+  assert.notEqual(r.statusCode, 200);
+});

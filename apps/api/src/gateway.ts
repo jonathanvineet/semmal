@@ -75,6 +75,19 @@ export class LinkStore {
   }
 }
 
+export type Trip = {
+  robotId: string;
+  site?: { lat: number; lon: number };
+  startAt?: string;
+  meta: TripMeta;
+  points: { at: string; lat: number; lon: number; phase: string; etaAt?: string; remainingM?: number }[];
+  offer?: { quoteId: string; amount: string; validUntil: string; robotWallet: string };
+  /** The latest state the robot reported for this task, and when. */
+  state?: { state: string; detail?: string; at: string };
+  /** Every 0G decision the robot reported, in full (no image or prompt bytes). */
+  decisions: Record<string, unknown>[];
+};
+
 export type LiveRobot = {
   robotId: string;
   online: boolean;
@@ -94,7 +107,15 @@ type Session = { id: string; socket: WebSocket; robotId: string; lastSeq: number
 export class Gateway {
   private live = new Map<string, LiveRobot>();
   /** Live travel per task (positions, the customer's site). In memory only, never on Arkiv. */
-  readonly trips = new Map<string, { robotId: string; site?: { lat: number; lon: number }; startAt?: string; meta: TripMeta; points: { at: string; lat: number; lon: number; phase: string; etaAt?: string; remainingM?: number }[] }>();
+  readonly trips = new Map<string, Trip>();
+  /** The trip for a task this robot reports on; rebuilt from the robot's report if the platform restarted. */
+  private tripFor(taskId: string, robotId: string): Trip | null {
+    const t = this.trips.get(taskId);
+    if (t) return t.robotId === robotId ? t : null;
+    const fresh: Trip = { robotId, meta: { taskId, robotId, robotName: robotId }, points: [], decisions: [] };
+    this.trips.set(taskId, fresh);
+    return fresh;
+  }
   /** Called for every task event the robot reports, with who is involved (for notifications). */
   onTaskEvent?: (meta: TripMeta, e: TaskEvent) => void;
   private emit(taskId: string | undefined, robotId: string, e: TaskEvent) {
@@ -185,22 +206,39 @@ export class Gateway {
           if (r.safetyState !== m.safetyState) this.event(robotId, "safety", `${r.safetyState ?? "unknown"} → ${m.safetyState}`);
           Object.assign(r, { batteryPct: m.batteryPct, safetyState: m.safetyState, zone: m.zone, availability: m.availability });
           break;
-        case "mission_progress":
+        case "mission_progress": {
+          const t = this.tripFor(m.taskId, robotId);
+          if (t) t.state = { state: m.state, detail: m.detail, at: m.ts };
           this.event(robotId, "mission", `${m.taskId}: ${m.state}${m.detail ? ` · ${m.detail}` : ""}`);
           this.emit(m.taskId, robotId, { kind: "progress", state: m.state, detail: m.detail });
           break;
+        }
+        case "decision": {
+          const t = this.tripFor(m.taskId, robotId);
+          if (!t) break;
+          t.decisions.push(m.detail);
+          if (t.decisions.length > 50) t.decisions.splice(0, t.decisions.length - 50);
+          break;
+        }
         case "incident_notice":
           this.event(robotId, "incident", `${m.faultCode} (${m.severity}) · ${m.safetyAction} · ${m.persistence}`);
           this.emit(undefined, robotId, { kind: "incident", faultCode: m.faultCode, safetyAction: m.safetyAction });
           break;
         case "position": {
-          const t = this.trips.get(m.taskId);
-          if (!t || t.robotId !== robotId) break; // only for a task this robot was given
+          const t = this.tripFor(m.taskId, robotId);
+          if (!t) break; // another robot's task
           const prev = t.points.at(-1);
           t.points.push({ at: m.ts, lat: m.lat, lon: m.lon, phase: m.phase, etaAt: m.etaAt, remainingM: m.remainingM });
           if (t.points.length > 500) t.points.splice(0, t.points.length - 500);
           if (m.phase !== prev?.phase) this.event(robotId, "mission", `${m.taskId}: ${m.phase}${m.etaAt ? ` · ETA ${m.etaAt.slice(11, 16)}` : ""}`);
           this.emit(m.taskId, robotId, { kind: "position", phase: m.phase, remainingM: m.remainingM, etaAt: m.etaAt });
+          break;
+        }
+        case "offer": {
+          const t = this.tripFor(m.taskId, robotId);
+          if (!t) break;
+          t.offer = { quoteId: m.quoteId, amount: m.amount, validUntil: m.validUntil, robotWallet: m.payTo };
+          this.event(robotId, "task", `${m.taskId}: offer ${m.amount} 0G`);
           break;
         }
         case "task_ack":
@@ -257,6 +295,24 @@ export class Gateway {
     return this.state(robotId).events.filter((e) => e.detail.includes(taskId));
   }
 
+  /** Pass the owner's decision on a booking to the robot (the caller has checked it is the owner). */
+  ownerDecision(robotId: string, taskId: string, approved: boolean, reason?: string) {
+    const s = this.sessions.get(robotId);
+    if (!s?.hello) return { ok: false as const, reason: "The robot is not connected" };
+    this.send(s, { type: "owner_decision", taskId, approved, ...(reason ? { reason } : {}) });
+    this.event(robotId, "task", `${taskId}: owner ${approved ? "approved" : "declined"}`);
+    return { ok: true as const };
+  }
+
+  /** Pass the customer's arrival confirmation to the robot (the caller has checked it is the customer). */
+  confirmArrival(robotId: string, taskId: string) {
+    const s = this.sessions.get(robotId);
+    if (!s?.hello) return { ok: false as const, reason: "The robot is not connected" };
+    this.send(s, { type: "arrival_confirmed", taskId });
+    this.event(robotId, "task", `${taskId}: customer confirmed arrival`);
+    return { ok: true as const };
+  }
+
   /** Tell the robot a customer says they paid. The robot checks the transfer on chain itself. */
   paymentNotice(robotId: string, taskId: string, txHash: string) {
     const s = this.sessions.get(robotId);
@@ -275,7 +331,7 @@ export class Gateway {
     const taskId = task.taskId ?? `task-${randomUUID().slice(0, 12)}`;
     this.send(s, { ...task, type: "task_assignment", taskId, assignedAt: new Date().toISOString() });
     const meta: TripMeta = { taskId, robotId, robotName: who.robotName ?? robotId, ownerWallet: who.ownerWallet, customerWallet: task.customerWallet, skill: task.skill, startAt: task.startAt };
-    this.trips.set(taskId, { robotId, site: task.site, startAt: task.startAt, meta, points: [] });
+    this.trips.set(taskId, { robotId, site: task.site, startAt: task.startAt, meta, points: [], decisions: [] });
     try {
       this.onTaskEvent?.(meta, { kind: "dispatched" });
     } catch {

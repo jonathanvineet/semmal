@@ -110,6 +110,23 @@ Then:
 
 **0G failure test:** unplug the platform's internet mid-run. The robot holds, retries once, then `SAFE_STOP`. The "What 0G told it" table shows `failed` or `timeout` with no made-up answer.
 
+## The booking flow
+
+1. **Book.** The customer books on /quote (site on the map, on-site time). The robot works out its offer.
+2. **Owner approves.** /admin → **Booking requests** → Approve or Decline. Nothing moves before this.
+3. **Robot travels.** It leaves so that it arrives on time; the customer sees it moving on the map (Your orders → the order).
+4. **Customer confirms arrival.** The customer gets "has arrived: please confirm" and clicks **Yes, it's here**. Only now is the booking fully started.
+5. **Customer pays** the offer in 0G (15 minutes to pay).
+6. **Robot works.** It assesses the site, hires its agents and runs the 0G checks. **How it decided** (in the order) shows each 0G call:
+   - the camera frame and the question asked;
+   - the agent hired and its payment;
+   - the model, private mode, provider, request ID, TEE result, time and cost;
+   - the exact answer, the robot's checks, and what it did.
+
+   It also shows the fixed instructions given to the model and links to the 0G docs.
+
+If the owner declines or doesn't answer within 30 minutes, nothing moves and nothing is charged. If the customer doesn't confirm or pay, the trip is recorded and nothing is charged.
+
 ## Notifications
 
 The bell in the top dock works for any wallet once it's signed in.

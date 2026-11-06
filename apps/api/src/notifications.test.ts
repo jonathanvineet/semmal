@@ -43,3 +43,12 @@ test("each kind is stored once per task and only its wallet can read it", () => 
   s.markRead(OWNER, [c.items[1]!.id]); // someone else's id does nothing
   assert.equal(s.list(CUSTOMER).unread, 1);
 });
+
+test("the new flow: owner asked to approve, customer asked to confirm arrival, then to pay", () => {
+  assert.deepEqual(to(notesFor(trip, { kind: "progress", state: "AWAITING_OWNER", detail: "offer 0.08 0G; waiting for the robot's owner to approve" })), ["customer", "owner"]);
+  assert.match(notesFor(trip, { kind: "progress", state: "AWAITING_OWNER", detail: "offer 0.08 0G; waiting" }).find((n) => n.to === "owner")!.body, /Approve or decline/);
+  const c = notesFor(trip, { kind: "progress", state: "AWAITING_CONFIRMATION" });
+  assert.deepEqual(to(c), ["customer"]);
+  assert.match(c[0]!.title, /arrived: please confirm/);
+  assert.match(notesFor(trip, { kind: "progress", state: "ABORTED", detail: "the owner declined" })[0]!.title, /did not take the booking/);
+});

@@ -14,6 +14,7 @@ import { provider, useWallet } from "@/lib/wallet";
 import { useArkivWriter } from "@/lib/arkiv-writer";
 import { ApprovalCard } from "./ui/ApprovalCard";
 import { MapView, type Pt } from "./map/MapView";
+import { ComputeView } from "./ComputeView";
 
 type Plan = { skill: string; waypoints: number; distanceM: number; privacy: "private" | "verified" | "standard" };
 type TaskView = {
@@ -21,7 +22,11 @@ type TaskView = {
   claims: { data: { jobId: string; agentId: string; price: string } }[];
   events: { at: string; kind: string; detail: string }[];
   robot: { online: boolean; availability: string };
+  liveOffer?: { quoteId: string; amount: string; validUntil: string; robotWallet: string } | null;
+  state?: { state: string; detail?: string; at: string } | null;
 };
+/** The booking flow, in order: the robot's states that mean each step is done. */
+const FLOW = ["AWAITING_OWNER", "APPROVED", "TRAVELLING", "ARRIVED", "AWAITING_CONFIRMATION", "CONFIRMED", "AWAITING_PAYMENT", "PAID", "DISCOVERING_SPECIALISTS", "HIRING_SPECIALISTS", "EXECUTING", "VERIFYING", "WAITING_FOR_0G", "COMPLETED"];
 
 const DEADLINES = [
   { h: 1, label: "Done within 1 hour" },
@@ -153,8 +158,18 @@ export function BookTask({ robotId, robotName, robotBase, site, area, plan, quot
   };
 
   if (taskId) {
-    const offer = view?.quotes[0]?.data;
+    const offer = view?.quotes[0]?.data ?? view?.liveOffer ?? undefined;
     const has = (state: string) => Boolean(view?.events.some((e) => e.detail.includes(`: ${state}`)));
+    // how far along the flow the robot is (from its latest reported state)
+    const now = view?.state?.state ?? null;
+    const at = now ? FLOW.indexOf(now) : -1;
+    const past = (state: string) => at >= FLOW.indexOf(state) && at >= 0;
+    const ended = now === "ABORTED" || now === "FAILED" || now === "SAFE_STOP";
+    const confirmArrival = async () => {
+      setErr(null);
+      const r = await fetch(`/api/tasks/${taskId}/confirm-arrival`, { method: "POST", credentials: "same-origin" });
+      if (!r.ok) setErr((await r.json().catch(() => ({}))).error ?? "Could not confirm. Sign in with the wallet that booked.");
+    };
     const expired = offer ? Date.parse(offer.validUntil) <= Date.now() : false;
     return (
       <div className="bk">
@@ -164,17 +179,20 @@ export function BookTask({ robotId, robotName, robotBase, site, area, plan, quot
         </div>
         {dispatched && <p className="t-small muted">{dispatched}</p>}
         <ol className="bk__steps">
-          <li className={view?.robot.online ? "is-done" : ""}>Robot {view?.robot.online ? `online (${view.robot.availability})` : "offline"}</li>
-          <li className={offer ? "is-done" : ""}>
-            {offer ? `Robot's signed offer: ${offer.amount} 0G, valid until ${offer.validUntil.slice(11, 16)}` : "Waiting for the robot's signed offer"}
-          </li>
-          <li className={has("PAID") ? "is-done" : ""}>
-            {has("PAID") ? "The robot checked your payment on chain" : payTx ? "Payment sent; the robot is checking it on chain" : "Pay the offer from your wallet"}
-          </li>
-          <li className={view?.claims.length ? "is-done" : ""}>
-            {view?.claims.length ? `Hired ${view.claims.map((c) => c.data.agentId).join(", ")}` : "Waiting for the robot to hire agents"}
-          </li>
+          <li className={view?.robot.online ? "is-done" : ""}>Robot {view?.robot.online ? `online (${view.robot.availability})` : "offline"}{offer ? ` · offer ${offer.amount} 0G` : ""}</li>
+          <li className={past("APPROVED") ? "is-done" : ""}>{past("APPROVED") ? "The owner approved your booking" : now === "AWAITING_OWNER" ? "Waiting for the robot's owner to approve" : "The robot's owner approves the booking"}</li>
+          <li className={past("ARRIVED") ? "is-done" : ""}>{past("ARRIVED") ? "The robot arrived at your site" : now === "TRAVELLING" ? "The robot is on the way (see the map)" : "The robot comes to your site"}</li>
+          <li className={past("CONFIRMED") ? "is-done" : ""}>{past("CONFIRMED") ? "You confirmed it is here" : "You confirm it has arrived"}</li>
+          <li className={past("PAID") ? "is-done" : ""}>{past("PAID") ? "Paid; the robot checked it on chain" : payTx ? "Payment sent; the robot is checking it" : "You pay the offer"}</li>
+          <li className={past("COMPLETED") ? "is-done" : ""}>{past("COMPLETED") ? "Done" : past("DISCOVERING_SPECIALISTS") ? "The robot is working (see How it decided)" : "The robot assesses the site and does the job"}</li>
         </ol>
+        {ended && <p className="soft-warn t-small">{view?.state?.detail ?? "The booking ended."}</p>}
+        {now === "AWAITING_CONFIRMATION" && (
+          <div className="bk__pay">
+            <p className="t-small"><b>{robotName} says it has arrived.</b> Check that it is really at your site, then confirm. You pay only after you confirm.</p>
+            <div className="btn-row"><button type="button" className="btn btn--primary" onClick={confirmArrival}>Yes, it&apos;s here</button></div>
+          </div>
+        )}
         {(site ?? track?.site) && (
           <div className="bk__track">
             <MapView
@@ -195,7 +213,7 @@ export function BookTask({ robotId, robotName, robotBase, site, area, plan, quot
             </p>
           </div>
         )}
-        {offer && !payTx && !has("PAID") && !expired && (
+        {offer && now === "AWAITING_PAYMENT" && !payTx && !has("PAID") && !expired && (
           confirmPay ? (
             <div className="bk__pay">
               <p className="t-small">
@@ -215,6 +233,7 @@ export function BookTask({ robotId, robotName, robotBase, site, area, plan, quot
         {offer && expired && !has("PAID") && <p className="soft-warn t-small">The robot&apos;s offer expired before it was paid. Book again for a fresh offer.</p>}
         {payTx && <p className="t-small muted">Payment <span className="mono">{payTx}</span></p>}
         {err && <p className="soft-warn">{err}</p>}
+        <ComputeView taskId={taskId} />
         {view && view.events.length > 0 && (
           <ol className="rl__log">
             {view.events.slice(0, 6).map((e, i) => (
