@@ -70,7 +70,7 @@ export const identityFile = () => process.env.SEMMAL_IDENTITY_FILE || join(proce
 if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
   const name = process.argv[2];
   if (name && !loadProfile(name)) {
-    console.error(`robot "${name}" is not set up yet: pnpm setup ${name}`);
+    console.error(`robot "${name}" is not set up yet: pnpm run setup ${name}`);
     process.exit(2);
   }
   serveIdentity({

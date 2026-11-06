@@ -5,7 +5,7 @@
  *
  *   pnpm start <name>   first run: asks for everything (setup.ts) and saves it; later runs use it.
  *                       Always serves the device identity (for registration); links to the platform
- *                       once a link token is saved (pnpm setup <name> to paste it; picked up live).
+ *                       once a link token is saved (pnpm run setup <name> --token to paste it; picked up live).
  */
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -68,7 +68,7 @@ const local = httpLocal(env("SEMMAL_LOCAL_API", "http://127.0.0.1:8765"));
 // not registered and linked yet: keep serving the identity, wait for the token to be saved
 if (!process.env.SEMMAL_LINK_TOKEN) {
   log(`robot ${ROBOT_ID} (wallet ${device.address}) is not linked yet.`);
-  log(`Register it at /robots/new, click Link robot in the dashboard, then paste the token here: pnpm setup ${NAME ?? "<name>"}`);
+  log(`Register it at /robots/new, click Link robot in the dashboard, then paste the token here: pnpm run setup ${NAME ?? "<name>"} --token`);
   await new Promise<void>((ok) => {
     const t = setInterval(() => {
       const v = NAME ? readEnv(paths(NAME).env).SEMMAL_LINK_TOKEN : "";

@@ -302,7 +302,7 @@ export function RegisterRobot() {
                           <p className="t-small muted">Based near {base.lat}, {base.lon} (to about 1 km; the exact spot stays on the robot){radiusKm ? ` · travels up to ${radiusKm} km` : ""}. Customers nearby will see it.</p>
                         </div>
                       ) : (
-                        <p className="soft-warn t-small">The robot did not report a base location. Run pnpm setup on it and set one, so customers nearby can find it.</p>
+                        <p className="soft-warn t-small">The robot did not report a base location. On the robot PC run <span className="mono">pnpm run setup &lt;name&gt; --base</span> and set one, so customers nearby can find it.</p>
                       ))}
                       <dl className="conn__facts">
                         {Object.entries(conn.identity.facts).map(([k, v]) => <div key={k}><dt>{k}</dt><dd className="mono">{v}</dd></div>)}

@@ -322,7 +322,7 @@ export async function runTask(a: Assignment, d: Deps): Promise<EpisodeRecord | n
 
   // ---- travel to the customer's site, timed to arrive at the booked time
   if (a.site) {
-    if (!d.base) return finish("FAILED", "this robot has no base location set (pnpm setup); it cannot plan the trip");
+    if (!d.base) return finish("FAILED", "this robot has no base location set (pnpm run setup); it cannot plan the trip");
     const route: TravelRoute = await platform.route(d.base, a.site).catch(() => straight(d.base!, a.site!));
     const speed = Math.max(1, d.travelSpeedup ?? 1);
     const travelMs = (route.durationS * 1000) / speed;

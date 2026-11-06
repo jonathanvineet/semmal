@@ -1,6 +1,7 @@
 "use client";
 /** Link a robot to the gateway, watch it live, and send it a test task. Owner wallet only. */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { copyText, selectText } from "@/lib/clipboard";
 
 type Live = {
   robotId: string;
@@ -27,7 +28,8 @@ export function RobotLink({ robotId, capabilities }: { robotId: string; capabili
   const [hosts, setHosts] = useState<string[]>([]);
   const [port, setPort] = useState(3001);
   const [msg, setMsg] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
+  const [copied, setCopied] = useState<"" | "yes" | "manual">("");
+  const tokenEl = useRef<HTMLPreElement>(null);
 
   const load = useCallback(async () => {
     const r = await fetch(`/api/robots/${robotId}/live`, { credentials: "same-origin" });
@@ -53,7 +55,7 @@ export function RobotLink({ robotId, capabilities }: { robotId: string; capabili
       setToken(d.token);
       setHosts(d.platformHosts ?? []);
       setPort(d.port ?? 3001);
-      setCopied(false);
+      setCopied("");
       load();
     } catch (e) {
       setMsg((e as Error).message);
@@ -81,8 +83,14 @@ export function RobotLink({ robotId, capabilities }: { robotId: string; capabili
 
   // the robot PC must reach this machine over the network, so never "localhost"
   const host = hosts[0] ?? "<this-mac-ip>";
-  // the robot saves the token in its own profile (pnpm setup <name> on the robot PC; hidden input)
+  // the robot saves the token in its own profile (pnpm run setup <name> --token on the robot PC; hidden input)
   const cmd = token ? token : "";
+  const copy = async () => {
+    if (await copyText(cmd)) return setCopied("yes");
+    // nothing reached the clipboard: select the token so it can be copied by hand, and say so
+    selectText(tokenEl.current);
+    setCopied("manual");
+  };
 
   return (
     <div className="rl">
@@ -105,11 +113,12 @@ export function RobotLink({ robotId, capabilities }: { robotId: string; capabili
 
       {token && (
         <div className="rl__token">
-          <p className="t-small"><b>Shown once.</b> On the robot PC run <span className="mono">pnpm setup &lt;name&gt;</span> in services/robot-master and paste this token when it asks. A running <span className="mono">pnpm start &lt;name&gt;</span> picks it up and links within seconds. The token is revocable and not a wallet key; anyone with it can speak as this robot until you revoke it.</p>
+          <p className="t-small"><b>Shown once.</b> On the robot PC, in services/robot-master, run <span className="mono">pnpm run setup &lt;name&gt; --token</span> and paste this token (only the token) when it asks. A running <span className="mono">pnpm start &lt;name&gt;</span> picks it up and links within seconds. The token is revocable and not a wallet key; anyone with it can speak as this robot until you revoke it.</p>
           {hosts.length === 0 && <p className="t-small soft-warn">This API only listens on this machine. Set <span className="mono">API_HOST=0.0.0.0</span> in .env and restart it, then click New token, so the robot PC can reach it.</p>}
           {hosts.length > 0 && <p className="t-small muted">When setup asks for the platform address, use <span className="mono">http://{host}:{port}</span>{hosts.length > 1 ? ` (other addresses for this machine: ${hosts.slice(1).join(", ")})` : ""}.</p>}
-          <pre className="mono">{cmd}</pre>
-          <button type="button" className="btn btn--secondary btn--sm" onClick={async () => { await navigator.clipboard.writeText(cmd); setCopied(true); }}>{copied ? "Copied" : "Copy token"}</button>
+          <pre className="mono" ref={tokenEl}>{cmd}</pre>
+          <button type="button" className="btn btn--secondary btn--sm" onClick={copy}>{copied === "yes" ? "Copied" : "Copy token"}</button>
+          {copied === "manual" && <p className="t-small soft-warn">This browser blocked copying on this page. The token is selected above: press Ctrl+C (Cmd+C on a Mac).</p>}
         </div>
       )}
 

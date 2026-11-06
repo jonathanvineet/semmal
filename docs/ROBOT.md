@@ -10,7 +10,7 @@ scripts/robot/build.sh                         # regenerate world/map from layou
 scripts/robot/fetch_models.sh                  # once, needs internet: Fuel furniture for the house world
 scripts/robot/run_sim.sh world:=house          # Gazebo GUI + full robot stack (world:=warehouse is the default;
                                                #   add rviz:=true / headless:=true)
-(cd services/robot-master && pnpm setup house)   # once per robot: hardware, wallet, platform, token
+(cd services/robot-master && pnpm run setup house)   # once per robot: hardware, wallet, platform, token
 scripts/robot/scenario.sh house                    # that robot's hardware + its world (+ identity node)
 (cd services/robot-master && pnpm start house)   # identity service + robot agent; see docs/SCENARIOS.md
 scripts/robot/mission.sh inspection_point_A    # ExecuteMission goal (named waypoints only)

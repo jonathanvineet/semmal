@@ -56,7 +56,7 @@ No image bytes, prompts or personal data go into the bundle.
 ```bash
 git pull && scripts/robot/build.sh            # builds the worlds, the bodies and semmal_identity
 cd services/robot-master && pnpm install
-pnpm setup house                              # then: pnpm setup warehouse, pnpm setup forest
+pnpm run setup house                              # then: pnpm run setup warehouse, pnpm run setup forest
 ```
 
 Setup asks, in the terminal:
@@ -87,7 +87,7 @@ Terminal 2 prints the robot wallet and "register at /robots/new by connecting to
 4. Robot wallet: already filled in from the robot.
 5. Publish (your wallet signs).
 
-Then /admin → Your robots → **Link robot** → copy the token. In a third terminal on the robot PC run `pnpm setup house`, press Enter through the answers, and paste the token. Terminal 2 picks it up within 5 seconds and links. The robot shows **Online** in /admin.
+Then /admin → Your robots → **Link robot** → copy the token. In a third terminal on the robot PC run `pnpm run setup house --token` and paste the token (only that is asked). Terminal 2 picks it up within 5 seconds and links. The robot shows **Online** in /admin.
 
 Repeat for warehouse and forest, one at a time (Ctrl-C both terminals, or `scripts/robot/stop_sim.sh`, in between).
 
