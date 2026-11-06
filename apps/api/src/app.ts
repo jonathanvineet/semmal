@@ -35,7 +35,10 @@ export function defaultDeps(): Deps {
   );
   const gateway = new Gateway(new LinkStore(process.env.ROBOT_LINKS_PATH || "../../data/robot-links.json"));
   const notes = new NotificationStore(process.env.NOTIFICATIONS_DB || "../../data/notifications.db");
-  return { config, admin, auth: new WalletAuth(new URL(config.WEB_ORIGIN).host), registry, router, runner, gateway, notes };
+  // sign-in works on the configured origin and on this machine's own network addresses (same port)
+  const web = new URL(config.WEB_ORIGIN);
+  const lan = Object.values(networkInterfaces()).flat().filter((a) => a && a.family === "IPv4" && !a.internal).map((a) => `${a!.address}${web.port ? `:${web.port}` : ""}`);
+  return { config, admin, auth: new WalletAuth([web.host, ...lan]), registry, router, runner, gateway, notes };
 }
 
 const SID = "semmal_sid";

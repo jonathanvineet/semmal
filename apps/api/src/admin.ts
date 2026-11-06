@@ -106,7 +106,11 @@ export class WalletAuth {
   private nonces = new Map<string, number>();
   private sessions = new Map<string, { address: string; exp: number }>();
 
-  constructor(private expectedDomain: string, private sessionMs = 8 * 60 * 60 * 1000) {}
+  /** `domains`: the hosts the site is served from (sign-in messages must name one of them). */
+  private domains: string[];
+  constructor(domains: string | string[], private sessionMs = 8 * 60 * 60 * 1000) {
+    this.domains = Array.isArray(domains) ? domains : [domains];
+  }
 
   issueNonce() {
     const nonce = generateSiweNonce();
@@ -120,7 +124,7 @@ export class WalletAuth {
     const exp = nonce ? this.nonces.get(nonce) : undefined;
     if (!nonce || !exp || exp < Date.now()) throw new Error("Sign-in request expired; try again");
     this.nonces.delete(nonce); // one use only: replayed signatures fail
-    if (!fields.address || !validateSiweMessage({ message: fields, domain: this.expectedDomain, nonce, time: new Date() }))
+    if (!fields.address || !this.domains.some((domain) => validateSiweMessage({ message: fields, domain, nonce, time: new Date() })))
       throw new Error("Sign-in message is not for this site");
     const ok = await verifyMessage({ address: fields.address, message, signature });
     if (!ok) throw new Error("Signature does not match the wallet");
