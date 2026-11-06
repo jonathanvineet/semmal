@@ -7,6 +7,7 @@ import { useWallet } from "@/lib/wallet";
 import { AgentBuilder } from "./AgentBuilder";
 import { AgentConsole } from "./AgentConsole";
 import { RobotLink } from "./RobotLink";
+import { RobotEvidence } from "./RobotEvidence";
 import { ARKIV_EXPLORER, type Status } from "@/lib/api";
 
 type AdminState = {
@@ -230,6 +231,7 @@ function MyRobots({ owner }: { owner: string }) {
                 )}
               </span>
               <RobotLink robotId={r.data.robotId} capabilities={r.data.capabilities} />
+              <RobotEvidence robotId={r.data.robotId} />
             </li>
           ))}
         </ul>

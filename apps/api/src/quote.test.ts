@@ -31,11 +31,13 @@ test("prices a task from its parts, hiring the private agents", () => {
   assert.equal(inf.usdc, "0.078518");
   // operating: ceil(120/30 + 3*1.5) = ceil(8.5) = 9 min x 0.04 = 0.36
   assert.equal(q.lines.find((l) => l.label === "Operating time")!.usdc, "0.36");
-  // cost 0.40 + 1.10 + 0.078518 + 0.36 = 1.938518 ; margin 25% -> 0.48463 (rounded up) ; quote 2.423148 -> raised to minFee 5
-  assert.equal(q.cost, "1.938518");
+  // vision is bought once per stop: 3 x 0.40 = 1.20
+  assert.equal(q.lines.find((l) => l.label === "Lumen Vision")!.usdc, "1.20");
+  // cost 1.20 + 1.10 + 0.078518 + 0.36 = 2.738518 ; margin 25% -> 3.423148 -> raised to minFee 5
+  assert.equal(q.cost, "2.738518");
   assert.equal(q.quote, "5.00");
   const top = q.lines.find((l) => l.label === "Minimum fee top-up")!;
-  assert.equal(top.usdc, "2.576852");
+  assert.equal(top.usdc, "1.576852");
 });
 
 test("verified-only agents are not hired for a private task", () => {
@@ -54,10 +56,10 @@ test("over the spend cap or the maximum quote: declined, never squeezed", () => 
 });
 
 test("caps at the maximum quote when it still covers cost", () => {
-  const q = quoteTask({ ...base, policy: { minFee: "0.5", maxQuote: "2.1", marginPct: 50, maxSpendPerTask: "10" } });
+  const q = quoteTask({ ...base, policy: { minFee: "0.5", maxQuote: "3.1", marginPct: 50, maxSpendPerTask: "10" } });
   assert.equal(q.status, "ok");
   if (q.status === "ok") {
-    assert.equal(q.quote, "2.10");
+    assert.equal(q.quote, "3.10");
     assert.ok(q.lines.some((l) => l.label === "Capped at maximum quote" && l.usdc.startsWith("-")));
   }
 });

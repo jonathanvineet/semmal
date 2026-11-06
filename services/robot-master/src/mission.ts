@@ -324,10 +324,10 @@ export async function runTask(a: Assignment, d: Deps): Promise<EpisodeRecord | n
         return finish("COMPLETED", `finding at ${stop} (${answer.anomaly ?? "issue"}); holding for a human inspection`);
       }
       if (sp.onFinding === "clean_and_continue") {
-        move("EXECUTING", `cleaning pass at ${stop} (${answer.anomaly ?? "mess"})`);
+        move("EXECUTING", `cleaning stop at ${stop} (${answer.anomaly ?? "mess"})`);
         const clean = await drive([stop], false, CLEANING_PASS_S);
         if (!clean.ok) return finish(clean.safety ? "SAFE_STOP" : "FAILED", clean.why);
-        actions.push({ at: now(), stop, action: `cleaning pass (${CLEANING_PASS_S} s)`, why: answer.anomaly ?? "mess on the floor" });
+        actions.push({ at: now(), stop, action: `cleaning stop: held ${CLEANING_PASS_S} s on the spot (no brush or vacuum is modelled on this body)`, why: answer.anomaly ?? "mess on the floor" });
       } else actions.push({ at: now(), stop, action: "hazard reported, patrol continues", why: answer.anomaly ?? "hazard" });
     } else actions.push({ at: now(), stop, action: "nothing to do", why: answer.observation });
   }

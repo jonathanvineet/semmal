@@ -69,9 +69,9 @@ export function RobotLink({ robotId, capabilities }: { robotId: string; capabili
       setMsg((e as Error).message);
     }
   };
-  const sendTask = async () => {
+  const sendTask = async (skill: string) => {
     try {
-      const d = await call("POST", `/api/robots/${robotId}/tasks`, { skill: capabilities[0], waypoints: 3, distanceM: 120, privacy: "private" });
+      const d = await call("POST", `/api/robots/${robotId}/tasks`, { skill, waypoints: 3, distanceM: 120, privacy: "private" });
       setMsg(`Sent ${d.taskId}. The robot's answer appears in the log.`);
       load();
     } catch (e) {
@@ -85,8 +85,8 @@ export function RobotLink({ robotId, capabilities }: { robotId: string; capabili
     ? [
         "cd services/robot-master",
         "pnpm install",
-        "[ -f ~/.semmal/robot-key ] || pnpm keygen   # once; the address must match this robot's wallet on Arkiv",
-        "cat > .env.robot <<'EOF'",
+        "KEY=~/.semmal/robot-key   # the device key whose address you registered as this robot's wallet",
+        `cat > .env.robot.${robotId} <<'EOF'`,
         `SEMMAL_ROBOT_ID=${robotId}`,
         `SEMMAL_LINK_TOKEN=${token}`,
         `SEMMAL_PLATFORM_URL=http://${host}:${port}`,
@@ -94,8 +94,9 @@ export function RobotLink({ robotId, capabilities }: { robotId: string; capabili
         "SEMMAL_LOCAL_API=http://127.0.0.1:8765",
         "ARKIV_ACCESS_KEY=",
         "EOF",
-        'echo "SEMMAL_DATA_DIR=$(cd ../.. && pwd)/data" >> .env.robot',
-        "pnpm start",
+        `echo "SEMMAL_ROBOT_KEY_FILE=$KEY" >> .env.robot.${robotId}`,
+        `echo "SEMMAL_DATA_DIR=$(cd ../.. && pwd)/data" >> .env.robot.${robotId}`,
+        `SEMMAL_ENV_FILE=.env.robot.${robotId} pnpm start`,
       ].join("\n")
     : "";
 
@@ -112,7 +113,9 @@ export function RobotLink({ robotId, capabilities }: { robotId: string; capabili
         <span className="rl__actions">
           <button type="button" className="btn btn--secondary btn--sm" onClick={link}>{live?.linked ? "New token" : "Link robot"}</button>
           {live?.linked && <button type="button" className="btn btn--secondary btn--sm" onClick={revoke}>Revoke</button>}
-          {live?.online && <button type="button" className="btn btn--primary btn--sm" onClick={sendTask}>Send a test task</button>}
+          {live?.online && capabilities.slice(0, 4).map((c) => (
+            <button key={c} type="button" className="btn btn--primary btn--sm" onClick={() => sendTask(c)}>Send task: {c}</button>
+          ))}
         </span>
       </div>
 

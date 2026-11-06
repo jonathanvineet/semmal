@@ -151,7 +151,7 @@ export class Evidence implements EvidenceSink {
     try {
       spool.exec("PRAGMA busy_timeout = 5000");
       const now = new Date().toISOString();
-      const rows = spool.prepare("SELECT * FROM incidents WHERE stage <> 'ARKIV_CONFIRMED' AND (next_attempt_at IS NULL OR next_attempt_at <= ?) ORDER BY sequence_number LIMIT 5").all(now) as Record<string, string | number | null>[];
+      const rows = spool.prepare("SELECT * FROM incidents WHERE robot_id = ? AND stage <> 'ARKIV_CONFIRMED' AND (next_attempt_at IS NULL OR next_attempt_at <= ?) ORDER BY sequence_number LIMIT 5").all(this.robotId, now) as Record<string, string | number | null>[];
       for (const r of rows) {
         const id = String(r.incident_id);
         try {

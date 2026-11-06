@@ -13,6 +13,9 @@ import { runTask } from "./mission";
 import { httpPlatform } from "./platform";
 import { TaskStore } from "./store";
 
+// One robot PC can host several robots (one at a time): SEMMAL_ENV_FILE=.env.robot.house pnpm start
+if (process.env.SEMMAL_ENV_FILE) process.loadEnvFile(process.env.SEMMAL_ENV_FILE);
+
 const env = (k: string, d?: string) => {
   const v = process.env[k] ?? d;
   if (v === undefined || v === "") throw new Error(`Set ${k} in .env.robot`);
@@ -20,11 +23,13 @@ const env = (k: string, d?: string) => {
 };
 const ROBOT_ID = env("SEMMAL_ROBOT_ID");
 const DATA = env("SEMMAL_DATA_DIR", join(homedir(), ".semmal"));
+// each robot keeps its own task store and evidence queue, so robots never sign each other's records
+const OWN = join(DATA, "robot-master", ROBOT_ID);
 const log = (m: string) => console.log(`${new Date().toISOString().slice(11, 19)} ${m}`);
 
 const device = new Device({
   keyPath: env("SEMMAL_ROBOT_KEY_FILE", join(homedir(), ".semmal", "robot-key")),
-  dataDir: join(DATA, "robot-master"),
+  dataDir: OWN,
   arkivAccessKey: process.env.ARKIV_ACCESS_KEY ?? "",
   maxArkivFeeWei: process.env.ROBOT_MAX_ARKIV_FEE_WEI ? BigInt(process.env.ROBOT_MAX_ARKIV_FEE_WEI) : defaultFeeCapWei,
   maxArkivWritesPerDay: Number(process.env.ROBOT_MAX_ARKIV_WRITES_PER_DAY ?? 200),
@@ -34,10 +39,10 @@ const device = new Device({
 });
 const local = httpLocal(env("SEMMAL_LOCAL_API", "http://127.0.0.1:8765"));
 const platform = httpPlatform(env("SEMMAL_PLATFORM_URL", "http://127.0.0.1:3001"), env("SEMMAL_LINK_TOKEN"));
-const store = new TaskStore(join(DATA, "robot-master"));
+const store = new TaskStore(OWN);
 
 let link: Link;
-const evidence = new Evidence(device, ROBOT_ID, join(DATA, "robot-master"), env("SEMMAL_INCIDENT_SPOOL", join(DATA, "robot", "incident_spool.db")), log, (kind, id, stage, extra) => {
+const evidence = new Evidence(device, ROBOT_ID, OWN, env("SEMMAL_INCIDENT_SPOOL", join(DATA, "robot", "incident_spool.db")), log, (kind, id, stage, extra) => {
   log(`${kind} ${id}: ${stage}${extra?.root ? ` root ${extra.root.slice(0, 12)}…` : ""}`);
   if (kind === "incident")
     link?.send({ type: "incident_notice", incidentId: id.slice(0, 64), faultCode: (extra?.faultCode ?? "UNKNOWN").slice(0, 60), severity: (extra?.severity as "critical") ?? "critical", safetyAction: "EMERGENCY_STOP", persistence: stage });

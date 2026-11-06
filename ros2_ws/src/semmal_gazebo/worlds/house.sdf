@@ -701,7 +701,7 @@
       <pose>-2.5 -5.4 0.003 0 0 0</pose>
       <link name="link">
         <visual name="visual">
-          <geometry><box><size>0.7 0.45 0.003</size></box></geometry>
+          <geometry><box><size>0.8 0.6 0.003</size></box></geometry>
           <material><ambient>0.3 0.17 0.08 1</ambient><diffuse>0.3 0.17 0.08 1</diffuse></material>
         </visual>
       </link>

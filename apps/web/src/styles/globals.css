@@ -979,7 +979,26 @@ main > section.workbench > .wrap { height: auto; display: grid; gap: 18px; }
 
 /* ------------------------------------------------------------- robot link (dashboard) */
 .role-list li.my-robot { display: grid; grid-template-columns: 1fr auto; gap: 12px; padding: 14px 16px; }
-.my-robot > .rl { grid-column: 1 / -1; }
+.my-robot > .rl, .my-robot > .ev { grid-column: 1 / -1; }
+.ev { display: grid; gap: 10px; padding-top: 10px; border-top: 1px solid var(--soft-line); }
+.ev__head { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+.ev__rows { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.ev__row { all: unset; box-sizing: border-box; cursor: pointer; width: 100%; display: grid; grid-template-columns: 80px minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 0.9fr) auto; gap: 10px; align-items: baseline; padding: 8px 12px; border-radius: 12px; background: var(--soft-fill); font-size: 13.5px; transition: background 0.2s, transform 0.2s; }
+.ev__row:hover { background: color-mix(in oklab, var(--ice) 10%, var(--soft-fill)); transform: translateY(-1px); }
+.ev__row:focus-visible { outline: 2px solid var(--ice); outline-offset: 2px; }
+.ev__open { display: grid; gap: 10px; padding: 12px 14px; margin-top: 6px; border-radius: 16px; background: rgb(0 0 0 / 0.28); box-shadow: inset 0 0 0 1px var(--soft-line); }
+.ev__checks { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.ev__check { font-size: 12px; padding: 3px 10px; border-radius: 999px; background: var(--soft-fill); color: var(--p-muted); }
+.ev__check--ok { color: var(--ok); background: color-mix(in oklab, var(--ok) 12%, transparent); }
+.ev__check--bad { color: #f3cf6b; background: color-mix(in oklab, var(--warn) 14%, transparent); }
+.ev__body { display: grid; gap: 8px; }
+.ev__body p { margin: 0; }
+.ev__h { margin: 8px 0 0; font-size: 13px; font-weight: 600; letter-spacing: 0.02em; }
+.ev__table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.ev__table th { text-align: left; font-weight: 500; color: var(--p-muted); padding: 4px 8px; border-bottom: 1px solid var(--soft-line); }
+.ev__table td { padding: 5px 8px; border-bottom: 1px solid color-mix(in oklab, var(--soft-line) 50%, transparent); vertical-align: top; overflow-wrap: anywhere; }
+.ev__list { margin: 0; padding-left: 18px; display: grid; gap: 3px; font-size: 13px; }
+@media (max-width: 760px) { .ev__row { grid-template-columns: 1fr; gap: 2px; } .ev__table { display: block; overflow-x: auto; } }
 .rl { display: grid; gap: 10px; padding-top: 10px; border-top: 1px solid var(--soft-line); }
 .rl__status { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .rl__status .dot { margin: 0; }

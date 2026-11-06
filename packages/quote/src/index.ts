@@ -168,9 +168,11 @@ export function quoteTask(input: QuoteInput): Quote {
     return { status: "declined", reason: `No ${missing.join(" or ")} agent on Arkiv meets ${plan.privacy} trust`, lines, hired, notes };
   let specialists = 0n;
   for (const h of hired) {
-    const p = toMicro(h.price);
+    // the robot buys one vision job per stop; planning agents once per task
+    const jobs = h.kind === "vision" || h.kind === "delivery-verification" ? Math.max(1, plan.checkpoints) : 1;
+    const p = toMicro(h.price) * BigInt(jobs);
     specialists += p;
-    lines.push({ label: `${h.name}`, detail: `${h.kind} agent · ${h.trustMode} · per job`, usdc: fromMicro(p), source: "arkiv" });
+    lines.push({ label: `${h.name}`, detail: `${h.kind} agent · ${h.trustMode} · ${jobs === 1 ? "1 job" : `${jobs} jobs × ${h.price}`}`, usdc: fromMicro(p), source: "arkiv" });
   }
 
   // 2. 0G inference: live token prices x estimated tokens, at the configured rate
