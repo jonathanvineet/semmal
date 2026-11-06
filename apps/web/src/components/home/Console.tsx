@@ -9,8 +9,8 @@ import { useEffect, useRef, useState } from "react";
 const STEPS = [
   { t: "09:41:02", label: "Task assigned by marketplace", who: "marketplace", state: "done" },
   { t: "09:41:03", label: "Registry search: vision.panel-inspection", who: "Rover 01", state: "done" },
-  { t: "09:41:04", label: "Hired Lumen Vision · 0.40 USDC", who: "Rover 01", state: "done" },
-  { t: "09:41:04", label: "Hired Ostra Inspection · 1.10 USDC", who: "Rover 01", state: "done" },
+  { t: "09:41:04", label: "Paid Lumen Vision · 0.012 0G", who: "Rover 01", state: "done" },
+  { t: "09:41:04", label: "Paid Ostra Inspection · 0.004 0G", who: "Rover 01", state: "done" },
   { t: "09:43:18", label: "Reached panel C-14", who: "Nav2", state: "done" },
   { t: "09:43:19", label: "Private inference requested", who: "Lumen Vision", state: "done" },
   { t: "09:43:21", label: "Obstruction at vent · confidence 0.87", who: "Lumen Vision", state: "warn" },
@@ -63,7 +63,7 @@ export function Console() {
               <div className="cx-head">
                 <div>
                   <h3>Panel inspection · Aisle C</h3>
-                  <p className="mono">task-demo-001 · budget 4.00 USDC · spent 1.50</p>
+                  <p className="mono">task-demo-001 · budget 0.06 0G · spent 0.016</p>
                 </div>
                 <div className="cx-head__right">
                   <button type="button" className="cx-replay" onClick={() => { setTab("Timeline"); setRun((r) => r + 1); }}>

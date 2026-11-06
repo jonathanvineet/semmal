@@ -16,7 +16,7 @@
 8. Emergency stop and safety interlocks must work without internet, 0G, Arkiv, or Storage.
 9. Do not claim a feature works without a test or live integration proving it.
 10. At the end of each phase, report changed files, commands run, tests, failures, and next steps.
-11. **No private keys on the platform.** No wallet key, mnemonic or signer key in this repo, in platform env files, in the browser, in logs or in AI context. People sign their own actions in their own wallet (EIP-1193) after an in-app approval. The only key in the system is each **robot's own device key**: generated on the robot PC, stored outside the repo (`~/.semmal/robot-key`, mode 600), never transmitted; it signs only allowlisted evidence writes (Arkiv episode/incident/quote/claim entities, 0G Storage uploads) under a daily fee cap, so evidence is written automatically and no person can alter or withhold it. Service API keys with no wallet alternative (0G Router `sk-`) stay server-side only.
+11. **No private keys on the platform.** No wallet key, mnemonic or signer key in this repo, in platform env files, in the browser, in logs or in AI context. People sign their own actions in their own wallet (EIP-1193) after an in-app approval. The only key in the system is each **robot's own device key**: generated on the robot PC, stored outside the repo (`~/.semmal/robot-key`, mode 600), never transmitted; it signs only allowlisted evidence writes (Arkiv episode/incident/quote/claim entities, 0G Storage uploads) under a daily fee cap, so evidence is written automatically and no person can alter or withhold it, and native 0G payments on Galileo to allowlisted recipients only (an agent's owner wallet from its Arkiv listing for a job, its own owner for the margin, the paying customer for a refund), never more per task than the customer paid (or the owner's per-task cap on an owner test task), under per-payment and daily caps, exactly once per payment. Service API keys with no wallet alternative (0G Router `sk-`) stay server-side only.
 
 ## 1. Product architecture and boundaries
 
@@ -109,7 +109,9 @@ Keep these concepts distinct:
 
 Router unified balance is not per-agent accounting. For the MVP, one disclosed Router billing account plus an internal per-agent metering ledger is acceptable. Label it application accounting, not native 0G subaccounts. Verify whether independent Router accounts/keys with separate balances are supported before claiming independent agent compute economics.
 
-A robot's payment to a specialist for a service is separate from the specialist's inference bill. Use spending caps, allowlisted recipients, per-task budgets, and idempotency keys. Customer and owner payments are signed by their own wallet after in-app approval; the platform holds no signer (rule 0.11). Confirm with hackathon organisers whether the required Privy/iAI flow accepts a robot/service-owned account; a robot wallet does not automatically satisfy that requirement.
+A robot's payment to a specialist for a service is separate from the specialist's inference bill. Use spending caps, allowlisted recipients, per-task budgets, and idempotency keys. Customer and owner payments are signed by their own wallet after in-app approval; the platform holds no signer (rule 0.11).
+
+**Payment model (implemented):** everything is priced and paid in native 0G on Galileo. The customer pays the robot's signed quote from their own wallet to the robot wallet (memo `semmal:quote:<quoteId>`); the robot checks it on chain. Before each agent job the robot pays the agent owner's wallet (memo `semmal:job:<jobId>`); the runner checks that transfer on chain before calling 0G, and one transfer pays one job. After the episode the robot sends what it did not spend to its owner (completed) or back to the customer (not completed). Each agent calls 0G with its own Router `sk-` key, created with the management key and capped per day (`credit_limit`, `reset_period: daily`, `allowed_models`, `trust_mode`); all keys still draw on one Router deposit, so this is a per-agent spend cap and usage record, not a separate wallet. No escrow contract: the customer trusts the robot between payment and completion. Confirm with hackathon organisers whether the required Privy/iAI flow accepts a robot/service-owned account; a robot wallet does not automatically satisfy that requirement.
 
 ### 2.3 Arkiv
 
@@ -517,7 +519,7 @@ Live GPS/telemetry belongs in PostgreSQL/Redis and WebSocket. Arkiv gets selecte
 
 - Secrets only in environment/secrets manager. Commit `.env.example`, never `.env`.
 - Separate customer auth, robot wallet, agent wallet, and Router credentials.
-- No private keys on the platform (rule 0.11): people sign in their own browser wallet; the only key is each robot's device key, which never leaves the robot PC and signs only allowlisted evidence writes under a fee cap.
+- No private keys on the platform (rule 0.11): people sign in their own browser wallet; the only key is each robot's device key, which never leaves the robot PC and signs only allowlisted evidence writes and capped 0G payments to allowlisted recipients.
 - No Router or Arkiv access keys in browser or LLM context.
 - Least-privilege keys where supported; separate dev/test/demo credentials.
 - Authenticated robot gateway and replay protection.

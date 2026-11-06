@@ -7,7 +7,7 @@ export type CatalogModel = { id: string; promptNeuron: string; completionNeuron:
 export interface PlatformApi {
   robot(robotId: string): Promise<RobotProfile | null>;
   agents(): Promise<AgentListing[]>;
-  catalog(): Promise<{ rate: string | null; models: CatalogModel[] }>;
+  catalog(): Promise<{ models: CatalogModel[] }>;
   runJob(agentId: string, job: Record<string, unknown>): Promise<AgentResult>;
 }
 

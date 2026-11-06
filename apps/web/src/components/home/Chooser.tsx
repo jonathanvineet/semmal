@@ -26,7 +26,7 @@ export function Chooser() {
   const { data } = useApi<Listing<AgentListing>>("/api/agents");
   const [task, setTask] = useState<(typeof TASKS)[number]["id"]>("vision");
   const [trust, setTrust] = useState<(typeof TRUST)[number]["id"]>("private");
-  const [budget, setBudget] = useState(0.5);
+  const [budget, setBudget] = useState(0.02);
 
   const verdicts = useMemo<Verdict[]>(() => {
     const all = (data?.items ?? []).map((e) => {
@@ -36,7 +36,7 @@ export function Chooser() {
       let reason = "";
       if (a.kind !== task) reason = "different capability";
       else if (strength[mode] < strength[trust]) reason = `${mode} only, needs ${trust}`;
-      else if (price > budget) reason = `over budget by ${(price - budget).toFixed(2)}`;
+      else if (price > budget) reason = `over budget by ${(price - budget).toFixed(4)}`;
       return { a, ok: reason === "", reason, provenance: e.provenance, entityKey: e.entityKey };
     });
     const fit = all.filter((v) => v.ok).sort((x, y) => strength[y.a.inference?.trustMode ?? "standard"] - strength[x.a.inference?.trustMode ?? "standard"] || Number(x.a.price.amount) - Number(y.a.price.amount));
@@ -80,8 +80,8 @@ export function Chooser() {
             </fieldset>
             <label className="range">
               <span className="t-label muted">Budget for this job</span>
-              <span className="range__val">{budget.toFixed(2)} <small>USDC</small></span>
-              <input type="range" min={0.1} max={2} step={0.05} value={budget} onChange={(e) => setBudget(Number(e.target.value))} aria-valuetext={`${budget.toFixed(2)} USDC`} />
+              <span className="range__val">{budget.toFixed(3)} <small>0G</small></span>
+              <input type="range" min={0.001} max={0.1} step={0.001} value={budget} onChange={(e) => setBudget(Number(e.target.value))} aria-valuetext={`${budget.toFixed(3)} 0G`} />
             </label>
           </div>
 

@@ -5,6 +5,12 @@
  *      -> 0G Router call in the listing's trust mode (fails closed, never downgrades)
  *      -> output schema check (no repair, no invention) -> result + receipt
  *
+ * Paid: a robot's job must carry a 0G transfer from the robot's wallet to the agent owner's wallet,
+ * memo semmal:job:<jobId>, at least the listed price; it is checked on chain before 0G is called and
+ * each transfer pays for one job only. The owner's own test console runs unpaid.
+ * Each agent calls 0G with its own Router key and daily spend cap (created with the management key);
+ * without a management key every agent shares the platform key, and the receipt says so.
+ *
  * Idempotent: a repeated idempotencyKey returns the stored result without calling 0G again.
  * Never logs or stores prompts or images; only hashes of them go into the receipt.
  */
@@ -21,6 +27,8 @@ import {
   type AgentResult,
 } from "@semmal/contracts";
 import type { ZeroGRouter } from "@semmal/zerog-pc-adapter";
+import { memo, type TransferCheck } from "@semmal/zerog-pay";
+import { toWei } from "@semmal/quote";
 import { ZeroGError } from "@semmal/zerog-pc-adapter";
 
 const sha256 = (s: string) => createHash("sha256").update(s).digest("hex");
@@ -58,6 +66,10 @@ export function extractJson(text: string): unknown {
   }
 }
 
+/** Who sent the job: a linked robot (must pay) or the owner's console (unpaid test). */
+export type Caller = { kind: "owner" } | { kind: "robot"; robotId: string; robotWallet: string };
+export type PaymentCheck = (want: { hash: `0x${string}`; to: string; from: string; minWei: bigint; memo: `0x${string}` }) => Promise<TransferCheck>;
+
 export class AgentRunner {
   private db: DatabaseSync;
 
@@ -65,6 +77,8 @@ export class AgentRunner {
     private router: ZeroGRouter,
     private findAgent: (agentId: string) => Promise<AgentListing | null>,
     dbPath: string,
+    private checkPayment: PaymentCheck = async () => ({ ok: false, reason: "payment checks are not configured" }),
+    private agentCreditLimit = process.env.ZEROG_AGENT_CREDIT_LIMIT || "0.05",
   ) {
     mkdirSync(dirname(dbPath), { recursive: true });
     this.db = new DatabaseSync(dbPath);
@@ -76,6 +90,36 @@ export class AgentRunner {
       result_json TEXT NOT NULL,
       created_at TEXT NOT NULL
     )`);
+    // one robot payment pays for one job: the transfer hash is the key
+    this.db.exec("CREATE TABLE IF NOT EXISTS payments (tx_hash TEXT PRIMARY KEY, job_id TEXT NOT NULL, agent_id TEXT NOT NULL, robot_id TEXT NOT NULL, wei TEXT NOT NULL, at TEXT NOT NULL)");
+    // each agent's own Router key (a service API key, server-side only, never logged or returned)
+    this.db.exec("CREATE TABLE IF NOT EXISTS agent_keys (agent_id TEXT PRIMARY KEY, model TEXT NOT NULL, key_id TEXT NOT NULL, secret TEXT NOT NULL, credit_limit TEXT NOT NULL, currency TEXT NOT NULL, created_at TEXT NOT NULL)");
+  }
+
+  /** The agent's own capped Router key, created once; null means the shared platform key is used. */
+  private async agentKey(listing: AgentListing): Promise<{ apiKey?: string; billing: string }> {
+    if (!this.router.config.managementKey) return { billing: "shared platform Router key (no per-agent cap)" };
+    const model = listing.inference!.model;
+    const row = this.db.prepare("SELECT secret, key_id, credit_limit, currency, model FROM agent_keys WHERE agent_id = ?").get(listing.agentId) as
+      | { secret: string; key_id: string; credit_limit: string; currency: string; model: string }
+      | undefined;
+    if (row && row.model === model) return { apiKey: row.secret, billing: `agent's own Router key ${row.key_id} · cap ${row.credit_limit} ${row.currency}/day` };
+    const k = await this.router.createKey({
+      name: `semmal-${listing.agentId}`.slice(0, 60),
+      creditLimit: this.agentCreditLimit,
+      resetPeriod: "daily",
+      allowedModels: [model],
+      trustMode: listing.inference!.trustMode,
+    });
+    this.db
+      .prepare("INSERT OR REPLACE INTO agent_keys (agent_id, model, key_id, secret, credit_limit, currency, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
+      .run(listing.agentId, model, k.keyId, k.key, k.creditLimit, k.currency, new Date().toISOString());
+    return { apiKey: k.key, billing: `agent's own Router key ${k.keyId} · cap ${k.creditLimit} ${k.currency}/day` };
+  }
+
+  /** Billing summary per agent key, for the dashboard (never the secret). */
+  agentKeys() {
+    return this.db.prepare("SELECT agent_id AS agentId, model, key_id AS keyId, credit_limit AS creditLimit, currency, created_at AS createdAt FROM agent_keys").all();
   }
 
   private stored(key: string) {
@@ -91,7 +135,7 @@ export class AgentRunner {
       .run(key, r.jobId, r.agentId, r.status, JSON.stringify(r), new Date().toISOString());
   }
 
-  async run(agentId: string, body: unknown): Promise<AgentResult> {
+  async run(agentId: string, body: unknown, caller: Caller = { kind: "owner" }): Promise<AgentResult> {
     const parsed = AgentJob.safeParse(body);
     const jobId = (body as { jobId?: string })?.jobId ?? randomUUID();
     const reject = (reason: string): AgentResult => ({ jobId: String(jobId).slice(0, 64), agentId, status: "rejected", reason });
@@ -108,10 +152,32 @@ export class AgentRunner {
     const listing = await this.findAgent(agentId);
     if (!listing) return reject("Agent not found on Arkiv");
     if (!listing.capabilities.some((c) => c.capabilityId === job.capabilityId)) return reject(`This agent does not offer ${job.capabilityId}`);
-    if (micro(job.budgetLimit) < micro(listing.price.amount)) return reject(`Budget ${job.budgetLimit} is below the agent's price of ${listing.price.amount} USDC`);
+    if (micro(job.budgetLimit) < micro(listing.price.amount)) return reject(`Budget ${job.budgetLimit} is below the agent's price of ${listing.price.amount} ${listing.price.token}`);
     const msLeft = Date.parse(job.deadline) - Date.now();
     if (!(msLeft > 1000)) return reject("The deadline has passed");
     if (!listing.inference) return reject("This agent has no inference model");
+
+    // ---- payment: a robot pays the agent's owner before any 0G call
+    let paidTx: string | undefined;
+    if (caller.kind === "robot") {
+      if (job.requestingRobotId !== caller.robotId) return reject("requestingRobotId must be the calling robot");
+      if (listing.price.token !== "0G") return reject("This agent is not priced in 0G, so a robot cannot pay it");
+      if (!job.payment) return reject("A robot's job must carry its 0G payment to the agent owner");
+      const used = this.db.prepare("SELECT job_id FROM payments WHERE tx_hash = ?").get(job.payment.txHash.toLowerCase()) as { job_id: string } | undefined;
+      if (used && used.job_id !== job.jobId) return reject("This payment already paid for another job");
+      const chk = await this.checkPayment({
+        hash: job.payment.txHash as `0x${string}`,
+        to: listing.ownerWallet,
+        from: caller.robotWallet,
+        minWei: toWei(listing.price.amount),
+        memo: memo("job", job.jobId),
+      }).catch((e) => ({ ok: false as const, reason: `payment could not be checked: ${(e as Error).message}` }));
+      if (!chk.ok) return reject(`Payment not accepted: ${chk.reason}`);
+      this.db
+        .prepare("INSERT OR IGNORE INTO payments (tx_hash, job_id, agent_id, robot_id, wei, at) VALUES (?, ?, ?, ?, ?, ?)")
+        .run(job.payment.txHash.toLowerCase(), job.jobId, agentId, caller.robotId, chk.valueWei.toString(), new Date().toISOString());
+      paidTx = job.payment.txHash;
+    }
 
     const inputSchema = AGENT_INPUTS[listing.kind as keyof typeof AGENT_INPUTS];
     const outputSchema = AGENT_OUTPUTS[listing.kind as keyof typeof AGENT_OUTPUTS];
@@ -133,6 +199,9 @@ export class AgentRunner {
     const base = { jobId: job.jobId, agentId };
     let result: AgentResult;
     try {
+      const key = await this.agentKey(listing).catch((e) => {
+        throw Object.assign(new ZeroGError(`could not create this agent's 0G key: ${(e as Error).message}`, "key_setup_failed"), {});
+      });
       const r = await this.router.chat({
         correlationId: job.jobId,
         taskId: job.parentTaskId,
@@ -145,7 +214,7 @@ export class AgentRunner {
         maxTokens: 500,
         deadlineMs: Math.min(msLeft - 500, this.router.config.timeoutMs),
         verifyTee: listing.inference.trustMode !== "standard",
-      });
+      }, { apiKey: key.apiKey });
       const out = outputSchema.safeParse(extractJson(r.output));
       const receiptBody = {
         jobId: job.jobId,
@@ -160,6 +229,9 @@ export class AgentRunner {
         inputSha256: sha256(canonical(job.input)),
         outputSha256: sha256(r.output),
         completedAt: new Date().toISOString(),
+        billing: key.billing,
+        ...(r.billing?.totalCost ? { inferenceCostNeuron: String(r.billing.totalCost) } : {}),
+        ...(paidTx ? { paymentTx: paidTx } : {}),
       };
       const receipt: AgentReceipt = { ...receiptBody, receiptHash: sha256(canonical(receiptBody)) };
       if (r.trustEvidence === "tee_verification_failed") {
@@ -179,7 +251,9 @@ export class AgentRunner {
     } catch (e) {
       const err = e as ZeroGError;
       const why =
-        err.code === "no_provider_for_trust_mode"
+        err.code === "credit_limit_exceeded"
+          ? "This agent has used up its daily 0G budget; it cannot call 0G until the cap resets"
+          : err.code === "no_provider_for_trust_mode"
           ? `No 0G provider can serve ${listing.inference.trustMode} mode for ${listing.inference.model} right now; the call was not downgraded`
           : err.code === "not_configured"
             ? "0G Router key is not configured on this server"
@@ -188,7 +262,7 @@ export class AgentRunner {
               : `0G call failed (${err.code ?? "error"})`;
       result = { ...base, status: "failed", reason: why, evidenceRefs: err.providerRequestId ? [err.providerRequestId] : [] };
       // configuration and transient failures are not stored, so the same job can be retried
-      if (err.code === "not_configured" || err.code === "timeout" || err.code === "unreachable") return result;
+      if (err.code === "not_configured" || err.code === "timeout" || err.code === "unreachable" || err.code === "key_setup_failed" || err.code === "credit_limit_exceeded") return result;
     }
     this.save(job.idempotencyKey, result);
     return result;

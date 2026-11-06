@@ -15,7 +15,7 @@ import { ARKIV_EXPLORER } from "@/lib/api";
 import { ApprovalCard } from "./ui/ApprovalCard";
 
 type CatalogModel = { id: string; name: string; inputs: string[]; verifiability: string | null; promptNeuron: string; completionNeuron: string; contextLength: number | null };
-type Catalog = { rateConfigured: boolean; rate: string | null; models: CatalogModel[] };
+type Catalog = { token: "0G"; models: CatalogModel[] };
 type Trust = "private" | "verified" | "standard";
 
 const KINDS = [
@@ -112,7 +112,7 @@ export function AgentBuilder() {
       summary: summary.trim() || k.hint,
       endpoint: `${location.origin}/agents/${agentId}/jobs`,
       capabilities: [{ capabilityId: k.cap, inputSchemaVersion: "1.0", outputSchemaVersion: "1.0", supportedRobotTypes: [...ROBOT_TYPES], supportedTaskTypes: [...k.tasks] }],
-      price: { amount: price.price, token: "USDC", unit: "job" as const },
+      price: { amount: price.price, token: "0G", unit: "job" as const },
       inference: { model: model.id, trustMode: trust },
       delegation: { allowed: kind === "inspection" && delegate, maxBudgetShare: kind === "inspection" && delegate ? 0.4 : 0 },
       serviceVersion: "1.0.0",
@@ -245,7 +245,7 @@ export function AgentBuilder() {
               <span className="t-label muted">Price per job</span>
               {price ? (
                 <>
-                  <span className="ab-price__v">{price.price} <small>USDC</small></span>
+                  <span className="ab-price__v">{price.price} <small>0G</small></span>
                   <span className="t-small muted">0G cost {price.cost} for ~{price.tokensIn + price.tokensOut} tokens + {margin}%</span>
                 </>
               ) : priceErr ? (

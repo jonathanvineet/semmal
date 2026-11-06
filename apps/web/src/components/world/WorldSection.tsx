@@ -48,7 +48,7 @@ export function WorldSection() {
     ])
       .then(([r, a]) =>
         setNames({
-          robots: r.items.map((e) => ({ label: e.data.displayName, sub: e.data.pricing ? `Robot · quotes ${e.data.pricing.minFee}–${e.data.pricing.maxQuote} USDC a task` : `Robot · ${e.data.price?.amount ?? "?"} USDC a task`, kind: "robot" })),
+          robots: r.items.map((e) => ({ label: e.data.displayName, sub: e.data.pricing ? `Robot · quotes ${e.data.pricing.minFee}–${e.data.pricing.maxQuote} 0G a task` : `Robot · ${e.data.price?.amount ?? "?"} 0G a task`, kind: "robot" })),
           agents: a.items.map((e) => ({
             label: e.data.displayName,
             sub: `${e.data.kind} · ${e.data.price.amount} ${e.data.price.token} · ${e.data.inference?.trustMode ?? "no inference"} · ${e.provenance}`,
@@ -117,7 +117,7 @@ export function WorldSection() {
                 <Link className="btn btn--primary" href="/agents">Browse the agent market</Link>
                 <a className="btn btn--secondary" href="#chapters">See a mission run</a>
               </div>
-              <p className="world__fact">Rover 01 from 12.50 USDC a task. It stops safely even with no network.</p>
+              <p className="world__fact">Every robot prices each task itself, in 0G. It stops safely even with no network.</p>
             </div>
           </div>
         </div>

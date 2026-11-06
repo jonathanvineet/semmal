@@ -17,7 +17,7 @@ async function start() {
     config: loadConfig({}),
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     registry: { listRobots: async () => [], listAgents: async () => [], status: async () => ({}), config: { profileTtlDays: 30, accessKey: "" } } as any,
-    router: new ZeroGRouter({ baseUrl: "", apiKey: "", defaultModel: "", requiredTrustMode: "private", timeoutMs: 1000 }),
+    router: new ZeroGRouter({ baseUrl: "", managementKey: "", apiKey: "", defaultModel: "", requiredTrustMode: "private", timeoutMs: 1000 }),
     admin: new AdminStore(join(dir, "admin.json")),
     auth: new WalletAuth("localhost:3000"),
     gateway,

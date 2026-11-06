@@ -37,10 +37,10 @@ export function RegisterRobot() {
   const [model, setModel] = useState<string>("rover");
   const [hoverModel, setHoverModel] = useState<string | null>(null);
   const [skills, setSkills] = useState<string[]>(["warehouse.inspection"]);
-  const [minFee, setMinFee] = useState("5");
-  const [maxQuote, setMaxQuote] = useState("60");
+  const [minFee, setMinFee] = useState("0.01");
+  const [maxQuote, setMaxQuote] = useState("0.1");
   const [margin, setMargin] = useState(25);
-  const [spendCap, setSpendCap] = useState("15");
+  const [spendCap, setSpendCap] = useState("0.06");
   const [example, setExample] = useState<QuoteResult | null>(null);
   const [area, setArea] = useState<string>("");
   const [robotWallet, setRobotWallet] = useState("");
@@ -92,7 +92,7 @@ export function RegisterRobot() {
       rosInterfaceVersion: "0.1.0",
       profileVersion: check?.nextVersion ?? 1,
       serviceArea: area,
-      pricing: { token: "USDC" as const, minFee: norm(minFee), maxQuote: norm(maxQuote), marginPct: margin, maxSpendPerTask: norm(spendCap) },
+      pricing: { token: "0G" as const, minFee: norm(minFee), maxQuote: norm(maxQuote), marginPct: margin, maxSpendPerTask: norm(spendCap) },
     };
     const r = RobotProfile.safeParse(draft);
     return r.success ? r.data : null;
@@ -108,7 +108,7 @@ export function RegisterRobot() {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          preview: { robotType: m.robotType, policy: { token: "USDC", minFee: norm(minFee), maxQuote: norm(maxQuote), marginPct: margin, maxSpendPerTask: norm(spendCap) } },
+          preview: { robotType: m.robotType, policy: { token: "0G", minFee: norm(minFee), maxQuote: norm(maxQuote), marginPct: margin, maxSpendPerTask: norm(spendCap) } },
           plan: { skill: skills[0], waypoints: 4, distanceM: 160, privacy: "private" },
         }),
       })
@@ -132,7 +132,7 @@ export function RegisterRobot() {
     name.trim(),
     m.name,
     skills.length ? `${skills.length} skill${skills.length === 1 ? "" : "s"}${area ? ` · ${area}` : ""}` : "",
-    policyOk ? `${norm(minFee)}–${norm(maxQuote)} USDC · ${margin}%` : "",
+    policyOk ? `${norm(minFee)}–${norm(maxQuote)} 0G · ${margin}%` : "",
     walletOk ? short(robotWallet) : "",
     "",
   ];
@@ -292,17 +292,17 @@ export function RegisterRobot() {
                   <div className="policy-grid">
                     <label className="field">
                       <span className="t-label muted">Minimum fee per task</span>
-                      <span className="field__money"><input inputMode="decimal" value={minFee} onChange={(e) => setMinFee(e.target.value)} /><small>USDC</small></span>
+                      <span className="field__money"><input inputMode="decimal" value={minFee} onChange={(e) => setMinFee(e.target.value)} /><small>0G</small></span>
                       <span className="field__hint">It never works for less than this.</span>
                     </label>
                     <label className="field">
                       <span className="t-label muted">Maximum quote</span>
-                      <span className="field__money"><input inputMode="decimal" value={maxQuote} onChange={(e) => setMaxQuote(e.target.value)} /><small>USDC</small></span>
+                      <span className="field__money"><input inputMode="decimal" value={maxQuote} onChange={(e) => setMaxQuote(e.target.value)} /><small>0G</small></span>
                       <span className="field__hint">Jobs that cost more than this are declined.</span>
                     </label>
                     <label className="field">
                       <span className="t-label muted">Spend cap per task</span>
-                      <span className="field__money"><input inputMode="decimal" value={spendCap} onChange={(e) => setSpendCap(e.target.value)} /><small>USDC</small></span>
+                      <span className="field__money"><input inputMode="decimal" value={spendCap} onChange={(e) => setSpendCap(e.target.value)} /><small>0G</small></span>
                       <span className="field__hint">The most it may pay agents and 0G for one job.</span>
                     </label>
                     <label className="range">
@@ -409,7 +409,7 @@ export function RegisterRobot() {
               {skills.length === 0 && <span className="chip">No skills yet</span>}
             </div>
             <dl>
-              <div><dt>Pricing</dt><dd>Quoted per task, {norm(minFee) || "…"} to {norm(maxQuote) || "…"} USDC</dd></div>
+              <div><dt>Pricing</dt><dd>Quoted per task, {norm(minFee) || "…"} to {norm(maxQuote) || "…"} 0G</dd></div>
               <div><dt>Margin</dt><dd>{margin}% on cost</dd></div>
               <div><dt>Area</dt><dd>{area || "—"}</dd></div>
               <div><dt>Robot id</dt><dd className="mono">{robotId || "from its wallet"}</dd></div>

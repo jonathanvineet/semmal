@@ -12,6 +12,7 @@ import { httpLocal } from "./local";
 import { runTask } from "./mission";
 import { httpPlatform } from "./platform";
 import { TaskStore } from "./store";
+import { toWei } from "@semmal/quote";
 
 // One robot PC can host several robots (one at a time): SEMMAL_ENV_FILE=.env.robot.house pnpm start
 if (process.env.SEMMAL_ENV_FILE) process.loadEnvFile(process.env.SEMMAL_ENV_FILE);
@@ -36,6 +37,10 @@ const device = new Device({
   storageRpc: env("ZEROG_STORAGE_RPC_URL", "https://evmrpc-testnet.0g.ai"),
   storageIndexer: env("ZEROG_STORAGE_INDEXER_URL", "https://indexer-storage-testnet-turbo.0g.ai"),
   maxUploadsPerDay: Number(process.env.ROBOT_MAX_UPLOADS_PER_DAY ?? 100),
+  payRpc: env("ZEROG_PAY_RPC_URL", "https://evmrpc-testnet.0g.ai"),
+  maxPaymentWei: toWei(env("ROBOT_MAX_PAYMENT_0G", "0.1")),
+  maxPaidWeiPerDay: toWei(env("ROBOT_MAX_PAID_PER_DAY_0G", "0.5")),
+  maxPaymentFeeWei: toWei(env("ROBOT_MAX_PAYMENT_FEE_0G", "0.001")),
 });
 const local = httpLocal(env("SEMMAL_LOCAL_API", "http://127.0.0.1:8765"));
 const platform = httpPlatform(env("SEMMAL_PLATFORM_URL", "http://127.0.0.1:3001"), env("SEMMAL_LINK_TOKEN"));
@@ -47,6 +52,24 @@ const evidence = new Evidence(device, ROBOT_ID, OWN, env("SEMMAL_INCIDENT_SPOOL"
   if (kind === "incident")
     link?.send({ type: "incident_notice", incidentId: id.slice(0, 64), faultCode: (extra?.faultCode ?? "UNKNOWN").slice(0, 60), severity: (extra?.severity as "critical") ?? "critical", safetyAction: "EMERGENCY_STOP", persistence: stage });
 });
+
+// payment notices from the platform: the robot checks each one on chain before trusting it
+const payments = new Map<string, string[]>();
+const payWaiters = new Map<string, (tx: string) => void>();
+const awaitPayment = (taskId: string, waitMs: number) =>
+  new Promise<string | null>((resolve) => {
+    const queued = payments.get(taskId)?.shift();
+    if (queued) return resolve(queued);
+    const t = setTimeout(() => {
+      payWaiters.delete(taskId);
+      resolve(null);
+    }, waitMs);
+    payWaiters.set(taskId, (tx) => {
+      clearTimeout(t);
+      payWaiters.delete(taskId);
+      resolve(tx);
+    });
+  });
 
 let busy = false;
 link = new Link(env("SEMMAL_GATEWAY_URL", "ws://127.0.0.1:3001/api/gateway"), ROBOT_ID, env("SEMMAL_LINK_TOKEN"), "robot-master/0.1.0", {
@@ -60,6 +83,12 @@ link = new Link(env("SEMMAL_GATEWAY_URL", "ws://127.0.0.1:3001/api/gateway"), RO
       return { batteryPct: 0, safetyState: "DEGRADED", availability: "offline" };
     }
   },
+  onPayment: (taskId, txHash) => {
+    log(`task ${taskId}: customer reports payment ${txHash.slice(0, 12)}…; checking on chain`);
+    const w = payWaiters.get(taskId);
+    if (w) w(txHash);
+    else payments.set(taskId, [...(payments.get(taskId) ?? []).slice(-4), txHash]);
+  },
   onTask: (m) => {
     if (busy) return link.send({ type: "task_ack", taskId: m.taskId, accepted: false, reason: "robot is already on a task" });
     busy = true;
@@ -67,6 +96,8 @@ link = new Link(env("SEMMAL_GATEWAY_URL", "ws://127.0.0.1:3001/api/gateway"), RO
     runTask(m, {
       robotId: ROBOT_ID,
       robotWallet: device.address,
+      wallet: device,
+      awaitPayment,
       local,
       platform,
       evidence,
@@ -83,5 +114,9 @@ link = new Link(env("SEMMAL_GATEWAY_URL", "ws://127.0.0.1:3001/api/gateway"), RO
 const recovered = store.recover();
 if (recovered.length) log(`marked ${recovered.length} unfinished task(s) SAFE_STOP after restart`);
 log(`robot ${ROBOT_ID}, device wallet ${device.address}`);
+device
+  .balanceWei()
+  .then((b) => log(`wallet balance on 0G Galileo: ${(Number(b) / 1e18).toFixed(6)} 0G`))
+  .catch(() => log("could not read the wallet balance on 0G Galileo"));
 evidence.start();
 link.start();

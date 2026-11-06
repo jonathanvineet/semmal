@@ -14,6 +14,8 @@ import type { InferenceRequest, InferenceResult, TrustMode } from "@semmal/contr
 export type ZeroGConfig = {
   baseUrl: string; // e.g. https://router-api.0g.ai/v1
   apiKey: string;
+  /** mk- management key (scope keys:create). Server-side only; used to give each agent its own capped sk- key. */
+  managementKey: string;
   defaultModel: string;
   requiredTrustMode: TrustMode;
   timeoutMs: number;
@@ -23,6 +25,7 @@ export function zeroGConfigFromEnv(env = process.env): ZeroGConfig {
   return {
     baseUrl: (env.ZEROG_ROUTER_BASE_URL ?? "").replace(/\/$/, ""),
     apiKey: env.ZEROG_ROUTER_API_KEY ?? "",
+    managementKey: env.ZEROG_ROUTER_MANAGEMENT_KEY ?? "",
     defaultModel: env.ZEROG_DEFAULT_MODEL ?? "",
     requiredTrustMode: (env.ZEROG_REQUIRED_TRUST_MODE as TrustMode) || "private",
     timeoutMs: Number(env.ZEROG_REQUEST_TIMEOUT_MS || 30_000),
@@ -90,7 +93,30 @@ export class ZeroGRouter {
     return { ok: true, status: "ok" as const, model };
   }
 
-  async chat(req: InferenceRequest): Promise<InferenceResult> {
+  /**
+   * Create an inference (sk-) key with its own spend cap: POST /v1/api-keys with the management key.
+   * Fields per the Router API reference (0gfoundation.github.io/0g-router, checked 2026-11-06):
+   * name, credit_limit (decimal string in the account's `currency`), reset_period, allowed_models,
+   * trust_mode. The secret is in `key` and is returned only once.
+   */
+  async createKey(k: { name: string; creditLimit: string; resetPeriod: "never" | "daily" | "weekly" | "monthly"; allowedModels: string[]; trustMode: TrustMode }) {
+    if (!this.config.baseUrl || !this.config.managementKey) throw new ZeroGError("no 0G management key configured", "not_configured");
+    const res = await fetch(`${this.config.baseUrl}/api-keys`, {
+      method: "POST",
+      signal: AbortSignal.timeout(15_000),
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${this.config.managementKey}` },
+      body: JSON.stringify({ name: k.name, credit_limit: k.creditLimit, reset_period: k.resetPeriod, allowed_models: k.allowedModels, trust_mode: k.trustMode }),
+    }).catch(() => {
+      throw new ZeroGError("0G Router unreachable", "unreachable");
+    });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const body: any = await res.json().catch(() => ({}));
+    if (!res.ok) throw new ZeroGError(`0G key creation ${res.status} ${body?.error?.code ?? ""}`.trim(), String(body?.error?.code ?? "http_error"), res.status);
+    if (typeof body.key !== "string" || !body.key.startsWith("sk-") || typeof body.key_id !== "string") throw new ZeroGError("0G key creation returned no key", "bad_response", res.status);
+    return { key: body.key as string, keyId: body.key_id as string, currency: typeof body.currency === "string" ? (body.currency as string) : "unknown", creditLimit: String(body.credit_limit ?? k.creditLimit) };
+  }
+
+  async chat(req: InferenceRequest, opts: { apiKey?: string } = {}): Promise<InferenceResult> {
     if (!this.configured) throw new ZeroGError("0G Router is not configured; refusing to fabricate a result", "not_configured");
     const started = performance.now();
     const deadline = req.deadlineMs ?? this.config.timeoutMs;
@@ -101,7 +127,7 @@ export class ZeroGRouter {
         signal: AbortSignal.timeout(deadline),
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${this.config.apiKey}`,
+          Authorization: `Bearer ${opts.apiKey ?? this.config.apiKey}`,
           "X-0G-Provider-Trust-Mode": req.trustRequirement,
           "X-Correlation-Id": req.correlationId,
         },

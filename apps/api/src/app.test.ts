@@ -18,7 +18,7 @@ const failingRegistry = {
   config: { profileTtlDays: 30, accessKey: "" },
   publicClient: { request: async ({ method }: { method: string }) => (method === "eth_chainId" ? "0x76edaf" : null) },
 };
-const unconfiguredRouter = new ZeroGRouter({ baseUrl: "", apiKey: "", defaultModel: "m", requiredTrustMode: "private", timeoutMs: 1000 });
+const unconfiguredRouter = new ZeroGRouter({ baseUrl: "", managementKey: "", apiKey: "", defaultModel: "m", requiredTrustMode: "private", timeoutMs: 1000 });
 
 function app(env: Record<string, string> = {}) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -122,7 +122,7 @@ test("ownership claim needs the one-time code; roles are enforced", () => {
 test("quote: no agents on Arkiv means an inspection is declined, not invented", async () => {
   const res = await app().inject({
     method: "POST", url: "/api/quote",
-    payload: { preview: { robotType: "diff-drive-indoor", policy: { token: "USDC", minFee: "5", maxQuote: "40", marginPct: 25, maxSpendPerTask: "10" } },
+    payload: { preview: { robotType: "diff-drive-indoor", policy: { token: "0G", minFee: "5", maxQuote: "40", marginPct: 25, maxSpendPerTask: "10" } },
       plan: { skill: "warehouse.inspection", waypoints: 3, distanceM: 120, privacy: "private" } },
   });
   assert.equal(res.statusCode, 200);
@@ -132,7 +132,7 @@ test("quote: no agents on Arkiv means an inspection is declined, not invented", 
 test("quote: a delivery needs no specialist and is priced inside the policy", async () => {
   const res = await app().inject({
     method: "POST", url: "/api/quote",
-    payload: { preview: { robotType: "diff-drive-indoor", policy: { token: "USDC", minFee: "2", maxQuote: "40", marginPct: 20, maxSpendPerTask: "10" } },
+    payload: { preview: { robotType: "diff-drive-indoor", policy: { token: "0G", minFee: "2", maxQuote: "40", marginPct: 20, maxSpendPerTask: "10" } },
       plan: { skill: "indoor.delivery", waypoints: 1, distanceM: 60, privacy: "private" } },
   });
   // the test router has no catalog, so the one inference call has no price: declined rather than guessed

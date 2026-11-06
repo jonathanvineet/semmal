@@ -65,11 +65,32 @@ Owners do not set task prices. They set a `pricing` policy on the robot's Arkiv 
 quote, margin %, spend cap per task). `packages/quote` prices each task deterministically (no model output):
 specialists at their live Arkiv listing price (hired by the 6.3 rule), 0G inference at the live Router
 `/v1/models` `pricing.prompt`/`pricing.completion` (neuron per token, 1e18 neuron = 1 0G) x estimated tokens
-per call, converted at `ZEROG_USDC_RATE` (configured by the operator; quotes needing inference are declined
-while it is unset), plus an operating-time estimate per robot type (engineering estimates in
-`OPERATING_MICRO_PER_MIN`, labelled "estimate" on every quote). Live check 2026-11-06: model
-`0gm-1.0-35b-a3b` priced from the catalog; 1 call x ~500 tokens = 0.000556 USDC at a test rate of 1.
-**Open:** a trusted 0G/USDC price source; token estimates per call are assumptions until measured from real calls.
+per call (exact, in 0G: no exchange rate since 2026-11-06), plus an operating-time estimate per robot
+type (engineering estimates in `OPERATING_MICRO_PER_MIN`, sized for testnet amounts, labelled "estimate" on
+every quote). Vision agents are charged once per stop. Live check 2026-11-06: model `0gm-1.0-35b-a3b`
+priced from the catalog. **Open:** token estimates per call are assumptions until measured from real calls.
+
+## Payments in 0G (added 2026-11-06)
+
+- Token and chain: native 0G on 0G Galileo testnet, chain 16602, RPC `https://evmrpc-testnet.0g.ai`
+  (section above). Faucet https://faucet.0g.ai gives about 0.1 0G a day per address, so prices are fractions of 0G.
+- Transfers are plain value transfers with a UTF-8 memo in calldata (`semmal:<quote|job|payout|refund>:<id>`),
+  checked by `packages/zerog-pay` `verifyTransfer` (receipt success, payee, payer, memo, minimum value).
+- Not documented by 0G (checked 2026-11-06 on docs.0g.ai compute-network pages and agentic-id overview/erc7857):
+  agent-to-agent payments, x402, escrow, per-agent wallets. Agentic ID (ERC-7857) `authorizeUsage` is a
+  permission record, not a payment. So SEMMAL uses plain transfers.
+- 0G Router per-key caps, from the Router API reference spec embedded in
+  https://0gfoundation.github.io/0g-router/ (Redoc state, read 2026-11-06): `POST /v1/api-keys` (management
+  key, scope `keys:create`) body `name`, `credit_limit` ("0G units; nil = unlimited"), `reset_period`
+  (never/daily/weekly/monthly), `allowed_models`, `allowed_providers`, `trust_mode`, `expiration`, `routing`;
+  200 response has `key` ("Only shown once!"), `key_id`, `key_preview`, `credit_limit`, `used`, `currency`
+  ("0g" or "usd", following the account's settlement mode), `status`. Over the cap: `429 credit_limit_exceeded`
+  (changelog). Keys draw on the one account deposit (router/account/deposits), so a capped key is per-agent
+  metering and limits, not a separate balance.
+- Direct compute ledgers (`depositFund`, `transferFund(provider, "inference", amount)`; 3 0G minimum, 1 0G per
+  provider sub-account, 24 h refund lock) were not used: they bypass the Router and its trust-mode routing.
+- **Open:** whether the testnet Router account settles in "0g" or "usd" (the key response's `currency` says;
+  SEMMAL records it per key); no escrow, so the customer trusts the robot between payment and completion.
 
 ## Agent runner (added 2026-11-06)
 

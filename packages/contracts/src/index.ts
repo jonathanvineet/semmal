@@ -98,11 +98,12 @@ export const robotIdFromWallet = (wallet: string) => `rbt-${wallet.toLowerCase()
  */
 export const PricingPolicy = z
   .object({
-    token: z.literal("USDC"),
+    /** Everything is priced and paid in the native 0G token (Galileo testnet for now). */
+    token: z.literal("0G"),
     minFee: decimalAmount,
     maxQuote: decimalAmount,
     marginPct: z.number().min(0).max(200),
-    /** The most the robot may spend on specialists and inference for one task. */
+    /** The most the robot may spend on agents for one task (and, on an owner test task, from its own balance). */
     maxSpendPerTask: decimalAmount,
   })
   .refine((p) => Number(p.maxQuote) >= Number(p.minFee), { message: "maxQuote must be at least minFee" });
@@ -246,6 +247,8 @@ export const AgentJob = z.object({
   budgetLimit: z.string().regex(/^\d+(\.\d{1,6})?$/),
   deadline: z.string().datetime(),
   idempotencyKey: z.string().min(8).max(100),
+  /** A robot's payment for this job: a 0G transfer to the agent owner carrying memo semmal:job:<jobId>. */
+  payment: z.object({ txHash: z.string().regex(/^0x[0-9a-fA-F]{64}$/) }).optional(),
 });
 export type AgentJob = z.infer<typeof AgentJob>;
 
@@ -301,6 +304,12 @@ export type AgentReceipt = {
   inputSha256: string;
   outputSha256: string;
   completedAt: string;
+  /** Whose Router key paid for the inference (the agent's own capped key, or the shared platform key). */
+  billing?: string;
+  /** 0G inference cost the Router reported for this call, in neuron. */
+  inferenceCostNeuron?: string;
+  /** The robot's payment for this job (0G transfer hash), when a robot sent it. */
+  paymentTx?: string;
   /** sha256 of this receipt's canonical JSON (fields above). Not signed: no keys in SEMMAL. */
   receiptHash: string;
 };
@@ -339,7 +348,7 @@ export const GwMissionProgress = z.object({
   seq,
   ts,
   taskId: z.string().max(64),
-  state: z.enum(["TASK_RECEIVED", "VALIDATING", "PLANNING", "DISCOVERING_SPECIALISTS", "HIRING_SPECIALISTS", "EXECUTING", "VERIFYING", "COMPLETED", "FAILED", "ABORTED", "PAUSED", "DEGRADED", "INCIDENT", "WAITING_FOR_0G", "SAFE_STOP"]),
+  state: z.enum(["TASK_RECEIVED", "AWAITING_PAYMENT", "PAID", "VALIDATING", "PLANNING", "DISCOVERING_SPECIALISTS", "HIRING_SPECIALISTS", "EXECUTING", "VERIFYING", "COMPLETED", "FAILED", "ABORTED", "PAUSED", "DEGRADED", "INCIDENT", "WAITING_FOR_0G", "SAFE_STOP"]),
   detail: z.string().max(200).optional(),
 });
 export const GwIncidentNotice = z.object({
@@ -361,7 +370,9 @@ export type PlatformToRobot =
   | { type: "ack"; seq: number }
   | { type: "error"; code: string; message: string; seq?: number }
   | { type: "task_assignment"; taskId: string; skill: string; plan: { waypoints: number; distanceM: number; privacy: string }; maxBudget?: string; deadline?: string; customerWallet?: string; assignedAt: string }
-  | { type: "recovery_approval"; incidentId: string; approvedBy: string; approvedAt: string };
+  | { type: "recovery_approval"; incidentId: string; approvedBy: string; approvedAt: string }
+  /** The customer says they paid. The robot checks the transfer on chain itself before it starts. */
+  | { type: "payment_notice"; taskId: string; txHash: string };
 
 // ---------------------------------------------------------------- coordination + evidence on Arkiv
 const addrZ = z.string().regex(/^0x[0-9a-fA-F]{40}$/);
@@ -392,7 +403,7 @@ export const TaskQuote = z.object({
   robotWallet: addrZ,
   amount: amountZ,
   cost: amountZ,
-  lines: z.array(z.object({ label: z.string().max(60), usdc: z.string().max(20), source: z.string().max(20) })).max(12),
+  lines: z.array(z.object({ label: z.string().max(60), amount: z.string().max(20), source: z.string().max(20) })).max(12),
   validUntil: z.string().datetime(),
 });
 export type TaskQuote = z.infer<typeof TaskQuote>;

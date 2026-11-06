@@ -39,25 +39,37 @@ function Episode({ b }: { b: any }) {
 
       <h4 className="ev__h">What it bought</h4>
       <table className="ev__table">
-        <thead><tr><th>Time</th><th>Agent</th><th>For</th><th>Price</th><th>Result</th><th>0G request</th></tr></thead>
+        <thead><tr><th>Time</th><th>Agent</th><th>For</th><th>Price</th><th>Payment</th><th>Result</th><th>0G request</th></tr></thead>
         <tbody>
           {(b.purchases ?? []).map((p: any, i: number) => (
             <tr key={i}>
               <td className="mono">{hm(p.at)}</td><td>{p.agentName} <span className="muted">({p.kind})</span></td><td>{p.forWhat}</td>
-              <td className="mono">{p.priceUsdc} USDC</td><td>{p.status}</td>
+              <td className="mono">{p.price0G} 0G</td>
+              <td title={p.paymentTx}>{p.paymentStatus}{p.paymentTx ? <span className="mono muted"> · {short(p.paymentTx, 8)}</span> : null}{p.payTo ? <span className="muted"> to {short(p.payTo, 6)}</span> : null}</td>
+              <td>{p.status}</td>
               <td className="mono" title={p.providerRequestId}>{p.providerRequestId ? short(p.providerRequestId, 8) : "—"}{p.model ? <span className="muted"> · {p.model} · {p.trustMode}</span> : null}</td>
             </tr>
           ))}
         </tbody>
       </table>
-      <p className="t-small muted">
-        Quoted to the customer {b.spend?.quotedUsdc ?? "—"} USDC · agent jobs delivered {b.spend?.agentsUsdc ?? "0"} USDC
-        {b.spend?.budgetUsdc ? ` · customer budget ${b.spend.budgetUsdc} USDC` : ""}. Agent payments are committed in job claims on Arkiv; they are not settled on chain yet.
-      </p>
+
+      <h4 className="ev__h">Money (0G on Galileo)</h4>
+      <table className="ev__table">
+        <tbody>
+          <tr><td>Paid for by</td><td>{b.money?.funding ?? "—"}</td></tr>
+          {b.money?.customerPayment && (
+            <tr><td>Customer paid</td><td className="mono" title={b.money.customerPayment.txHash}>{b.money.customerPayment.amount0G} 0G from {short(b.money.customerPayment.from, 6)} · {short(b.money.customerPayment.txHash, 8)}</td></tr>
+          )}
+          <tr><td>Agent budget</td><td className="mono">{b.money?.budget0G ?? "—"} 0G</td></tr>
+          <tr><td>Paid to agents</td><td className="mono">{b.money?.agentsPaid0G ?? "0"} 0G</td></tr>
+          {b.money?.payout && <tr><td>Margin to the owner</td><td className="mono" title={b.money.payout.txHash}>{b.money.payout.amount0G} 0G to {short(b.money.payout.to, 6)} · {b.money.payout.status}{b.money.payout.txHash ? ` · ${short(b.money.payout.txHash, 8)}` : ""}</td></tr>}
+          {b.money?.refund && <tr><td>Refund to the customer</td><td className="mono" title={b.money.refund.txHash}>{b.money.refund.amount0G} 0G to {short(b.money.refund.to, 6)} · {b.money.refund.status}{b.money.refund.txHash ? ` · ${short(b.money.refund.txHash, 8)}` : ""}</td></tr>}
+        </tbody>
+      </table>
       {b.quote?.lines?.length > 0 && (
         <table className="ev__table">
-          <thead><tr><th>Quote line</th><th>USDC</th><th>Price source</th></tr></thead>
-          <tbody>{b.quote.lines.map((l: any, i: number) => <tr key={i}><td>{l.label}</td><td className="mono">{l.usdc}</td><td>{l.source}</td></tr>)}</tbody>
+          <thead><tr><th>Quote line</th><th>0G</th><th>Price source</th></tr></thead>
+          <tbody>{b.quote.lines.map((l: any, i: number) => <tr key={i}><td>{l.label}</td><td className="mono">{l.amount}</td><td>{l.source}</td></tr>)}</tbody>
         </table>
       )}
 

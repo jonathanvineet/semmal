@@ -11,7 +11,7 @@ const make = () => {
   const dir = mkdtempSync(join(tmpdir(), "dev-"));
   const keyPath = join(dir, "robot-key");
   const address = generateDeviceKey(keyPath);
-  const device = new Device({ keyPath, dataDir: join(dir, "data"), arkivAccessKey: "", maxArkivFeeWei: defaultFeeCapWei, maxArkivWritesPerDay: 2, storageRpc: "http://127.0.0.1:1", storageIndexer: "http://127.0.0.1:1", maxUploadsPerDay: 1 });
+  const device = new Device({ keyPath, dataDir: join(dir, "data"), arkivAccessKey: "", maxArkivFeeWei: defaultFeeCapWei, maxArkivWritesPerDay: 2, storageRpc: "http://127.0.0.1:1", storageIndexer: "http://127.0.0.1:1", maxUploadsPerDay: 1, payRpc: "http://127.0.0.1:9", maxPaymentWei: 10n ** 17n, maxPaidWeiPerDay: 10n ** 18n, maxPaymentFeeWei: 10n ** 15n });
   return { keyPath, address, device };
 };
 

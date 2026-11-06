@@ -123,7 +123,7 @@ export function AgentConsole({ owner }: { owner: string }) {
           searchPlaceholder="Search your agents"
         />
         <p className="t-small muted">
-          {agent.inference?.model} · {agent.inference?.trustMode} · {agent.price.amount} USDC per job
+          {agent.inference?.model} · {agent.inference?.trustMode} · {agent.price.amount} 0G per job
         </p>
         {looks && (
           <label className="ac__drop">

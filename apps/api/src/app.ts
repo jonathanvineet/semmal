@@ -10,10 +10,11 @@ import { agentJobPrice, AGENT_TOKENS, quoteTask, SKILL_NEEDS } from "@semmal/quo
 import { z } from "zod";
 import { arkivRpcProxy } from "./arkiv-rpc-proxy";
 import { AdminStore, readCookie, WalletAuth } from "./admin";
-import { AgentRunner } from "./runner";
+import { AgentRunner, type Caller } from "./runner";
 import { fetchBundle, verifyEpisode, verifyIncident } from "./verify";
 import { Gateway, LinkStore, MAX_MESSAGE_BYTES } from "./gateway";
 import websocket from "@fastify/websocket";
+import { GALILEO_RPC, galileoClient, verifyTransfer } from "@semmal/zerog-pay";
 
 type Deps = { registry: ArkivRegistry; router: ZeroGRouter; config: ReturnType<typeof loadConfig>; admin: AdminStore; auth: WalletAuth; runner?: AgentRunner; gateway?: Gateway };
 
@@ -26,6 +27,8 @@ export function defaultDeps(): Deps {
     router,
     async (agentId) => (await registry.listAgents({ agentId }))[0]?.data ?? null,
     process.env.AGENT_JOBS_DB || "../../data/agent-jobs.db",
+    // robot payments are checked on 0G Galileo before an agent runs
+    (want) => verifyTransfer(galileoClient(process.env.ZEROG_PAY_RPC_URL || GALILEO_RPC), want),
   );
   const gateway = new Gateway(new LinkStore(process.env.ROBOT_LINKS_PATH || "../../data/robot-links.json"));
   return { config, admin, auth: new WalletAuth(new URL(config.WEB_ORIGIN).host), registry, router, runner, gateway };
@@ -222,7 +225,8 @@ export function buildApp(deps: Deps = defaultDeps()) {
       } else return reply.code(400).send({ error: "robotId or preview required" });
 
       const agents = await registry.listAgents().catch(() => []);
-      const offers = agents.map((a) => ({
+      // only agents priced in 0G can be paid by the robot
+      const offers = agents.filter((a) => a.data.price.token === "0G").map((a) => ({
         agentId: a.data.agentId,
         name: a.data.displayName,
         kind: a.data.kind,
@@ -238,15 +242,12 @@ export function buildApp(deps: Deps = defaultDeps()) {
         const m = (await catalog("").catch(() => [])).find((x) => x.id === modelId);
         if (m?.pricing?.prompt && m.pricing.completion) inference = { model: m.id, promptNeuron: m.pricing.prompt, completionNeuron: m.pricing.completion };
       }
-      const rate = usdcRate();
-      const q = quoteTask({ robotType, policy, plan: { ...plan, checkpoints }, offers, inference, zerogUsdcRate: rate });
+      const q = quoteTask({ robotType, policy, plan: { ...plan, checkpoints }, offers, inference });
       return { robotId: robotId ?? null, robotName, plan: { ...plan, checkpoints }, policy, ...q, quotedAt: new Date().toISOString() };
     } catch {
       return reply.code(502).send({ error: "could not read Arkiv or the 0G catalog; try again" });
     }
   });
-
-  const usdcRate = () => (process.env.ZEROG_USDC_RATE && /^\d+(\.\d+)?$/.test(process.env.ZEROG_USDC_RATE) ? process.env.ZEROG_USDC_RATE : null);
 
   /**
    * The live 0G Router model list, normalised for the agent builder. Public data (no key needed).
@@ -258,8 +259,7 @@ export function buildApp(deps: Deps = defaultDeps()) {
       const models = await catalog("");
       return {
         source: "ZEROG_ROUTER",
-        rateConfigured: usdcRate() !== null,
-        rate: usdcRate(),
+        token: "0G",
         models: models
           .filter((m) => m.pricing?.prompt && m.pricing.completion && (m.architecture?.output_modalities ?? ["text"]).includes("text"))
           .map((m) => ({
@@ -283,13 +283,11 @@ export function buildApp(deps: Deps = defaultDeps()) {
     const { model, kind, marginPct } = req.body ?? {};
     if (!model || !kind || !(kind in AGENT_TOKENS) || typeof marginPct !== "number" || marginPct < 0 || marginPct > 500)
       return reply.code(400).send({ error: "model, kind and marginPct (0-500) required" });
-    const rate = usdcRate();
-    if (!rate) return reply.code(409).send({ error: "No 0G to USDC rate configured (ZEROG_USDC_RATE); the price is not guessed" });
     try {
       const m = (await catalog("")).find((x) => x.id === model);
       if (!m?.pricing?.prompt || !m.pricing.completion) return reply.code(404).send({ error: "model not in the 0G catalog right now" });
-      const p = agentJobPrice(kind, { promptNeuron: m.pricing.prompt, completionNeuron: m.pricing.completion }, rate, marginPct);
-      return { model, kind, rate, tokensIn: p.tokensIn, tokensOut: p.tokensOut, cost: p.cost, price: p.price };
+      const p = agentJobPrice(kind, { promptNeuron: m.pricing.prompt, completionNeuron: m.pricing.completion }, marginPct);
+      return { model, kind, token: "0G", tokensIn: p.tokensIn, tokensOut: p.tokensOut, cost: p.cost, price: p.price };
     } catch {
       return reply.code(502).send({ error: "could not read the 0G model list" });
     }
@@ -413,6 +411,21 @@ export function buildApp(deps: Deps = defaultDeps()) {
     return r.ok ? { taskId: r.taskId, dispatched: true } : reply.code(409).send({ error: r.reason });
   });
 
+  /**
+   * The customer paid the robot's quote from their own wallet. Pass the transaction hash to the robot;
+   * the robot checks it on 0G Galileo itself (payee, amount, memo, payer) before it starts. The
+   * platform never holds or moves the money.
+   */
+  app.post<{ Params: { taskId: string }; Body: { txHash?: string } }>("/api/tasks/:taskId/payment", async (req, reply) => {
+    if (!gateway) return reply.code(503).send({ error: "gateway not available" });
+    const txHash = req.body?.txHash ?? "";
+    if (!/^task-[a-z0-9-]{6,58}$/.test(req.params.taskId) || !/^0x[0-9a-fA-F]{64}$/.test(txHash)) return reply.code(400).send({ error: "task id and transaction hash required" });
+    const task = (await registry.listTasks({ taskId: req.params.taskId }).catch(() => []))[0];
+    if (!task) return reply.code(404).send({ error: "booking not found on Arkiv" });
+    const r = gateway.paymentNotice(task.data.robotId, task.data.taskId, txHash);
+    return r.ok ? { forwarded: true } : reply.code(409).send({ error: r.reason });
+  });
+
   app.get<{ Params: { robotId: string } }>("/api/robots/:robotId/evidence", async (req, reply) => {
     if (!/^[a-z0-9][a-z0-9-]{2,63}$/.test(req.params.robotId)) return reply.code(400).send({ error: "bad robot id" });
     try {
@@ -477,7 +490,16 @@ export function buildApp(deps: Deps = defaultDeps()) {
     async (req, reply) => {
       if (!runner) return reply.code(503).send({ error: "agent runner is not available" });
       if (!/^[a-z0-9][a-z0-9-]{2,63}$/.test(req.params.agentId)) return reply.code(400).send({ error: "bad agent id" });
-      const result = await runner.run(req.params.agentId, req.body);
+      // a robot pays from the wallet on its Arkiv profile; the owner's console runs unpaid tests
+      let caller: Caller = { kind: "owner" };
+      const bearer = (req.headers.authorization ?? "").replace(/^Bearer\s+/i, "");
+      if (bearer.startsWith("slk_")) {
+        const link = gateway!.links.verify(bearer)!;
+        const robot = (await registry.listRobots({ robotId: link.robotId }).catch(() => []))[0];
+        if (!robot) return reply.code(404).send({ error: "this robot is not on Arkiv" });
+        caller = { kind: "robot", robotId: link.robotId, robotWallet: robot.data.robotWallet };
+      }
+      const result = await runner.run(req.params.agentId, req.body, caller);
       return reply.code(result.status === "rejected" ? 400 : 200).send(result);
     },
   );

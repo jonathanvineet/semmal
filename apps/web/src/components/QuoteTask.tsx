@@ -96,7 +96,7 @@ export function QuoteTask() {
   if (!robot) return <div className="wb wb--loading" aria-busy="true" />;
 
   const status =
-    q?.status === "ok" ? `Quote from ${robot.displayName}: ${q.quote} USDC` : q?.status === "declined" ? `${robot.displayName} declines: ${q.reason}` : "Working out the price";
+    q?.status === "ok" ? `Quote from ${robot.displayName}: ${q.quote} 0G` : q?.status === "declined" ? `${robot.displayName} declines: ${q.reason}` : "Working out the price";
 
   return (
     <div className="wb">
@@ -117,7 +117,7 @@ export function QuoteTask() {
                 <span className="rb__txt">
                   <b>{r.data.displayName}</b>
                   <span className="muted">{typeName(r.data)}</span>
-                  <span className="rb__range">{r.data.pricing!.minFee}–{r.data.pricing!.maxQuote} USDC</span>
+                  <span className="rb__range">{r.data.pricing!.minFee}–{r.data.pricing!.maxQuote} 0G</span>
                 </span>
               </button>
             );
@@ -171,7 +171,7 @@ export function QuoteTask() {
               <span className="wq__total muted">…</span>
             ) : q.status === "ok" ? (
               <motion.span key={q.quote} className="wq__total" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}>
-                {q.quote}<small>USDC</small>
+                {q.quote}<small>0G</small>
               </motion.span>
             ) : (
               <>

@@ -1,7 +1,7 @@
 "use client";
 import { AnimatePresence, motion } from "motion/react";
 
-export type QuoteLine = { label: string; detail: string; usdc: string; source: "arkiv" | "0g-router" | "estimate" | "policy" };
+export type QuoteLine = { label: string; detail: string; amount: string; source: "arkiv" | "0g-router" | "estimate" | "policy" };
 export type QuoteResult =
   | { status: "ok"; quote: string; cost: string; marginApplied: string; lines: QuoteLine[]; notes: string[]; quotedAt?: string }
   | { status: "declined"; reason: string; cost?: string; lines: QuoteLine[]; notes: string[]; quotedAt?: string };
@@ -22,7 +22,7 @@ export function QuoteBreakdown({ q, compact = false }: { q: QuoteResult | null; 
           <>
             <span className="t-label muted">The robot quotes</span>
             <motion.span key={q.quote} className="quote__total" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}>
-              {q.quote} <small>USDC</small>
+              {q.quote} <small>0G</small>
             </motion.span>
           </>
         ) : (
@@ -42,7 +42,7 @@ export function QuoteBreakdown({ q, compact = false }: { q: QuoteResult | null; 
                   <span className="muted">{l.detail}</span>
                 </span>
                 <span className={`quote__src quote__src--${l.source}`}>{SOURCE[l.source]}</span>
-                <span className="quote__amt">{l.usdc}</span>
+                <span className="quote__amt">{l.amount}</span>
               </motion.li>
             ))}
           </AnimatePresence>
@@ -50,7 +50,7 @@ export function QuoteBreakdown({ q, compact = false }: { q: QuoteResult | null; 
       )}
       {q.status === "ok" && !compact && (
         <div className="quote__sum muted t-small">
-          Cost {q.cost} USDC · margin {q.marginApplied} USDC
+          Cost {q.cost} 0G · margin {q.marginApplied} 0G
         </div>
       )}
       {!compact && q.notes.map((n) => <p key={n} className="quote__note t-small muted">{n}</p>)}
@@ -71,7 +71,7 @@ export function QuoteLines({ q }: { q: QuoteResult }) {
                 <span className="muted">{l.detail}</span>
               </span>
               <span className={`quote__src quote__src--${l.source}`}>{SOURCE[l.source]}</span>
-              <span className="quote__amt">{l.usdc}</span>
+              <span className="quote__amt">{l.amount}</span>
             </motion.li>
           ))}
         </AnimatePresence>

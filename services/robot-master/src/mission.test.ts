@@ -8,21 +8,22 @@ import { runTask, type Assignment, type EpisodeRecord } from "./mission";
 import { TaskStore } from "./store";
 import type { LocalApi, LocalState, MissionResult } from "./local";
 import type { PlatformApi } from "./platform";
+import type { TransferCheck } from "@semmal/zerog-pay";
 
 const W = "0x00000000000000000000000000000000000000ab";
 const robot: RobotProfile = {
   schemaVersion: "1.0", robotId: "rbt-test", robotWallet: W, ownerWallet: "0x00000000000000000000000000000000000000cd",
   displayName: "Rover", model: "rover", robotType: "diff-drive-indoor", hardware: { base: "x", sensors: ["lidar-2d"] },
   capabilities: ["warehouse.inspection"], rosInterfaceVersion: "0.1.0", profileVersion: 1, serviceArea: "Chennai",
-  pricing: { token: "USDC", minFee: "2", maxQuote: "40", marginPct: 20, maxSpendPerTask: "10" },
+  pricing: { token: "0G", minFee: "2", maxQuote: "40", marginPct: 20, maxSpendPerTask: "10" },
 };
 const vision: AgentListing = {
   schemaVersion: "1.0", agentId: "agt-vision-000001", ownerWallet: W, displayName: "Panel Vision", kind: "vision", summary: "x",
   endpoint: "http://x/agents/agt-vision-000001/jobs",
   capabilities: [{ capabilityId: "vision.inspection", inputSchemaVersion: "1.0", outputSchemaVersion: "1.0", supportedRobotTypes: ["diff-drive-indoor"], supportedTaskTypes: ["warehouse.inspection"] }],
-  price: { amount: "0.05", token: "USDC", unit: "job" }, inference: { model: "m-vis", trustMode: "private" }, delegation: { allowed: false, maxBudgetShare: 0 }, serviceVersion: "1.0.0",
+  price: { amount: "0.05", token: "0G", unit: "job" }, inference: { model: "m-vis", trustMode: "private" }, delegation: { allowed: false, maxBudgetShare: 0 }, serviceVersion: "1.0.0",
 };
-const inspection: AgentListing = { ...vision, agentId: "agt-insp-000001", displayName: "Planner", kind: "inspection", price: { amount: "0.10", token: "USDC", unit: "job" } };
+const inspection: AgentListing = { ...vision, agentId: "agt-insp-000001", displayName: "Planner", kind: "inspection", price: { amount: "0.10", token: "0G", unit: "job" } };
 
 const ok = (action: string, confidence = 0.9): AgentResult => ({
   jobId: "j", agentId: vision.agentId, status: "succeeded",
@@ -30,8 +31,18 @@ const ok = (action: string, confidence = 0.9): AgentResult => ({
   receipt: { jobId: "j", agentId: vision.agentId, model: "m-vis", requestedTrustMode: "private", trustEvidence: "tee_verified", providerRequestId: "req-777", latencyMs: 900, inputSha256: "a", outputSha256: "b", completedAt: new Date().toISOString(), receiptHash: "c" },
 });
 
-function harness(opts: { state?: Partial<LocalState>; job?: (input: { context?: string }) => Promise<AgentResult>; profile?: Partial<RobotProfile> } = {}) {
-  const calls = { dwell: [] as number[], missions: [] as string[][], holds: [] as boolean[], jobs: 0, quotes: 0, claims: 0, acks: [] as [boolean, string?][], states: [] as string[], episodes: [] as EpisodeRecord[] };
+type HarnessOpts = {
+  state?: Partial<LocalState>;
+  job?: (input: { context?: string }) => Promise<AgentResult>;
+  profile?: Partial<RobotProfile>;
+  /** what the customer's payment check returns; defaults to a matching payment of `paidWei` */
+  incoming?: (w: { minWei: bigint; from: string }) => TransferCheck;
+  paidWei?: bigint;
+  payTx?: string | null;
+  payFails?: (to: string) => boolean;
+};
+function harness(opts: HarnessOpts = {}) {
+  const calls = { pays: [] as { to: string; wei: bigint; kind: string; id: string }[], dwell: [] as number[], missions: [] as string[][], holds: [] as boolean[], jobs: 0, quotes: 0, claims: 0, acks: [] as [boolean, string?][], states: [] as string[], episodes: [] as EpisodeRecord[] };
   const result = (wps: string[]): MissionResult => ({ success: true, outcome: "COMPLETED", message: "ok", reached: wps, keyframePaths: ["/data/kf/a.ppm"] });
   let last: string[] = [];
   const local: LocalApi = {
@@ -49,8 +60,21 @@ function harness(opts: { state?: Partial<LocalState>; job?: (input: { context?: 
     runJob: async (_id, job) => { calls.jobs++; return (opts.job ?? (async () => ok("continue_mission")))((job as { input: { context?: string } }).input); },
   };
   const store = new TaskStore(mkdtempSync(join(tmpdir(), "rm-")));
+  let n = 0;
   const deps = {
     robotId: "rbt-test", robotWallet: W, local, platform, store,
+    wallet: {
+      pay: async (p: { to: string; wei: bigint; kind: string; id: string }) => {
+        if (opts.payFails?.(p.to)) throw new Error("insufficient funds");
+        calls.pays.push(p);
+        return { txHash: `0x${(++n).toString(16).padStart(64, "0")}` as `0x${string}`, status: "success" as const };
+      },
+      checkIncoming: async (w: { minWei: bigint; from: string }): Promise<TransferCheck> =>
+        opts.incoming ? opts.incoming(w) : { ok: true, from: w.from as `0x${string}`, to: W, valueWei: opts.paidWei ?? w.minWei, blockNumber: 1n, confirmations: 1n },
+    },
+    awaitPayment: async () => (opts.payTx === undefined ? `0x${"cc".repeat(32)}` : opts.payTx),
+    paymentPollMs: 1,
+    quoteValidMs: 300,
     evidence: { quote: async () => { calls.quotes++; }, claim: async () => { calls.claims++; }, episode: async (e: EpisodeRecord) => { calls.episodes.push(e); } },
     progress: (s: string) => { calls.states.push(s); },
     ack: (_t: string, a: boolean, r?: string) => { calls.acks.push([a, r]); },
@@ -66,7 +90,7 @@ test("the robot quotes, hires, looks, decides with 0G and finishes", async () =>
   assert.equal(ep!.outcome, "COMPLETED");
   assert.deepEqual(calls.missions, [["inspection_point_A"], ["dock"]]);
   assert.equal(calls.quotes, 1);
-  assert.equal(calls.claims, 2); // vision + inspection hired by the robot itself
+  assert.equal(calls.claims, 1); // the vision agent, hired by the robot itself
   assert.deepEqual(calls.acks[0], [true, undefined]);
   assert.equal(ep!.decisions[0]!.providerRequestId, "req-777");
   assert.equal(ep!.decisions[0]!.outcome, "accepted");
@@ -134,9 +158,9 @@ test("the episode says what the robot accessed and what it bought", async () => 
   assert.ok(ep.access.some((a) => a.what === "camera frame" && a.leftRobot));
   assert.ok(ep.access.some((a) => a.source === "Arkiv registry"));
   assert.ok(!JSON.stringify(ep).includes("base64"), "no image bytes in the evidence");
-  assert.deepEqual(ep.purchases.map((p) => [p.agentId, p.status, p.providerRequestId]), [[vision.agentId, "delivered", "req-777"]]);
-  assert.equal(ep.spend.agentsUsdc, "0.05");
-  assert.equal(ep.spend.quotedUsdc, ep.quote!.amount);
+  assert.deepEqual(ep.purchases.map((p) => [p.agentId, p.status, p.paymentStatus, p.providerRequestId]), [[vision.agentId, "delivered", "paid", "req-777"]]);
+  assert.equal(ep.money.agentsPaid0G, "0.05");
+  assert.equal(ep.money.funding, "robot's own balance (owner test task)");
 });
 
 const house = { world: "house", waypoints: ["bathroom", "bedroom", "dock", "inspection_point_A", "kitchen", "living_room", "office", "guest_room"] };
@@ -175,4 +199,83 @@ test("declines a job the current world cannot serve", async () => {
   assert.equal(await runTask(task({ skill: "home.cleaning" }), deps), null);
   assert.match(calls.acks[0]![1]!, /has none of the stops/);
   assert.equal(calls.missions.length, 0);
+});
+
+// ---------------------------------------------------------------- money
+const CUSTOMER = "0x00000000000000000000000000000000000000ee";
+const OWNER = robot.ownerWallet;
+
+test("a customer task waits for the payment, pays the agent's owner per job, then pays the owner the margin", async () => {
+  const { calls, deps } = harness();
+  const ep = (await runTask(task({ customerWallet: CUSTOMER }), deps))!;
+  assert.equal(ep.outcome, "COMPLETED");
+  assert.equal(ep.money.funding, "customer payment");
+  assert.equal(ep.money.customerPayment!.from, CUSTOMER);
+  const quoted = ep.quote!.amount;
+  assert.equal(ep.money.customerPayment!.amount0G, quoted);
+  assert.deepEqual(calls.pays.map((p) => [p.kind, p.to]), [["job", W], ["payout", OWNER]]); // vision owner is W in this fixture
+  assert.equal(calls.pays[0]!.wei, 50_000_000_000_000_000n);
+  assert.equal(ep.money.payout!.status, "success");
+  assert.ok(calls.states.includes("AWAITING_PAYMENT") && calls.states.includes("PAID"));
+  assert.ok(calls.states.indexOf("PAID") < calls.states.indexOf("EXECUTING"), "nothing moves before the payment checks out");
+});
+
+test("no payment before the quote expires: nothing is done and nothing is paid", async () => {
+  const { calls, deps, store } = harness({ payTx: null });
+  const t = task({ customerWallet: CUSTOMER });
+  assert.equal(await runTask(t, deps), null);
+  assert.equal(calls.missions.length, 0);
+  assert.equal(calls.pays.length, 0);
+  assert.equal(store.history(t.taskId).at(-1)!.state, "ABORTED");
+});
+
+test("a payment to the wrong place or too small is not accepted", async () => {
+  const { calls, deps } = harness({ incoming: () => ({ ok: false, reason: "paid to a different address" }) });
+  assert.equal(await runTask(task({ customerWallet: CUSTOMER }), deps), null);
+  assert.equal(calls.jobs, 0);
+  assert.equal(calls.pays.length, 0);
+});
+
+test("a failed run refunds what is left to the customer, not to the owner", async () => {
+  const { calls, deps } = harness({ job: async () => ({ jobId: "j", agentId: vision.agentId, status: "failed", reason: "0G call failed" }) });
+  const ep = (await runTask(task({ customerWallet: CUSTOMER }), deps))!;
+  assert.equal(ep.outcome, "SAFE_STOP");
+  assert.deepEqual(calls.pays.map((p) => [p.kind, p.to]), [["job", W], ["job", W], ["refund", CUSTOMER]]);
+  assert.equal(ep.money.agentsPaid0G, "0.10"); // both paid attempts count; money spent is spent
+  assert.ok(!ep.money.payout);
+});
+
+test("the quote declines a job whose agents would cost more than the owner's cap", async () => {
+  const { calls, deps } = harness({ state: house, profile: { ...cleaner, pricing: { ...robot.pricing!, maxSpendPerTask: "0.05" } } });
+  assert.equal(await runTask(task({ skill: "home.cleaning", plan: { waypoints: 3, distanceM: 60, privacy: "private" } }), deps), null);
+  assert.match(calls.acks[0]![1]!, /over the owner's cap/);
+  assert.equal(calls.pays.length, 0);
+});
+
+test("during the run the robot never spends past its agent budget (a retry that would is refused)", async () => {
+  let first = true;
+  const { calls, deps } = harness({
+    profile: { pricing: { ...robot.pricing!, maxSpendPerTask: "0.06" } },
+    job: async () => (first ? ((first = false), { jobId: "j", agentId: vision.agentId, status: "failed" as const, reason: "bad answer" }) : ok("continue_mission")),
+  });
+  const ep = (await runTask(task(), deps))!;
+  assert.equal(ep.outcome, "SAFE_STOP");
+  assert.equal(calls.pays.filter((p) => p.kind === "job").length, 1);
+  assert.match(ep.purchases.at(-1)!.status, /over the task's agent budget/);
+  assert.equal(calls.jobs, 1);
+});
+
+test("if the agent payment fails, the job is not sent and the robot holds", async () => {
+  const { calls, deps } = harness({ payFails: (to) => to === W });
+  const ep = (await runTask(task(), deps))!;
+  assert.equal(ep.outcome, "SAFE_STOP");
+  assert.equal(calls.jobs, 0);
+  assert.ok(calls.holds.includes(true));
+  assert.match(ep.purchases[0]!.paymentStatus, /insufficient funds/);
+});
+
+test("a robot priced in another token takes no paid tasks", async () => {
+  const { calls, deps } = harness({ profile: { pricing: { ...robot.pricing!, token: "USDC" as never } } });
+  assert.equal(await runTask(task(), deps), null);
+  assert.match(calls.acks[0]![1]!, /not in 0G/);
 });

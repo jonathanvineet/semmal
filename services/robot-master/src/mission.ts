@@ -1,9 +1,15 @@
 /**
  * The robot master agent's decision loop for one task. The robot decides; nobody decides for it.
  *
- *  validate -> plan stops for THIS world -> quote (own policy, live prices) -> hire agents itself
- *  -> (optional) navigation agent orders the stops -> for each stop: drive, look, ask the vision agent
- *  on 0G, check the answer, act within bounds -> return -> episode evidence (signed, 0G Storage, Arkiv)
+ *  validate -> plan stops for THIS world -> quote (own policy, live prices) -> customer pays the quote
+ *  in 0G to the robot's wallet (checked on chain by the robot) -> hire agents itself, paying each
+ *  agent's owner in 0G before its job -> (optional) navigation agent orders the stops -> for each
+ *  stop: drive, look, ask the vision agent on 0G, check the answer, act within bounds -> return
+ *  -> settle (margin to the owner if completed, otherwise what is left back to the customer)
+ *  -> episode evidence (signed, 0G Storage, Arkiv)
+ *
+ * Money: native 0G on Galileo. Agent spend never exceeds min(quote, owner's maxSpendPerTask); an
+ * owner test task (no customer) spends from the robot's own balance up to maxSpendPerTask.
  *
  * 0G is advisory and never invented: a failed or late answer holds the robot (WAITING_FOR_0G), one
  * retry, then SAFE_STOP. Safety never waits for any of this; the ROS supervisor owns it.
@@ -11,7 +17,8 @@
  */
 import { randomUUID } from "node:crypto";
 import { NavigationPlanOutput, VisionInspectionOutput, type AgentListing, type JobClaim, type TaskQuote } from "@semmal/contracts";
-import { quoteTask, type SpecialistOffer } from "@semmal/quote";
+import { quoteTask, toWei, weiToMicro, type SpecialistOffer } from "@semmal/quote";
+import type { TransferCheck } from "@semmal/zerog-pay";
 import type { LocalApi } from "./local";
 import type { PlatformApi } from "./platform";
 import type { TaskState, TaskStore } from "./store";
@@ -42,8 +49,12 @@ export type Decision = {
 
 /** Something the robot read, captured or sent. Kept short; no image bytes, no personal data. */
 export type AccessRecord = { at: string; what: string; source: string; detail: string; leftRobot: boolean };
-/** Something the robot paid for (or committed to pay; payments are not executed yet). */
-export type Purchase = { at: string; agentId: string; agentName: string; kind: string; forWhat: string; priceUsdc: string; status: string; providerRequestId?: string; model?: string; trustMode?: string };
+/** Something the robot bought: the agent job, the 0G payment for it, and what came back. */
+export type Purchase = {
+  at: string; agentId: string; agentName: string; kind: string; forWhat: string; price0G: string; payTo?: string;
+  paymentTx?: string; paymentStatus: string; status: string; providerRequestId?: string; model?: string; trustMode?: string; billing?: string;
+};
+export type Transfer = { to: string; amount0G: string; txHash?: string; status: string };
 
 export type EpisodeRecord = {
   episodeId: string;
@@ -55,8 +66,17 @@ export type EpisodeRecord = {
   startedAt: string;
   endedAt: string;
   stops: string[];
-  quote?: { amount: string; cost: string; lines: { label: string; usdc: string; source: string }[] };
-  spend: { quotedUsdc: string | null; agentsUsdc: string; budgetUsdc: string | null };
+  quote?: { quoteId: string; amount: string; cost: string; lines: { label: string; amount: string; source: string }[] };
+  /** Native 0G on Galileo. */
+  money: {
+    token: "0G";
+    funding: "customer payment" | "robot's own balance (owner test task)" | "none";
+    customerPayment?: { from: string; amount0G: string; txHash: string };
+    budget0G: string | null;
+    agentsPaid0G: string;
+    payout?: Transfer;
+    refund?: Transfer;
+  };
   hired: string[];
   decisions: Decision[];
   access: AccessRecord[];
@@ -108,9 +128,19 @@ const micro = (a: string) => {
 };
 const fromMicro = (v: bigint) => `${v / 1_000_000n}.${(v % 1_000_000n).toString().padStart(6, "0")}`.replace(/0{1,4}$/, "");
 
+export type Wallet = {
+  pay(p: { to: string; wei: bigint; kind: "job" | "payout" | "refund"; id: string }): Promise<{ txHash: `0x${string}`; status: "success" | "reverted" | "pending" }>;
+  checkIncoming(w: { hash: `0x${string}`; from: string; minWei: bigint; kind: "quote"; id: string }): Promise<TransferCheck>;
+};
+
 export type Deps = {
   robotId: string;
   robotWallet: string;
+  wallet: Wallet;
+  /** Resolves with the next payment transaction hash the customer reports for this task, or null at the deadline. */
+  awaitPayment: (taskId: string, waitMs: number) => Promise<string | null>;
+  quoteValidMs?: number;
+  paymentPollMs?: number;
   local: LocalApi;
   platform: PlatformApi;
   evidence: EvidenceSink;
@@ -135,6 +165,11 @@ export async function runTask(a: Assignment, d: Deps): Promise<EpisodeRecord | n
   let quoteDoc: EpisodeRecord["quote"];
   let world: string | null = null;
   let stops: string[] = [];
+  let ownerWallet: string | null = null;
+  let paid: { from: string; wei: bigint; txHash: string } | null = null;
+  let budget: bigint | null = null; // micro-0G the robot may spend on agents
+  let spent = 0n; // micro-0G actually paid to agents
+  const money: EpisodeRecord["money"] = { token: "0G", funding: "none", budget0G: null, agentsPaid0G: "0" };
   const now = () => new Date().toISOString();
   const touch = (what: string, source: string, detail: string, leftRobot = false) => access.push({ at: now(), what, source, detail, leftRobot });
   const move = (s: TaskState, why: string) => {
@@ -143,10 +178,27 @@ export async function runTask(a: Assignment, d: Deps): Promise<EpisodeRecord | n
   };
   const finish = async (outcome: EpisodeRecord["outcome"], why: string): Promise<EpisodeRecord> => {
     move(outcome === "COMPLETED" ? "COMPLETED" : outcome === "SAFE_STOP" ? "SAFE_STOP" : outcome === "ABORTED" ? "ABORTED" : "FAILED", why);
-    const spent = purchases.filter((p) => p.status === "delivered").reduce((s, p) => s + micro(p.priceUsdc), 0n);
+    // settle a customer's payment: the margin to the owner if the job is done, otherwise the rest back
+    if (paid) {
+      const left = weiToMicro(paid.wei) - spent;
+      if (left > 0n) {
+        const done = outcome === "COMPLETED";
+        const to = done ? ownerWallet : paid.from;
+        const t: Transfer = { to: to ?? "", amount0G: fromMicro(left), status: "not sent" };
+        if (to) {
+          const r = await d.wallet.pay({ to, wei: toWei(fromMicro(left)), kind: done ? "payout" : "refund", id: a.taskId }).catch((e) => ({ error: (e as Error).message }));
+          if ("error" in r) t.status = `failed: ${r.error}; the 0G stays in the robot wallet`;
+          else Object.assign(t, { txHash: r.txHash, status: r.status });
+        }
+        if (done) money.payout = t;
+        else money.refund = t;
+        move(outcome === "COMPLETED" ? "COMPLETED" : outcome === "SAFE_STOP" ? "SAFE_STOP" : outcome === "ABORTED" ? "ABORTED" : "FAILED", `${done ? "paid the owner" : "refunded the customer"} ${t.amount0G} 0G (${t.status})`);
+      }
+    }
+    money.agentsPaid0G = fromMicro(spent);
     const ep: EpisodeRecord = {
       episodeId, taskId: a.taskId, robotId: d.robotId, world, skill: a.skill, outcome, startedAt, endedAt: now(), stops,
-      quote: quoteDoc, spend: { quotedUsdc: quoteDoc?.amount ?? null, agentsUsdc: fromMicro(spent), budgetUsdc: a.maxBudget ?? null },
+      quote: quoteDoc, money,
       hired: hired.map((h) => h.agentId), decisions, access, purchases, actions, transitions: store.history(a.taskId), mission,
     };
     await d.evidence.episode(ep).catch(() => undefined); // evidence retries on its own; never blocks safety
@@ -177,8 +229,10 @@ export async function runTask(a: Assignment, d: Deps): Promise<EpisodeRecord | n
   if (!st || st.safetyState !== "NORMAL" || !st.executor) return decline(`robot not ready (${st ? `${st.safetyState}${st.executor ? "" : ", no executor"}` : "ROS gateway unreachable"})`);
   world = st.world ?? null;
   const profile = await platform.robot(d.robotId).catch(() => null);
-  touch("own robot profile", "Arkiv registry", profile ? `pricing ${profile.pricing?.minFee}-${profile.pricing?.maxQuote} USDC, ${profile.capabilities.length} skills` : "not found");
+  touch("own robot profile", "Arkiv registry", profile ? `pricing ${profile.pricing?.minFee}-${profile.pricing?.maxQuote} ${profile.pricing?.token}, ${profile.capabilities.length} skills` : "not found");
   if (!profile?.pricing) return decline("robot profile with a pricing policy not found on Arkiv");
+  if (profile.pricing.token !== "0G") return decline("this robot's pricing is not in 0G; re-register it to take paid tasks");
+  ownerWallet = profile.ownerWallet;
   if (!profile.capabilities.includes(a.skill as never)) return decline(`this robot does not offer ${a.skill}`);
   const sp = SKILL_PLANS[a.skill];
   if (!sp) return decline(`no plan for ${a.skill}`);
@@ -191,9 +245,11 @@ export async function runTask(a: Assignment, d: Deps): Promise<EpisodeRecord | n
   move("PLANNING", `${stops.length} stop(s) in ${world ?? "this world"}: ${stops.join(", ")}`);
 
   // ---- quote with live prices
-  const [agents, catalog] = await Promise.all([platform.agents().catch(() => [] as AgentListing[]), platform.catalog().catch(() => ({ rate: null, models: [] }))]);
-  touch("agent listings", "Arkiv registry", `${agents.length} specialist agents read`);
-  touch("model prices", "0G Router catalog", `${catalog.models.length} models, rate ${catalog.rate ?? "not configured"}`);
+  const [listed, catalog] = await Promise.all([platform.agents().catch(() => [] as AgentListing[]), platform.catalog().catch(() => ({ models: [] }))]);
+  // the robot can only pay agents priced in 0G
+  const agents = listed.filter((x) => x.price.token === "0G");
+  touch("agent listings", "Arkiv registry", `${listed.length} specialist agents read, ${agents.length} priced in 0G`);
+  touch("model prices", "0G Router catalog", `${catalog.models.length} models`);
   const offers: SpecialistOffer[] = agents.map((x) => ({ agentId: x.agentId, name: x.displayName, kind: x.kind, price: x.price.amount, trustMode: x.inference?.trustMode ?? "none" }));
   const visionModel = agents.find((x) => x.kind === "vision" && x.inference)?.inference?.model;
   const m = catalog.models.find((x) => x.id === visionModel);
@@ -203,15 +259,52 @@ export async function runTask(a: Assignment, d: Deps): Promise<EpisodeRecord | n
     plan: { skill: a.skill, waypoints: stops.length, distanceM: a.plan.distanceM, checkpoints: stops.length, privacy: a.plan.privacy as "private" },
     offers,
     inference: m ? { model: m.id, promptNeuron: m.promptNeuron, completionNeuron: m.completionNeuron } : null,
-    zerogUsdcRate: catalog.rate,
   });
   if (q.status !== "ok") return decline(q.reason);
-  if (a.maxBudget && micro(q.quote) > micro(a.maxBudget)) return decline(`quote ${q.quote} USDC is over the customer's budget of ${a.maxBudget}`);
-  quoteDoc = { amount: q.quote, cost: q.cost, lines: q.lines.map((l) => ({ label: l.label.slice(0, 60), usdc: l.usdc, source: l.source })) };
+  if (a.maxBudget && micro(q.quote) > micro(a.maxBudget)) return decline(`quote ${q.quote} 0G is over the customer's budget of ${a.maxBudget}`);
+  const quoteId = `quote-${randomUUID().slice(0, 18)}`;
+  const validMs = d.quoteValidMs ?? 5 * 60_000;
+  quoteDoc = { quoteId, amount: q.quote, cost: q.cost, lines: q.lines.map((l) => ({ label: l.label.slice(0, 60), amount: l.amount, source: l.source })) };
   await d.evidence
-    .quote({ schemaVersion: "1.0", quoteId: `quote-${randomUUID().slice(0, 18)}`, taskId: a.taskId, robotId: d.robotId, robotWallet: d.robotWallet, amount: q.quote, cost: q.cost, lines: quoteDoc.lines, validUntil: new Date(Date.now() + 5 * 60_000).toISOString() })
+    .quote({ schemaVersion: "1.0", quoteId, taskId: a.taskId, robotId: d.robotId, robotWallet: d.robotWallet, amount: q.quote, cost: q.cost, lines: quoteDoc.lines, validUntil: new Date(Date.now() + validMs).toISOString() })
     .catch(() => undefined);
   d.ack(a.taskId, true);
+
+  // ---- payment: the customer pays the quote to this robot's wallet; the robot checks it on chain
+  const cap = micro(profile.pricing.maxSpendPerTask);
+  if (a.customerWallet) {
+    move("AWAITING_PAYMENT", `pay ${q.quote} 0G to ${d.robotWallet} with memo semmal:quote:${quoteId} within ${Math.round(validMs / 60_000)} min`);
+    const until = Date.now() + validMs;
+    while (!paid && Date.now() < until) {
+      const tx = await d.awaitPayment(a.taskId, until - Date.now());
+      if (!tx) break;
+      for (let i = 0; i < 30 && !paid && Date.now() < until; i++) {
+        const c = await d.wallet
+          .checkIncoming({ hash: tx as `0x${string}`, from: a.customerWallet, minWei: toWei(q.quote), kind: "quote", id: quoteId })
+          .catch((e) => ({ ok: false as const, reason: `could not check: ${(e as Error).message}` }));
+        if (c.ok) paid = { from: c.from, wei: c.valueWei, txHash: tx };
+        else if (/not mined|not found|not confirmed|could not check/.test(c.reason)) await new Promise((r) => setTimeout(r, d.paymentPollMs ?? 3000));
+        else {
+          move("AWAITING_PAYMENT", `payment ${tx.slice(0, 10)}… not accepted: ${c.reason}`);
+          break;
+        }
+      }
+    }
+    if (!paid) {
+      store.move(a.taskId, "ABORTED", "the quote was not paid before it expired");
+      d.progress("ABORTED", a.taskId, "the quote was not paid before it expired; nothing was done");
+      return null;
+    }
+    money.funding = "customer payment";
+    money.customerPayment = { from: paid.from, amount0G: fromMicro(weiToMicro(paid.wei)), txHash: paid.txHash };
+    touch("customer payment", "0G Galileo", `${money.customerPayment.amount0G} 0G from ${paid.from}, tx ${paid.txHash}`);
+    budget = weiToMicro(paid.wei) < cap ? weiToMicro(paid.wei) : cap;
+    move("PAID", `received ${money.customerPayment.amount0G} 0G; agent budget ${fromMicro(budget)} 0G`);
+  } else {
+    money.funding = "robot's own balance (owner test task)";
+    budget = cap;
+  }
+  money.budget0G = fromMicro(budget);
 
   // ---- hire (the robot chooses)
   move("DISCOVERING_SPECIALISTS", `${offers.length} agents on Arkiv`);
@@ -225,9 +318,32 @@ export async function runTask(a: Assignment, d: Deps): Promise<EpisodeRecord | n
     await d.evidence.claim({ schemaVersion: "1.0", jobId: `job-${randomUUID().slice(0, 16)}`, taskId: a.taskId, robotId: d.robotId, robotWallet: d.robotWallet, agentId: h.agentId, price: h.price, deadline: jobDeadline }).catch(() => undefined);
   }
 
-  /** One paid agent job; recorded as a purchase whatever happens. */
+  /**
+   * One agent job: pay the agent's owner (the wallet on its Arkiv listing) in 0G first, then send the
+   * job with the payment's hash. Recorded as a purchase whatever happens. `blocked` means no money moved.
+   */
   const job = async (agent: AgentListing, forWhat: string, input: unknown) => {
     const jobId = `job-${randomUUID().slice(0, 16)}`;
+    const price = micro(agent.price.amount);
+    const rec: Purchase = {
+      at: now(), agentId: agent.agentId, agentName: agent.displayName, kind: agent.kind, forWhat, price0G: agent.price.amount, payTo: agent.ownerWallet,
+      paymentStatus: "not paid", status: "not run", model: agent.inference?.model, trustMode: agent.inference?.trustMode,
+    };
+    purchases.push(rec);
+    if (budget === null || spent + price > budget) {
+      rec.status = "not bought: over the task's agent budget";
+      return { r: null, latencyMs: 0, blocked: `paying ${agent.displayName} ${agent.price.amount} 0G would exceed the agent budget of ${fromMicro(budget ?? 0n)} 0G` };
+    }
+    const pay = await d.wallet.pay({ to: agent.ownerWallet, wei: toWei(agent.price.amount), kind: "job", id: jobId }).catch((e) => ({ error: (e as Error).message }));
+    if ("error" in pay || pay.status !== "success") {
+      rec.paymentStatus = "error" in pay ? `failed: ${pay.error}` : pay.status;
+      if (!("error" in pay)) rec.paymentTx = pay.txHash;
+      if (!("error" in pay) && pay.status === "pending") spent += price; // may still land: count it, never pay it again
+      rec.status = "not run: payment did not go through";
+      return { r: null, latencyMs: 0, blocked: `could not pay ${agent.displayName}: ${rec.paymentStatus}` };
+    }
+    spent += price;
+    Object.assign(rec, { paymentTx: pay.txHash, paymentStatus: "paid" });
     const t0 = Date.now();
     let r;
     try {
@@ -235,18 +351,19 @@ export async function runTask(a: Assignment, d: Deps): Promise<EpisodeRecord | n
         platform.runJob(agent.agentId, {
           jobId, parentTaskId: a.taskId, requestingRobotId: d.robotId, targetAgentId: agent.agentId, capabilityId: agent.capabilities[0]!.capabilityId,
           input, budgetLimit: agent.price.amount, deadline: new Date(Date.now() + (d.inferenceTimeoutMs ?? 45_000)).toISOString(), idempotencyKey: jobId,
+          payment: { txHash: pay.txHash },
         }),
         new Promise<null>((ok) => setTimeout(() => ok(null), d.inferenceTimeoutMs ?? 45_000)),
       ]);
     } catch {
       r = undefined;
     }
-    purchases.push({
-      at: now(), agentId: agent.agentId, agentName: agent.displayName, kind: agent.kind, forWhat, priceUsdc: agent.price.amount,
-      status: r?.status === "succeeded" ? "delivered" : r ? `not delivered (${r.status})` : "no answer",
-      providerRequestId: r?.receipt?.providerRequestId, model: agent.inference?.model, trustMode: agent.inference?.trustMode,
+    Object.assign(rec, {
+      status: r?.status === "succeeded" ? "delivered" : r ? `not delivered (${r.status}${r.reason ? `: ${r.reason.slice(0, 80)}` : ""})` : "no answer",
+      providerRequestId: r?.receipt?.providerRequestId,
+      billing: r?.receipt?.billing,
     });
-    return { r: r ?? null, latencyMs: r?.receipt?.latencyMs ?? Date.now() - t0 };
+    return { r: r ?? null, latencyMs: r?.receipt?.latencyMs ?? Date.now() - t0, blocked: undefined as string | undefined };
   };
 
   // ---- optional: a navigation agent orders the stops (the robot keeps its own order otherwise)
@@ -276,7 +393,11 @@ export async function runTask(a: Assignment, d: Deps): Promise<EpisodeRecord | n
 
     let answer: { action: string; confidence: number; observation: string; anomaly: string | null; found: boolean } | null = null;
     for (let attempt = 1; attempt <= 2 && !answer; attempt++) {
-      const { r, latencyMs } = await job(visionAgent, `look at ${stop}`, { image: img.dataUrl, context: sp.ask(stop) });
+      const { r, latencyMs, blocked } = await job(visionAgent, `look at ${stop}`, { image: img.dataUrl, context: sp.ask(stop) });
+      if (blocked) {
+        await local.hold(true);
+        return finish("SAFE_STOP", `${blocked}; holding at ${stop}, nothing invented`);
+      }
       const base = { at: now(), checkpoint: stop, agentId: visionAgent.agentId, model: visionAgent.inference?.model ?? "", trustMode: visionAgent.inference?.trustMode ?? "", latencyMs };
       if (!r || r.status !== "succeeded") {
         decisions.push({ ...base, providerRequestId: r?.receipt?.providerRequestId, outcome: r ? "failed" : "timeout", action: "hold" });

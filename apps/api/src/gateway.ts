@@ -230,6 +230,15 @@ export class Gateway {
     return this.state(robotId).events.filter((e) => e.detail.includes(taskId));
   }
 
+  /** Tell the robot a customer says they paid. The robot checks the transfer on chain itself. */
+  paymentNotice(robotId: string, taskId: string, txHash: string) {
+    const s = this.sessions.get(robotId);
+    if (!s?.hello) return { ok: false as const, reason: "The robot is not connected" };
+    this.send(s, { type: "payment_notice", taskId, txHash });
+    this.event(robotId, "task", `${taskId} payment sent by the customer: ${txHash.slice(0, 12)}…`);
+    return { ok: true as const };
+  }
+
   /** Send a task to a connected robot. The robot validates it and answers with task_ack. */
   assign(robotId: string, task: Omit<Extract<PlatformToRobot, { type: "task_assignment" }>, "type" | "assignedAt" | "taskId"> & { taskId?: string }) {
     const s = this.sessions.get(robotId);

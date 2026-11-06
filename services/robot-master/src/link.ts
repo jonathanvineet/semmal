@@ -5,6 +5,7 @@ import type { PlatformToRobot } from "@semmal/contracts";
 export type LinkHandlers = {
   heartbeat: () => Promise<Record<string, unknown>>;
   onTask: (m: Extract<PlatformToRobot, { type: "task_assignment" }>) => void;
+  onPayment: (taskId: string, txHash: string) => void;
   log: (msg: string) => void;
 };
 
@@ -43,6 +44,7 @@ export class Link {
         void tick();
         this.beat = setInterval(() => void tick(), m.heartbeatSeconds * 1000);
       } else if (m.type === "task_assignment") this.h.onTask(m);
+      else if (m.type === "payment_notice" && /^0x[0-9a-fA-F]{64}$/.test(m.txHash)) this.h.onPayment(m.taskId, m.txHash);
       else if (m.type === "error") this.h.log(`gateway: ${m.code}: ${m.message}`);
     });
     ws.on("close", (code) => {

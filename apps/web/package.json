@@ -24,7 +24,8 @@
     "react-dom": "^19.3.1",
     "three": "^0.187.0",
     "viem": "^2.57.16",
-    "zod": "^4.6.7"
+    "zod": "^4.6.7",
+    "@semmal/zerog-pay": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^24",

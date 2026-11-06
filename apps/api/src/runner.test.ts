@@ -11,7 +11,7 @@ const listing: AgentListing = {
   schemaVersion: "1.0", agentId: "agt-panel-vision-abc123", ownerWallet: "0x00000000000000000000000000000000000000aa",
   displayName: "Panel Vision", kind: "vision", summary: "x", endpoint: "http://localhost:3000/agents/agt-panel-vision-abc123/jobs",
   capabilities: [{ capabilityId: "vision.inspection", inputSchemaVersion: "1.0", outputSchemaVersion: "1.0", supportedRobotTypes: ["diff-drive-indoor"], supportedTaskTypes: ["warehouse.inspection"] }],
-  price: { amount: "0.05", token: "USDC", unit: "job" }, inference: { model: "m-vision", trustMode: "private" },
+  price: { amount: "0.05", token: "0G", unit: "job" }, inference: { model: "m-vision", trustMode: "private" },
   delegation: { allowed: false, maxBudgetShare: 0 }, serviceVersion: "1.0.0",
 };
 const IMG = "data:image/png;base64,iVBORw0KGgo=";
@@ -55,7 +55,7 @@ test("a good vision job succeeds with a receipt that carries the provider reques
   assert.equal((r.output as { recommended_action: string }).recommended_action, "pause_and_request_inspection");
   assert.equal(r.receipt?.providerRequestId, "req-123");
   assert.match(r.receipt!.receiptHash, /^[0-9a-f]{64}$/);
-  assert.deepEqual(r.cost, { amount: "0.05", token: "USDC" });
+  assert.deepEqual(r.cost, { amount: "0.05", token: "0G" });
   const sent = calls[0] as { trustRequirement: string; model: string };
   assert.equal(sent.trustRequirement, "private");
   assert.equal(sent.model, "m-vision");
@@ -104,4 +104,72 @@ test("no private provider: fails closed and says so", async () => {
   assert.equal(r.status, "failed");
   assert.match(r.reason!, /not downgraded/);
   assert.deepEqual(r.evidenceRefs, ["req-err"]);
+});
+
+// ---------------------------------------------------------------- payments and per-agent keys
+const ROBOT = { kind: "robot" as const, robotId: "rbt-1", robotWallet: "0x00000000000000000000000000000000000000bb" };
+const TX = `0x${"ab".repeat(32)}`;
+function paid(check: (w: { to: string; from: string; minWei: bigint; memo: string }) => { ok: boolean; reason?: string }, mgmt = "") {
+  const f = fakeRouter(async () => ({ output: GOOD }));
+  const keys: unknown[] = [];
+  const keyArgs: unknown[] = [];
+  const router = {
+    ...f.router,
+    config: { timeoutMs: 30_000, managementKey: mgmt },
+    chat: async (req: unknown, opts: unknown) => { keys.push(opts); return f.router.chat(req); },
+    createKey: async (k: unknown) => { keyArgs.push(k); return { key: "sk-agent-secret", keyId: "k1", currency: "0g", creditLimit: "0.05" }; },
+  };
+  const seen: unknown[] = [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const runner = new AgentRunner(router as any, async () => listing, join(mkdtempSync(join(tmpdir(), "semmal-pay-")), "jobs.db"), async (w) => {
+    seen.push(w);
+    const r = check(w);
+    return r.ok ? { ok: true, from: w.from as `0x${string}`, to: w.to as `0x${string}`, valueWei: w.minWei, blockNumber: 1n, confirmations: 1n } : { ok: false, reason: r.reason! };
+  });
+  return { runner, calls: f.calls, seen, keys, keyArgs };
+}
+
+test("a robot's job runs only after its 0G payment to the agent owner checks out", async () => {
+  const t = paid(() => ({ ok: true }));
+  assert.match((await t.runner.run(listing.agentId, job(), ROBOT)).reason!, /must carry its 0G payment/);
+  const r = await t.runner.run(listing.agentId, job({ payment: { txHash: TX } }), ROBOT);
+  assert.equal(r.status, "succeeded");
+  const w = t.seen[0] as { to: string; from: string; minWei: bigint; memo: string };
+  assert.equal(w.to, listing.ownerWallet);
+  assert.equal(w.from, ROBOT.robotWallet);
+  assert.equal(w.minWei, 50_000_000_000_000_000n); // 0.05 0G
+  assert.equal(Buffer.from(w.memo.slice(2), "hex").toString(), "semmal:job:job-000001");
+  assert.equal(r.receipt!.paymentTx, TX);
+});
+
+test("a bad payment stops the job before 0G is called; one payment pays one job", async () => {
+  const bad = paid(() => ({ ok: false, reason: "paid to a different address" }));
+  const r = await bad.runner.run(listing.agentId, job({ payment: { txHash: TX } }), ROBOT);
+  assert.equal(r.status, "rejected");
+  assert.match(r.reason!, /different address/);
+  assert.equal(bad.calls.length, 0);
+  const t = paid(() => ({ ok: true }));
+  assert.equal((await t.runner.run(listing.agentId, job({ payment: { txHash: TX } }), ROBOT)).status, "succeeded");
+  const again = await t.runner.run(listing.agentId, job({ jobId: "job-000002", payment: { txHash: TX } }), ROBOT);
+  assert.match(again.reason!, /already paid for another job/);
+  assert.equal(t.calls.length, 1);
+});
+
+test("a robot cannot run a job in another robot's name or pay an agent not priced in 0G", async () => {
+  const t = paid(() => ({ ok: true }));
+  assert.match((await t.runner.run(listing.agentId, job({ requestingRobotId: "rbt-2", payment: { txHash: TX } }), ROBOT)).reason!, /calling robot/);
+  assert.equal(t.calls.length, 0);
+});
+
+test("with a management key each agent gets its own capped Router key, created once", async () => {
+  const t = paid(() => ({ ok: true }), "mk-test");
+  await t.runner.run(listing.agentId, job(), { kind: "owner" });
+  await t.runner.run(listing.agentId, job(), { kind: "owner" });
+  assert.equal(t.keyArgs.length, 1);
+  assert.deepEqual(t.keyArgs[0], { name: `semmal-${listing.agentId}`, creditLimit: "0.05", resetPeriod: "daily", allowedModels: ["m-vision"], trustMode: "private" });
+  assert.deepEqual(t.keys[1], { apiKey: "sk-agent-secret" });
+  assert.ok(!JSON.stringify(t.runner.agentKeys()).includes("sk-agent-secret"), "the secret is never listed");
+  const none = paid(() => ({ ok: true }));
+  const r = await none.runner.run(listing.agentId, job(), { kind: "owner" });
+  assert.match(r.receipt!.billing!, /shared platform Router key/);
 });
