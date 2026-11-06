@@ -21,7 +21,7 @@ export const RABDI_WALLET_PARAMS = {
 const JOURNAL = "semmal.arkiv.journal.v1";
 
 export type Approval = { key: string; gas: bigint; gasPrice: bigint; maximumCostWei: bigint; resolve: (ok: boolean) => void };
-export type JournalEntry = { key: string; phase: string; txHash?: string; entityKey?: string; at: string };
+export type JournalEntry = { key: string; phase: string; txHash?: string; entityKey?: string; cause?: string; at: string };
 
 export const readJournal = (): JournalEntry[] => {
   try {
@@ -82,13 +82,17 @@ export function useArkivWriter() {
       if (prior.some((e) => e.phase === "receipt_verified")) throw new Error("This exact profile is already published from this browser.");
       if (prior.some((e) => e.txHash && !prior.some((f) => f.phase === "receipt_verified" && f.txHash === e.txHash)))
         throw new Error("An earlier transaction for this profile is unconfirmed. Check it on the explorer first.");
+      // make sure this site is authorized for the selected account before anything is prepared
+      const granted = ((await p.request({ method: "eth_requestAccounts" })) as string[]).map((a) => a.toLowerCase());
+      if (!granted.includes(account.toLowerCase()))
+        throw new Error(`Your wallet connected this site to ${granted[0] ?? "no account"}, but ${account} is selected here. Switch to ${account} in the wallet (or reload the page to use the connected one), then try again.`);
       const budget = parseEther(maxFeeTglm);
       const w = guardedWalletClient({
         publicClient: reader(),
         signer: walletSigner(p, account),
         accessKey: "",
         maxCostWei: budget,
-        journal: { record: (e) => record({ key, phase: String(e.phase), txHash: e.txHash as string | undefined, entityKey: e.entityKey as string | undefined }) },
+        journal: { record: (e) => record({ key, phase: String(e.phase), txHash: e.txHash as string | undefined, entityKey: e.entityKey as string | undefined, cause: e.cause as string | undefined }) },
         approve: (tx) =>
           new Promise<boolean>((resolve) => setApproval({ key, gas: tx.gas, gasPrice: tx.gasPrice, maximumCostWei: tx.maximumCostWei, resolve })),
       });
@@ -109,12 +113,15 @@ export function useArkivWriter() {
       const prior = readJournal().filter((e) => e.key === key);
       if (prior.some((e) => e.txHash && !prior.some((f) => f.phase === "receipt_verified" && f.txHash === e.txHash)))
         throw new Error("An earlier delete for this entity is unconfirmed. Check it on the explorer first.");
+      const granted = ((await p.request({ method: "eth_requestAccounts" })) as string[]).map((x) => x.toLowerCase());
+      if (!granted.includes(account.toLowerCase()))
+        throw new Error(`Your wallet connected this site to ${granted[0] ?? "no account"}, but ${account} is selected here. Switch accounts in the wallet, then try again.`);
       const w = guardedWalletClient({
         publicClient: reader(),
         signer: walletSigner(p, account),
         accessKey: "",
         maxCostWei: parseEther(maxFeeTglm),
-        journal: { record: (e) => record({ key, phase: String(e.phase), txHash: e.txHash as string | undefined, entityKey }) },
+        journal: { record: (e) => record({ key, phase: String(e.phase), txHash: e.txHash as string | undefined, entityKey, cause: e.cause as string | undefined }) },
         approve: (tx) =>
           new Promise<boolean>((resolve) => setApproval({ key, gas: tx.gas, gasPrice: tx.gasPrice, maximumCostWei: tx.maximumCostWei, resolve })),
       });

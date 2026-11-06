@@ -61,6 +61,7 @@ export function walletSigner(provider: Eip1193, selectedAddress: string) {
         throw new Error("Connect the selected account to Rabdi before signing");
     },
     async send(tx: Record<string, unknown> & { to: string; data: string; gas: bigint; gasPrice: bigint; nonce: number }) {
+      try {
       return (await provider.request({
         method: "eth_sendTransaction",
         params: [
@@ -77,6 +78,13 @@ export function walletSigner(provider: Eip1193, selectedAddress: string) {
           },
         ],
       })) as string;
+      } catch (e) {
+        // EIP-1193 4100: this site is not authorized for that account; 4001: the user rejected it
+        const code = (e as { code?: number })?.code;
+        if (code === 4100) throw new Error(`Your wallet has not authorized this site for ${address}. Open the wallet, connect this site to that account, then publish again`);
+        if (code === 4001) throw new Error("You rejected the transaction in your wallet");
+        throw e;
+      }
     },
   };
 }
@@ -95,7 +103,8 @@ export function guardedWalletClient(opts: {
   if (typeof maxCostWei !== "bigint" || maxCostWei <= 0n) fail("Explicit positive fee budget required");
   const chain = rabdi({ accessKey });
   const address = getAddress(signer.address);
-  const state = { attempted: false, hash: null as string | null, reservedWei: 0n, phase: "ready" };
+  // lastFailure: the guard's own message (the SDK replaces errors raised in the transport with a generic one)
+  const state = { attempted: false, hash: null as string | null, reservedWei: 0n, phase: "ready", lastFailure: null as string | null };
   // the one operation this instance may sign: 1 = Create, 5 = Delete (SDK entity/params.ts OperationType)
   let expectedOp = 0;
   let approved: Record<string, unknown> & { to: string; data: string; gas: bigint; gasPrice: bigint; nonce: number; type: string };
@@ -108,6 +117,7 @@ export function guardedWalletClient(opts: {
     transport: custom(
       {
         request: async ({ method, params }: { method: string; params?: unknown[] }) => {
+         try {
           if (readMethods.has(method)) return publicClient.request({ method, params });
           if (method !== "eth_sendTransaction" || state.attempted) fail("Only one create submission is permitted; do not retry");
           state.attempted = true;
@@ -133,7 +143,16 @@ export function guardedWalletClient(opts: {
           await signer.verify();
           const started = Date.now();
           const call = { account: address, to: REGISTRY, data: input!.data, value: 0n };
-          await publicClient.call({ ...call, blockTag: "latest" });
+          // Arkiv charges its fee while the write executes, so an empty wallet fails the dry run with
+          // "Execution error without revert data"; say what it really is
+          const have: bigint = await publicClient.getBalance({ address, blockTag: "latest" });
+          if (have === 0n) fail(`This wallet (${address}) has no tGLM on Rabdi to pay Arkiv's fee. Get some at https://hub.arkiv.network/faucet and try again`);
+          try {
+            await publicClient.call({ ...call, blockTag: "latest" });
+          } catch (e) {
+            const m = String((e as { shortMessage?: string })?.shortMessage ?? (e as Error)?.message ?? e);
+            fail(/without revert data/i.test(m) ? `Arkiv rejected the write in a dry run (${m}). Usually this wallet has too little tGLM for the fee: it holds ${have} wei` : m);
+          }
           const estimate: bigint = await publicClient.estimateGas({ ...call, blockTag: "latest" });
           if (typeof estimate !== "bigint" || estimate <= 0n) fail("Invalid unsigned gas estimate");
           const floor = 1_000_000n;
@@ -187,6 +206,10 @@ export function guardedWalletClient(opts: {
           state.phase = "submitted";
           await journal.record({ phase: "submitted", txHash: hash });
           return hash;
+         } catch (e) {
+          state.lastFailure = String((e as { shortMessage?: string })?.shortMessage ?? (e as Error)?.message ?? e).split("\n")[0]!.slice(0, 200);
+          throw e;
+         }
         },
       },
       { retryCount: 0 },
@@ -234,9 +257,14 @@ export function guardedWalletClient(opts: {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       await journal.record({ phase: "receipt_verified", txHash: state.hash, entityKey: (result as any).entityKey });
       return result;
-    } catch {
-      await journal.record({ phase: "failed", at: state.phase, reason: failureReason, txHash: state.hash });
-      throw new Error(`Arkiv write not verified (${state.phase}; ${failureReason}); inspect the local journal, do not resend automatically`);
+    } catch (e) {
+      // keep the real cause: which check failed, or what the wallet/RPC said
+      const cause = state.lastFailure ?? String((e as { shortMessage?: string; message?: string })?.shortMessage ?? (e as Error)?.message ?? e).split("\n")[0]!.slice(0, 200);
+      await journal.record({ phase: "failed", at: state.phase, reason: failureReason, cause, txHash: state.hash });
+      if (!state.hash)
+        // nothing was sent: safe to fix the cause and try again
+        throw new Error(`Arkiv write not sent: ${cause}`);
+      throw new Error(`Arkiv write sent (${state.hash}) but not verified: ${cause}. Check the transaction in the explorer before trying again; do not resend automatically`);
     }
   }
 
