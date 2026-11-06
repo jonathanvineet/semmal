@@ -170,3 +170,8 @@ test("two wallets can be signed in at once, one per tab (session header), each s
   assert.equal(await me(two.sid), null);
   assert.equal(await me(one.sid), one.address, "signing one tab out leaves the other signed in");
 });
+
+test("orders are only for the signed-in wallet", async () => {
+  const r = await app().inject({ method: "GET", url: "/api/orders" });
+  assert.equal(r.statusCode, 401);
+});

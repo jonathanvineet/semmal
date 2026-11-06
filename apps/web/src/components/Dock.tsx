@@ -35,6 +35,9 @@ const I = {
   add: (
     <g><rect x="4" y="4" width="16" height="16" rx="5" /><path d="M12 8.5v7M8.5 12h7" /></g>
   ),
+  orders: (
+    <g><path d="M5 7.5h14l-1.3 9.2a2.5 2.5 0 0 1-2.5 2.1H8.8a2.5 2.5 0 0 1-2.5-2.1L5 7.5Z" /><path d="M9 10V7a3 3 0 0 1 6 0v3" /></g>
+  ),
   admin: (
     <g><circle cx="12" cy="9" r="3.4" /><path d="M5.5 19.5c.9-3 3.5-4.6 6.5-4.6s5.6 1.6 6.5 4.6" /></g>
   ),
@@ -48,6 +51,7 @@ const ITEMS: Item[] = [
   { id: "trust", href: "/#trust", label: "Privacy and safety", icon: "trust", section: "trust" },
   { id: "agents", href: "/agents", label: "Agent market", icon: "agents" },
   { id: "quote", href: "/quote", label: "Get a quote", icon: "quote" },
+  { id: "orders", href: "/orders", label: "Your orders", icon: "orders" },
 ];
 const OPS: Item[] = [
   { id: "register", href: "/robots/new", label: "Register a robot", icon: "add" },

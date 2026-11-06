@@ -107,6 +107,47 @@ export function buildApp(deps: Deps = defaultDeps()) {
     return { ok: true };
   });
 
+  /**
+   * The signed-in wallet's bookings, newest first: the booking on Arkiv (until its deadline), the robot's
+   * offer, and the live status the robot reported. Never includes the customer's address.
+   */
+  app.get("/api/orders", async (req, reply) => {
+    const address = sessionAddress(req);
+    if (!address) return reply.code(401).send({ error: "sign in with your wallet to see your orders" });
+    try {
+      const [tasks, robots] = await Promise.all([registry.listTasks({ customer: address }), robotsFromArkiv("")]);
+      const items = await Promise.all(
+        tasks.map(async (t) => {
+          const robot = robots.find((r) => r.data.robotId === t.data.robotId)?.data;
+          const quotes = await registry.listQuotes(t.data.taskId).catch(() => []);
+          const events = gateway ? gateway.taskEvents(t.data.robotId, t.data.taskId) : [];
+          const state = events.map((e) => /: ([A-Z_]+)/.exec(e.detail)?.[1]).find(Boolean) ?? null; // newest first
+          const trip = gateway?.trips.get(t.data.taskId);
+          return {
+            taskId: t.data.taskId,
+            entityKey: t.entityKey,
+            robotId: t.data.robotId,
+            robotName: robot?.displayName ?? t.data.robotId,
+            robotModel: robot?.model ?? null,
+            skill: t.data.skill,
+            maxBudget: t.data.maxBudget,
+            createdAt: t.data.createdAt ?? null,
+            startAt: t.data.startAt ?? null,
+            deadline: t.data.deadline,
+            offer: quotes[0] ? { amount: quotes[0].data.amount, validUntil: quotes[0].data.validUntil } : null,
+            state,
+            latest: trip?.points.at(-1) ? { phase: trip.points.at(-1)!.phase, etaAt: trip.points.at(-1)!.etaAt ?? null, remainingM: trip.points.at(-1)!.remainingM ?? null } : null,
+            lastEvent: events[0] ?? null,
+          };
+        }),
+      );
+      const when = (o: { createdAt: string | null; startAt: string | null; deadline: string }) => Date.parse(o.createdAt ?? o.startAt ?? o.deadline);
+      return { items: items.sort((a, b) => when(b) - when(a)) };
+    } catch {
+      return reply.code(502).send({ error: "Arkiv could not be reached" });
+    }
+  });
+
   /** The signed-in wallet's notifications (owner of robots, or customer of bookings). */
   app.get("/api/notifications", async (req, reply) => {
     const address = sessionAddress(req);

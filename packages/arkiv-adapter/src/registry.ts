@@ -112,8 +112,14 @@ export class ArkivRegistry {
     return out;
   }
 
-  async listTasks(filter: { robotId?: string; taskId?: string } = {}) {
-    const where = filter.taskId ? eq("task_id", filter.taskId) : filter.robotId ? eq("robot_id", filter.robotId) : undefined;
+  async listTasks(filter: { robotId?: string; taskId?: string; customer?: string } = {}) {
+    const where = filter.taskId
+      ? eq("task_id", filter.taskId)
+      : filter.robotId
+        ? eq("robot_id", filter.robotId)
+        : filter.customer
+          ? eq("customer", addr(getAddress(filter.customer)))
+          : undefined;
     return this.readBodies(TaskRequestSchema, where, TaskRequest, (d) => d.customerWallet);
   }
   async listQuotes(taskId: string) {

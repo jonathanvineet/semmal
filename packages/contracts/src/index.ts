@@ -514,6 +514,8 @@ export const TaskRequest = z.object({
   area: z.string().max(40),
   maxBudget: amountZ,
   deadline: z.string().datetime(),
+  /** When the customer booked it. */
+  createdAt: z.string().datetime().optional(),
   /** When the customer wants the robot on site (the delivery date). The address itself is never on Arkiv. */
   startAt: z.string().datetime().optional(),
   note: z.string().max(200).optional(),

@@ -36,13 +36,14 @@ const localInput = (ms: number) => {
   return d.toISOString().slice(0, 16);
 };
 
-export function BookTask({ robotId, robotName, robotBase, site, area, plan, quote }: { robotId: string; robotName: string; robotBase: Pt | null; site: Pt | null; area: string; plan: Plan; quote: string }) {
+export function BookTask({ robotId, robotName, robotBase, site, area, plan, quote, resume }: { robotId: string; robotName: string; robotBase: Pt | null; site: Pt | null; area: string; plan: Plan; quote: string; resume?: string }) {
   const w = useWallet();
   const ark = useArkivWriter();
   const [hours, setHours] = useState(4);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const [taskId, setTaskId] = useState<string | null>(null);
+  // resume: open an existing order (from Your orders) straight in its tracking view
+  const [taskId, setTaskId] = useState<string | null>(resume ?? null);
   const [view, setView] = useState<TaskView | null>(null);
   const [dispatched, setDispatched] = useState<string | null>(null);
   const [payTx, setPayTx] = useState<string | null>(null);
@@ -62,12 +63,12 @@ export function BookTask({ robotId, robotName, robotBase, site, area, plan, quot
     if (drive && (!startAt || Date.parse(startAt) < earliest)) setStartAt(localInput(Math.ceil(earliest / 300_000) * 300_000));
   }, [drive]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
-    if (!taskId || !site) return;
+    if (!taskId) return;
     const load = () => fetch(`/api/tasks/${taskId}/track`).then((r) => (r.ok ? r.json() : null)).then((d) => d && setTrack(d)).catch(() => undefined);
     load();
     const t = setInterval(load, 3000);
     return () => clearInterval(t);
-  }, [taskId, site]);
+  }, [taskId]);
   const [confirmPay, setConfirmPay] = useState(false);
 
   /** Pay the robot's offer from the customer's own wallet: a plain 0G transfer on Galileo with the quote's memo. */
@@ -130,6 +131,7 @@ export function BookTask({ robotId, robotName, robotBase, site, area, plan, quot
         area,
         maxBudget: quote,
         deadline: new Date(start + hours * 3_600_000).toISOString(),
+        createdAt: new Date().toISOString(),
         ...(startAt ? { startAt: new Date(start).toISOString() } : {}),
       });
       await ark.publish(`task:${id}`, w.account, args, "0.01");
@@ -173,15 +175,15 @@ export function BookTask({ robotId, robotName, robotBase, site, area, plan, quot
             {view?.claims.length ? `Hired ${view.claims.map((c) => c.data.agentId).join(", ")}` : "Waiting for the robot to hire agents"}
           </li>
         </ol>
-        {site && (
+        {(site ?? track?.site) && (
           <div className="bk__track">
             <MapView
               className="bk__map"
-              center={site}
-              site={site}
+              center={(site ?? track?.site)!}
+              site={site ?? track?.site ?? null}
               route={track?.route?.coords ?? null}
               live={track?.latest ? { lat: track.latest.lat, lon: track.latest.lon, label: robotName } : null}
-              fit={[site, ...(track?.latest ? [{ lat: track.latest.lat, lon: track.latest.lon }] : robotBase ? [robotBase] : [])]}
+              fit={[(site ?? track?.site)!, ...(track?.latest ? [{ lat: track.latest.lat, lon: track.latest.lon }] : robotBase ? [robotBase] : [])]}
             />
             <p className="t-small">
               {!track?.latest
