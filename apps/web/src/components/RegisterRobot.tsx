@@ -6,7 +6,7 @@
  */
 import Link from "next/link";
 import { AnimatePresence, motion } from "motion/react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { formatEther, getAddress, isAddress } from "viem";
 import { ROBOT_MODELS, ROBOT_SKILLS, RobotProfile, SERVICE_AREAS, robotIdFromWallet, type RobotProfile as TRobot } from "@semmal/contracts";
 import { Select } from "./ui/Select";
@@ -16,7 +16,7 @@ import { useWallet } from "@/lib/wallet";
 import { useArkivWriter } from "@/lib/arkiv-writer";
 import { ARKIV_EXPLORER } from "@/lib/api";
 import { QuoteBreakdown, type QuoteResult } from "./QuoteBreakdown";
-import { RobotCanvas, RobotView, preloadRobots } from "./robots3d/Robot3D";
+import { RobotCanvas, RobotSolo, RobotView, preloadRobots } from "./robots3d/Robot3D";
 
 preloadRobots(ROBOT_MODELS.map((x) => x.asset));
 
@@ -30,6 +30,7 @@ const norm = (v: string) => (isAmount(v) ? String(Number(v.trim())) : "");
 
 export function RegisterRobot() {
   const w = useWallet();
+  const scroller = useRef<HTMLDivElement>(null);
   const ark = useArkivWriter();
   const [step, setStep] = useState(0);
   const [dir, setDir] = useState(1);
@@ -182,7 +183,7 @@ export function RegisterRobot() {
 
   return (
     <div className="reg">
-      <RobotCanvas />
+      <RobotCanvas bounds={scroller} />
       <ol className="reg-rail" aria-label="Steps">
         {STEPS.map((s, i) => (
           <li key={s}>
@@ -199,7 +200,7 @@ export function RegisterRobot() {
 
       <div className="reg-body">
         <div className="reg-panel">
-          <div className="reg-scroll">
+          <div className="reg-scroll" ref={scroller}>
           <AnimatePresence mode="wait" custom={dir}>
             <motion.div
               key={step}
@@ -401,7 +402,7 @@ export function RegisterRobot() {
         <aside className="reg-preview" aria-label="Preview">
           <span className="t-label muted">Preview</span>
           <div className="robot-card">
-            <RobotView asset={m.asset} active className="robot-card__view" zoom={1.05} />
+            <RobotSolo asset={m.asset} active className="robot-card__view" zoom={1.05} />
             <h3>{name.trim() || "Your robot"}</h3>
             <p className="muted t-small">{m.name}</p>
             <div className="robot-card__tags">

@@ -7,7 +7,7 @@
  */
 import { Canvas, useFrame } from "@react-three/fiber";
 import { ContactShadows, Environment, Lightformer, PerspectiveCamera, useGLTF, View } from "@react-three/drei";
-import { Suspense, useMemo, useRef } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import * as THREE from "three";
 
 const OBSIDIAN = () => new THREE.MeshPhysicalMaterial({ color: "#17181c", roughness: 0.28, metalness: 0.6, clearcoat: 1, clearcoatRoughness: 0.18 });
@@ -80,11 +80,11 @@ function Model({ asset, active, tilt = 0.18 }: { asset: string; active: boolean;
 }
 
 /** One robot inside a card. Place it anywhere in the page; it draws into the shared canvas. */
-export function RobotView({ asset, active = false, className, zoom = 1 }: { asset: string; active?: boolean; className?: string; zoom?: number }) {
+function RobotScene({ asset, active, zoom }: { asset: string; active: boolean; zoom: number }) {
   const f = FRAME[asset];
   const z = zoom * (f?.zoom ?? 1);
   return (
-    <View className={className}>
+    <>
       <PerspectiveCamera makeDefault position={[1.35 / z, (f?.camY ?? 0.55) / z, 1.6 / z]} fov={30} onUpdate={(c) => c.lookAt(0, 0.02, 0)} />
       <ambientLight intensity={0.25} />
       <directionalLight position={[2, 3, 2]} intensity={1.6} />
@@ -99,19 +99,62 @@ export function RobotView({ asset, active = false, className, zoom = 1 }: { asse
       <Suspense fallback={null}>
         <Model asset={asset} active={active} />
       </Suspense>
+    </>
+  );
+}
+
+export function RobotView({ asset, active = false, className, zoom = 1 }: { asset: string; active?: boolean; className?: string; zoom?: number }) {
+  return (
+    <View className={className}>
+      <RobotScene asset={asset} active={active} zoom={zoom} />
     </View>
   );
 }
 
-/** Mount once per page that shows robots: the shared canvas every RobotView draws into. */
-export function RobotCanvas() {
+/** One robot in its own small canvas (for a single large preview outside the shared canvas's area). */
+export function RobotSolo({ asset, active = true, className, zoom = 1 }: { asset: string; active?: boolean; className?: string; zoom?: number }) {
+  return (
+    <div className={className}>
+      <Canvas dpr={[1, 1.75]} gl={{ antialias: true, alpha: true }} style={{ pointerEvents: "none" }}>
+        <RobotScene asset={asset} active={active} zoom={zoom} />
+      </Canvas>
+    </div>
+  );
+}
+
+/**
+ * Mount once per page that shows robots: the shared canvas every RobotView draws into.
+ * With `bounds` (a scrolling panel), the canvas covers only that panel, so a card scrolled out of
+ * the panel is clipped at the panel's edge instead of drawing over the rest of the page.
+ */
+export function RobotCanvas({ bounds }: { bounds?: RefObject<HTMLElement | null> } = {}) {
+  const [box, setBox] = useState<{ top: number; left: number; width: number; height: number } | null>(null);
+  useEffect(() => {
+    const el = bounds?.current;
+    if (!el) return;
+    const measure = () => {
+      const r = el.getBoundingClientRect();
+      setBox((b) => (b && b.top === r.top && b.left === r.left && b.width === r.width && b.height === r.height ? b : { top: r.top, left: r.left, width: r.width, height: r.height }));
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    window.addEventListener("resize", measure);
+    window.addEventListener("scroll", measure, true);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("resize", measure);
+      window.removeEventListener("scroll", measure, true);
+    };
+  }, [bounds]);
+  if (bounds && !box) return null;
   return (
     <Canvas
       className="robot-canvas"
       dpr={[1, 1.75]}
       gl={{ antialias: true, alpha: true }}
       eventSource={typeof document !== "undefined" ? document.body : undefined}
-      style={{ position: "fixed", inset: 0, pointerEvents: "none", zIndex: 5 }}
+      style={box ? { position: "fixed", ...px(box), pointerEvents: "none", zIndex: 5 } : { position: "fixed", inset: 0, pointerEvents: "none", zIndex: 5 }}
     >
       <View.Port />
     </Canvas>
@@ -119,3 +162,5 @@ export function RobotCanvas() {
 }
 
 export const preloadRobots = (assets: string[]) => assets.forEach((a) => useGLTF.preload(`/models/${a}.glb`, false, true));
+
+const px = (b: { top: number; left: number; width: number; height: number }) => ({ top: `${b.top}px`, left: `${b.left}px`, width: `${b.width}px`, height: `${b.height}px` });
