@@ -1,0 +1,40 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Semmal · 0G pitch script (3 min)</title><link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&family=Noto+Sans+Tamil:wght@700&display=swap" rel="stylesheet"><style>
+:root{--bg:#0d0d10;--panel:#15161a;--line:rgba(255,255,255,.09);--ink:#f3f1ec;--muted:#a3a1a8;--accent:#ff4a1f;--ok:#3ecf8e;--ice:#7fd8ff;--warn:#f3cf6b}
+*{box-sizing:border-box}html,body{margin:0;background:var(--bg);color:var(--ink);font-family:Manrope,system-ui,sans-serif;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.mono{font-family:'JetBrains Mono',ui-monospace,monospace}.ta{font-family:'Noto Sans Tamil',sans-serif;font-weight:700}
+.brand{display:inline-flex;align-items:center;gap:12px}.brand .logo-mark{width:34px;height:34px;color:var(--ink)}.brand .ta{font-size:24px}.brand .rule{width:1px;height:20px;background:rgba(255,255,255,.25)}.brand .en{font-weight:600;color:var(--muted);font-size:20px}
+.accent{color:var(--accent)}.ok{color:var(--ok)}.muted{color:var(--muted)}
+
+@page{size:A4;margin:16mm 15mm}
+body{background:#fff;color:#141518;font-size:11pt;line-height:1.5}
+.doc{max-width:180mm;margin:0 auto;padding:10mm 0}
+.doc .brand .logo-mark{color:#141518}.doc .brand .en{color:#555}.doc .brand .rule{background:#bbb}
+h1{font-size:24pt;letter-spacing:-.02em;margin:10px 0 4px}h2{font-size:15pt;margin:22px 0 8px;letter-spacing:-.01em;border-bottom:2px solid #ff4a1f;padding-bottom:4px}h3{font-size:12pt;margin:14px 0 6px}
+p{margin:6px 0}.sub{color:#555}
+table{border-collapse:collapse;width:100%;font-size:9.5pt;margin:6px 0 10px}th{background:#f3f1ec;text-align:left;padding:6px 8px;border:1px solid #ddd}td{padding:6px 8px;border:1px solid #ddd;vertical-align:top}
+td.t{white-space:nowrap;font-family:'JetBrains Mono';font-weight:500;color:#c2391a}
+.vo{font-style:normal}.vo q{quotes:none}
+.box{border:1.5px solid #ff4a1f;background:#fff4f0;border-radius:8px;padding:10px 14px;margin:10px 0}
+.hl{background:#ffe2d8;padding:1px 4px;border-radius:3px;font-weight:600}
+ul{margin:4px 0 8px 18px;padding:0}li{margin:2px 0}
+.pb{page-break-before:always}
+code{font-family:'JetBrains Mono';font-size:9pt;background:#f3f1ec;padding:1px 4px;border-radius:3px}
+.ok{color:#14894f;font-weight:700}
+</style></head><body><div class="doc"><div class="brand"><svg viewBox="0 0 32 32" class="logo-mark" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 9V5.6"/><rect x="5" y="9" width="22" height="18" rx="7"/><path d="M2.4 15.5v5M29.6 15.5v5"/><path d="M12.6 22.4h6.8" opacity="0.55"/></g><circle cx="11.4" cy="17" r="2.1" fill="currentColor"/><circle cx="20.6" cy="17" r="2.1" fill="currentColor"/><circle cx="16" cy="3.6" r="2.7" fill="#ff4a1f"/></svg><span class="ta">செம்மல்</span><span class="rule"></span><span class="en">Semmal</span></div>
+<h1>0G pitch: 3-minute script</h1><p class="sub">Tracks: <b>Physical AI: Agents with a Body</b> and <b>Build with 0G Private Computer</b> · deck: <code>docs/pitch/zerog-deck.html</code> (press <b>p</b> to present).</p>
+<div class="box"><b>The 15-second hook (say it first, word for word):</b><br>
+"Our robot cannot pass a checkpoint without 0G. At every stop it pays an AI agent in 0G, which asks a private TEE model on 0G Private Computer what it sees. The answer and its request ID go into a signed episode on 0G Storage. If 0G is down, it stops safely. It never fakes a decision."</div>
+<h2>Minute by minute</h2>
+<table><tr><th>Time</th><th>Slide</th><th>Say</th><th>Show / point at</th></tr><tr><td class="t">0:00–0:15</td><td>1 · Hook</td><td>The hook above.</td><td>Headline and the five pills.</td></tr><tr><td class="t">0:15–0:45</td><td>2 · Decision loop</td><td>"0G is the brain, not the spinal cord. ROS 2 drives and keeps safety on the robot. At each checkpoint it takes one frame, hires a vision agent, pays it in 0G, and the agent runs 0gm on 0G Private Computer in private mode, TEE providers only. The robot checks the answer: exact JSON, an allowed action, confidence at least 0.6, and only then acts."</td><td>The six steps; 0G PC highlighted.</td></tr><tr><td class="t">0:45–1:15</td><td>3 · A real call</td><td>"This is what the customer sees for every call: the model, private mode, the provider, the 0G request ID, 24 seconds, billed to the agent's own capped Router key. The answer said toys on the floor at 0.95, the checks passed, and the robot picked them up and put them in the bin."</td><td>Request ID 985498df…, the checks, 'Did'.</td></tr><tr><td class="t">1:15–1:40</td><td>4 · Money</td><td>"Everything is paid in native 0G on Galileo. The customer pays the robot's signed quote after it arrives. The robot pays the agent owner once per job, and the transfer is checked on chain before 0G is called. The margin goes to the owner, and anything unspent goes back to the customer."</td><td>The four arrows.</td></tr><tr><td class="t">1:40–2:05</td><td>5 · 0G Storage</td><td>"Every job ends as a bundle signed by the robot: each decision with its request ID, model, trust mode and latency, each payment, each action. It's saved locally first, then 0G Storage, then indexed on Arkiv, and verified with the Storage proof when you open it."</td><td>Bundle contents and the root.</td></tr><tr><td class="t">2:05–2:30</td><td>6 · Safe stop</td><td>"No answer, a late one or an invalid one: the robot holds and retries once. Still nothing: SAFE_STOP, recorded, nothing invented, and that's a test. A motor fault stops it locally with no network at all."</td><td>SAFE_STOP card.</td></tr><tr><td class="t">2:30–2:50</td><td>7 · Deliverables</td><td>"Both tracks' requirements are here: 0G in the loop, a request ID per decision on Storage, the Gazebo worlds you can rerun, safe stop, and 0G PC in the main flow with request IDs shown to the user."</td><td>The checklist.</td></tr><tr><td class="t">2:50–3:00</td><td>8 · Close</td><td>"Remove 0G and the robot can't decide at a single checkpoint. It safe-stops, no job gets done, no agent gets paid. That's Semmal."</td><td>Team and links.</td></tr></table>
+<h2>Deliverables to point at</h2><table><tr><th>Requirement</th><th>Where</th></tr>
+<tr><td>Physical AI: 0G call inside the decision loop</td><td><code>services/robot-master/src/mission.ts</code> (stop loop); "How it decided"</td></tr>
+<tr><td>Episode log on 0G Storage with a request ID per decision</td><td><code>evidence.ts</code>; bundle <code>decisions[].providerRequestId</code>; root on Arkiv</td></tr>
+<tr><td>Replayable simulation</td><td>Gazebo house / warehouse / forest from <code>scripts/robot/scenario.sh</code>; shown in the video</td></tr>
+<tr><td>Safe stop, no faked decision</td><td>test "0G fails twice: hold, SAFE_STOP, nothing invented"</td></tr>
+<tr><td>0G PC in the main flow, with request IDs</td><td>every booked job; "How it decided" shows each request ID</td></tr>
+<tr><td>What breaks if 0G is removed (one sentence)</td><td>"The robot can't decide at any checkpoint, so it safe-stops: no job done, no agent paid."</td></tr>
+<tr><td>Name, description, repo + setup, video, live link, addresses, team</td><td>README "ETHGlobal Mumbai submission"; no contracts deployed (addresses listed)</td></tr></table>
+<h2>Likely questions</h2><ul>
+<li><b>Is the private answer verified?</b> Private mode routes only to TEE providers; the Router returns no per-answer signature, and we say so on screen. A non-TEE model is never used for a private job.</li>
+<li><b>Why 24 seconds?</b> It's a checkpoint decision, not motor control; the robot holds while waiting.</li>
+<li><b>Separate 0G accounts per agent?</b> Each agent has its own Router key with a daily cap; all keys draw on one deposit: a per-agent cap and usage record, not a separate wallet.</li></ul></div></body></html>
