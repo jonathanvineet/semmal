@@ -135,6 +135,8 @@ const waitSignal = <T>(key: string, waitMs: number) =>
     });
   });
 
+const fastForwarded = new Set<string>();
+
 let busy = false;
 link = new Link(env("SEMMAL_GATEWAY_URL", "ws://127.0.0.1:3001/api/gateway"), ROBOT_ID, env("SEMMAL_LINK_TOKEN"), "robot-master/0.1.0", {
   log,
@@ -161,6 +163,10 @@ link = new Link(env("SEMMAL_GATEWAY_URL", "ws://127.0.0.1:3001/api/gateway"), RO
     log(`task ${taskId}: the customer confirmed the robot is on site`);
     signal(`arrival:${taskId}`, true);
   },
+  onFastForward: (taskId) => {
+    log(`task ${taskId}: fast-forwarding the trip`);
+    fastForwarded.add(taskId);
+  },
   onTask: (m) => {
     if (busy) return link.send({ type: "task_ack", taskId: m.taskId, accepted: false, reason: "robot is already on a task" });
     busy = true;
@@ -178,6 +184,7 @@ link = new Link(env("SEMMAL_GATEWAY_URL", "ws://127.0.0.1:3001/api/gateway"), RO
       decision: (detail) => link.send({ type: "decision", taskId: detail.taskId, detail }),
       log,
       travelSpeedup: Number(process.env.SEMMAL_TRAVEL_SPEEDUP || 1),
+      fastForward: (taskId) => fastForwarded.has(taskId),
       local,
       platform,
       evidence,

@@ -57,6 +57,7 @@ export function BookTask({ robotId, robotName, robotBase, site, area, plan, quot
   const [startAt, setStartAt] = useState("");
   // as soon as possible: no on-site time, the robot leaves the moment its owner approves
   const [asap, setAsap] = useState(false);
+  const [ffBusy, setFfBusy] = useState(false);
   const [track, setTrack] = useState<Track | null>(null);
   const earliest = Date.now() + ((drive?.durationS ?? 0) + 15 * 60) * 1000; // drive + offer, payment and loading
   useEffect(() => {
@@ -167,6 +168,13 @@ export function BookTask({ robotId, robotName, robotBase, site, area, plan, quot
     const at = now ? FLOW.indexOf(now) : -1;
     const past = (state: string) => at >= FLOW.indexOf(state) && at >= 0;
     const ended = now === "ABORTED" || now === "FAILED" || now === "SAFE_STOP";
+    const fastForward = async () => {
+      setErr(null);
+      setFfBusy(true);
+      const r = await fetch(`/api/tasks/${taskId}/fast-forward`, { method: "POST", credentials: "same-origin" });
+      if (!r.ok) setErr((await r.json().catch(() => ({}))).error ?? "Could not fast-forward");
+      setTimeout(() => setFfBusy(false), 4000);
+    };
     const confirmArrival = async () => {
       setErr(null);
       const r = await fetch(`/api/tasks/${taskId}/confirm-arrival`, { method: "POST", credentials: "same-origin" });
@@ -202,17 +210,30 @@ export function BookTask({ robotId, robotName, robotBase, site, area, plan, quot
               center={(site ?? track?.site)!}
               site={site ?? track?.site ?? null}
               route={track?.route?.coords ?? null}
-              live={track?.latest ? { lat: track.latest.lat, lon: track.latest.lon, label: robotName } : null}
+              live={track?.latest ? { lat: track.latest.lat, lon: track.latest.lon, label: track.latest.phase === "WAITING" ? `${robotName} · at its base` : robotName } : null}
+              robots={!track?.latest && robotBase ? [{ id: "base", label: `${robotName} · its base (about 1 km)`, ...robotBase, active: true }] : []}
               fit={[(site ?? track?.site)!, ...(track?.latest ? [{ lat: track.latest.lat, lon: track.latest.lon }] : robotBase ? [robotBase] : [])]}
             />
             <p className="t-small">
               {!track?.latest
-                ? `On site ${startAt ? new Date(startAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }) : "as soon as possible"}. The robot sets off once it is paid${drive ? `, ${(drive.distanceM / 1000).toFixed(1)} km away` : ""}.`
+                ? past("APPROVED")
+                  ? `Approved. ${robotName} is getting ready${drive ? ` (${(drive.distanceM / 1000).toFixed(1)} km away)` : ""}.`
+                  : `On site ${startAt && !asap ? new Date(startAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }) : "as soon as possible"}. ${robotName} sets off once its owner approves${drive ? `, ${(drive.distanceM / 1000).toFixed(1)} km away` : ""}.`
                 : track.latest.phase === "ARRIVED"
                   ? `${robotName} is at your site.`
-                  : `${robotName} is on the way: ${((track.latest.remainingM ?? 0) / 1000).toFixed(1)} km to go${track.latest.etaAt ? `, arriving about ${new Date(track.latest.etaAt).toLocaleTimeString(undefined, { timeStyle: "short" })}` : ""}.`}
+                  : track.latest.phase === "WAITING"
+                    ? `${robotName} is at its base (${((track.latest.remainingM ?? 0) / 1000).toFixed(1)} km away). It leaves in time to arrive by ${track.latest.etaAt ? new Date(track.latest.etaAt).toLocaleTimeString(undefined, { timeStyle: "short" }) : "the booked time"}.`
+                    : `${robotName} is on the way: ${((track.latest.remainingM ?? 0) / 1000).toFixed(1)} km to go${track.latest.etaAt ? `, arriving about ${new Date(track.latest.etaAt).toLocaleTimeString(undefined, { timeStyle: "short" })}` : ""}.`}
               {track?.route?.source === "straight-line" ? " (Road routing is unavailable right now, so the line is direct.)" : ""}
             </p>
+            {(track?.latest?.phase === "WAITING" || track?.latest?.phase === "TRAVELLING") && (
+              <div className="btn-row">
+                <button type="button" className="btn btn--secondary btn--sm" disabled={ffBusy} onClick={fastForward}>
+                  {ffBusy ? "Fast-forwarding…" : "Fast-forward the trip"}
+                </button>
+                <span className="t-small muted">Development: the robot leaves now and arrives in a few seconds.</span>
+              </div>
+            )}
           </div>
         )}
         {offer && now === "AWAITING_PAYMENT" && !payTx && !has("PAID") && !expired && (

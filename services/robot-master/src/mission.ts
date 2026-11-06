@@ -162,7 +162,9 @@ export type Deps = {
   /** The robot's exact base (from its setup); the trip starts here. */
   base?: { lat: number; lon: number };
   /** Live position while travelling, to the platform only. */
-  position?: (p: { taskId: string; lat: number; lon: number; phase: "TRAVELLING" | "ARRIVED"; etaAt?: string; remainingM?: number }) => void;
+  position?: (p: { taskId: string; lat: number; lon: number; phase: "WAITING" | "TRAVELLING" | "ARRIVED"; etaAt?: string; remainingM?: number }) => void;
+  /** Development: true once someone asked to fast-forward this task's trip. */
+  fastForward?: (taskId: string) => boolean;
   /** Development only: travel this many times faster than the route's driving time. */
   travelSpeedup?: number;
   travelTickMs?: number;
@@ -333,28 +335,42 @@ export async function runTask(a: Assignment, d: Deps): Promise<EpisodeRecord | n
   if (a.site) {
     if (!d.base) return finish("FAILED", "this robot has no base location set (pnpm run setup); it cannot plan the trip");
     const route: TravelRoute = await platform.route(d.base, a.site).catch(() => straight(d.base!, a.site!));
-    const speed = Math.max(1, d.travelSpeedup ?? 1);
-    const travelMs = (route.durationS * 1000) / speed;
+    const speedup = Math.max(1, d.travelSpeedup ?? 1);
+    const travelMs = (route.durationS * 1000) / speedup;
     const startAtMs = a.startAt ? Date.parse(a.startAt) : Date.now();
     const departMs = Math.max(Date.now(), startAtMs - travelMs);
     touch("customer site", "booking (platform)", `about ${coarse(a.site.lat)}, ${coarse(a.site.lon)}; exact address used for the trip only, not kept here`);
     touch("route", route.source === "osrm" ? "OSRM driving route" : "straight line (routing unavailable)", `${(route.distanceM / 1000).toFixed(1)} km, ${Math.round(route.durationS / 60)} min driving`);
     if (departMs > Date.now()) {
       move("APPROVED", `leaving at ${new Date(departMs).toISOString().slice(11, 16)} to arrive by ${new Date(startAtMs).toISOString().slice(11, 16)}`);
-      await sleep(departMs - Date.now());
+      // wait at the base, telling the platform where it is; a fast-forward ends the wait
+      while (Date.now() < departMs && !d.fastForward?.(a.taskId)) {
+        d.position?.({ taskId: a.taskId, lat: d.base.lat, lon: d.base.lon, phase: "WAITING", etaAt: new Date(startAtMs).toISOString(), remainingM: route.distanceM });
+        await sleep(Math.min(d.travelTickMs ?? 2000, departMs - Date.now()));
+      }
     }
     const departedAt = now();
     move("TRAVELLING", `${(route.distanceM / 1000).toFixed(1)} km to the site, about ${Math.round(travelMs / 60_000)} min`);
     const cum = [0];
     for (let i = 1; i < route.coords.length; i++) cum.push(cum[i - 1]! + distanceM(pt(route.coords[i - 1]!), pt(route.coords[i]!)));
     const total = cum.at(-1) || 1;
-    const t0 = Date.now();
-    const eta = new Date(t0 + travelMs).toISOString();
+    // drive along the route; a fast-forward finishes the rest in about 8 seconds
+    let speed = total / Math.max(0.001, travelMs / 1000); // metres per second
+    let done = 0;
+    let last = Date.now();
+    let fast = false;
     for (;;) {
-      const f = Math.min(1, (Date.now() - t0) / Math.max(1, travelMs));
-      const p = along(route.coords, cum, f * total);
-      if (f >= 1) break;
-      d.position?.({ taskId: a.taskId, lat: p.lat, lon: p.lon, phase: "TRAVELLING", etaAt: eta, remainingM: Math.round(total * (1 - f)) });
+      const t = Date.now();
+      if (!fast && d.fastForward?.(a.taskId)) {
+        fast = true;
+        speed = Math.max(speed, (total - done) / 8);
+        move("TRAVELLING", "fast-forwarding the trip");
+      }
+      done = Math.min(total, done + (speed * (t - last)) / 1000);
+      last = t;
+      if (done >= total) break;
+      const p = along(route.coords, cum, done);
+      d.position?.({ taskId: a.taskId, lat: p.lat, lon: p.lon, phase: "TRAVELLING", etaAt: new Date(t + ((total - done) / speed) * 1000).toISOString(), remainingM: Math.round(total - done) });
       await sleep(d.travelTickMs ?? 2000);
     }
     d.position?.({ taskId: a.taskId, lat: a.site.lat, lon: a.site.lon, phase: "ARRIVED", remainingM: 0 });

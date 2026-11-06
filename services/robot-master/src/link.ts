@@ -8,6 +8,7 @@ export type LinkHandlers = {
   onPayment: (taskId: string, txHash: string) => void;
   onOwnerDecision: (taskId: string, approved: boolean, reason?: string) => void;
   onArrivalConfirmed: (taskId: string) => void;
+  onFastForward: (taskId: string) => void;
   log: (msg: string) => void;
 };
 
@@ -49,6 +50,7 @@ export class Link {
       else if (m.type === "payment_notice" && /^0x[0-9a-fA-F]{64}$/.test(m.txHash)) this.h.onPayment(m.taskId, m.txHash);
       else if (m.type === "owner_decision") this.h.onOwnerDecision(m.taskId, m.approved === true, m.reason);
       else if (m.type === "arrival_confirmed") this.h.onArrivalConfirmed(m.taskId);
+      else if (m.type === "fast_forward") this.h.onFastForward(m.taskId);
       else if (m.type === "error") this.h.log(`gateway: ${m.code}: ${m.message}`);
     });
     ws.on("close", (code) => {

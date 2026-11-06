@@ -364,3 +364,21 @@ test("the customer never confirms the arrival: no payment is taken, the trip is 
   assert.equal(calls.pays.length, 0);
   assert.equal(calls.jobs, 0);
 });
+
+test("waiting to leave, the robot reports itself at its base; fast-forward sends it now and finishes the trip quickly", async () => {
+  const { calls, deps } = harness();
+  let asked = 0;
+  const t0 = Date.now();
+  const ep = (await runTask(task({ customerWallet: CUSTOMER, site: SITE, startAt: new Date(Date.now() + 3600_000).toISOString() }), {
+    ...deps,
+    travelSpeedup: 1, // 600 s of driving, an hour away: only fast-forward can make this quick
+    awaitOwner: async () => ({ approved: true }),
+    awaitArrival: async () => true,
+    fastForward: () => ++asked > 3,
+  }))!;
+  assert.equal(ep.outcome, "COMPLETED");
+  assert.ok(calls.positions.some((p) => p.phase === "WAITING" && p.lat === 13.0827), "reported at its base while waiting");
+  assert.ok(calls.positions.some((p) => p.phase === "TRAVELLING"));
+  assert.equal(calls.positions.at(-1)!.phase, "ARRIVED");
+  assert.ok(Date.now() - t0 < 20_000, "fast-forward finished the trip in seconds");
+});

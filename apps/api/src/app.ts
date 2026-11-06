@@ -613,6 +613,19 @@ export function buildApp(deps: Deps = defaultDeps()) {
     return r.ok ? { sent: true } : reply.code(409).send({ error: r.reason });
   });
 
+  /** Development (APP_MODE=simulation): the customer or the robot's owner can fast-forward the trip. */
+  app.post<{ Params: { taskId: string } }>("/api/tasks/:taskId/fast-forward", async (req, reply) => {
+    const address = sessionAddress(req)?.toLowerCase();
+    if (!address) return reply.code(401).send({ error: "sign in first" });
+    if (config.APP_MODE !== "simulation") return reply.code(403).send({ error: "fast-forward is only available in development" });
+    const t = gateway?.trips.get(req.params.taskId);
+    if (!t) return reply.code(404).send({ error: "no trip for this task" });
+    const who = [t.meta.customerWallet, t.meta.ownerWallet].filter(Boolean).map((x) => x!.toLowerCase());
+    if (!who.includes(address)) return reply.code(403).send({ error: "only the customer or the robot's owner" });
+    const r = gateway!.fastForward(t.robotId, req.params.taskId);
+    return r.ok ? { sent: true } : reply.code(409).send({ error: r.reason });
+  });
+
   /** Booking requests for the signed-in owner's robots that wait for an answer, plus recent ones. */
   app.get("/api/owner/requests", async (req, reply) => {
     const address = sessionAddress(req);

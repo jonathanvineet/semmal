@@ -476,7 +476,7 @@ export const GwPosition = z.object({
   taskId: z.string().max(64),
   lat: z.number().min(-90).max(90),
   lon: z.number().min(-180).max(180),
-  phase: z.enum(["TRAVELLING", "ARRIVED"]),
+  phase: z.enum(["WAITING", "TRAVELLING", "ARRIVED"]),
   etaAt: z.string().datetime().optional(),
   remainingM: z.number().min(0).max(1_000_000).optional(),
 });
@@ -519,7 +519,9 @@ export type PlatformToRobot =
   /** The robot's owner approved or declined a booking (checked as the owner wallet by the platform). */
   | { type: "owner_decision"; taskId: string; approved: boolean; reason?: string }
   /** The customer confirmed the robot is on site (checked as the booking's wallet by the platform). */
-  | { type: "arrival_confirmed"; taskId: string };
+  | { type: "arrival_confirmed"; taskId: string }
+  /** Development (APP_MODE=simulation): leave now and finish the trip in a few seconds. */
+  | { type: "fast_forward"; taskId: string };
 
 // ---------------------------------------------------------------- coordination + evidence on Arkiv
 const addrZ = z.string().regex(/^0x[0-9a-fA-F]{40}$/);

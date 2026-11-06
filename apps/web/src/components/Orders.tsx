@@ -46,6 +46,7 @@ const skillName = (s: string) => ROBOT_SKILLS.find((x) => x.id === s)?.label ?? 
 const modelName = (m: string | null) => HARDWARE.find((x) => x.id === m)?.name ?? ROBOT_MODELS.find((x) => x.id === m)?.name ?? "Robot";
 
 function status(o: Order) {
+  if (o.latest?.phase === "WAITING") return { label: "Waiting at its base", tone: "wait" as const };
   if (o.latest?.phase === "TRAVELLING") return { label: `On the way${o.latest.etaAt ? `, about ${new Date(o.latest.etaAt).toLocaleTimeString(undefined, { timeStyle: "short" })}` : ""}`, tone: "go" as const };
   if (o.state && STATUS[o.state]) return STATUS[o.state]!;
   if (Date.parse(o.deadline) < Date.now()) return { label: "Past its deadline", tone: "bad" as const };

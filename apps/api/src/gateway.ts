@@ -315,6 +315,15 @@ export class Gateway {
     return { ok: true as const };
   }
 
+  /** Development: ask the robot to leave now and finish the trip quickly. */
+  fastForward(robotId: string, taskId: string) {
+    const s = this.sessions.get(robotId);
+    if (!s?.hello) return { ok: false as const, reason: "The robot is not connected" };
+    this.send(s, { type: "fast_forward", taskId });
+    this.event(robotId, "task", `${taskId}: fast-forward requested`);
+    return { ok: true as const };
+  }
+
   /** Tell the robot a customer says they paid. The robot checks the transfer on chain itself. */
   paymentNotice(robotId: string, taskId: string, txHash: string) {
     const s = this.sessions.get(robotId);
