@@ -15,6 +15,71 @@ acts within strict safety limits. Everything it saw, bought and decided is signe
   [Running on a real TurtleBot](#running-on-a-real-turtlebot).
 - **Chains:** Arkiv Rabdi (chain 7794095) for records, 0G Galileo (chain 16602) for payments and Storage, 0G Router for inference.
 
+## ETHGlobal Mumbai submission
+
+Built at ETHGlobal Mumbai (Nov 5–7, 2026); the repository's first commit is 2026-11-05 23:03 IST, after hacking began.
+License: [MIT](LICENSE).
+
+| | |
+|---|---|
+| **Project** | Semmal (செம்மல்): a robot-for-hire marketplace where each robot is its own agent. It prices the job, hires AI agents, decides with private 0G inference, pays in 0G and signs its own record on 0G Storage and Arkiv |
+| **Live demo** | https://semmal.vercel.app (MetaMask currently flags every unverified `*.vercel.app` site as a "drainer", ours included; see [arkiv/friction.md](arkiv/friction.md) #3) |
+| **Demo video** | coming soon (under 3 min; script in [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md)) |
+| **Team** | Semmal: jonathan_vineet · Telegram [jonathan_vineet](https://t.me/jonathan_vineet) · X [jonathan_vineet](https://x.com/jonathan_vineet) |
+| **Setup** | [Run it](#run-it), [docs/SCENARIOS.md](docs/SCENARIOS.md), [docs/ROBOT.md](docs/ROBOT.md), [docs/DEPLOY.md](docs/DEPLOY.md) |
+
+### Contract and wallet addresses
+
+We deployed **no contracts of our own**. Arkiv writes go to Arkiv's entity contract; payments are native 0G transfers
+with a memo (`semmal:<kind>:<id>`), checked on chain by the robot.
+
+| What | Address | Network |
+|---|---|---|
+| Arkiv entity contract (writes) | `0x4400000000000000000000000000000000000044` | Rabdi 7794095 |
+| Robot `rbt-103e832a38` wallet: wrote quotes, job claims, episodes, incidents | `0x103E832a3801684eDEE9b82057F7a72Cb23629BC` | Rabdi; receives payments on 0G Galileo 16602 |
+| Customer / agent owner: wrote bookings and agent listings | `0x2B5c206516c34896D41DB511BAB9E878F8C1C109` | Rabdi |
+| Robot owners: wrote robot profiles | `0x2F1d5a41F58A5eD41b9fA88Af8645D7c3bc0b264`, `0x296654d5638Cf52783204830Dcb947A4c0e10De4` | Rabdi |
+
+### Arkiv: Build on Arkiv (from scratch)
+
+- **One query to run** (no key needed): `pnpm install && pnpm arkiv:query`. It runs
+  `SELECT semmal_episode_v2 ORDER BY task_score DESC` and prints each robot-signed job with its score breakdown.
+  Add a robot ID for `WHERE robot_id = …`: `pnpm arkiv:query rbt-103e832a38`.
+- **Users read Arkiv data in:** the booking map and robot list, the Agent market, Your orders, the owner's requests,
+  the evidence log, scores, and "What went to Arkiv" on every booking.
+- Judging files: [arkiv/schema.md](arkiv/schema.md) · [arkiv/friction.md](arkiv/friction.md) ·
+  [arkiv/reach.md](arkiv/reach.md) · [arkiv/why-arkiv.md](arkiv/why-arkiv.md) ·
+  [arkiv/how-you-use-arkiv.md](arkiv/how-you-use-arkiv.md).
+
+### 0G: Physical AI, Agents with a Body (simulated build: ROS 2 Jazzy + Gazebo)
+
+| Requirement | Where |
+|---|---|
+| 0G call inside the decision loop | at every stop the robot sends one camera frame to a private 0G vision model and acts only on a checked answer: `services/robot-master/src/mission.ts` (stop loop), shown live in "How it decided" |
+| Episode log on 0G Storage with a request ID per decision | each episode bundle is uploaded to 0G Storage, signed by the robot; `decisions[].providerRequestId` per decision; root + request IDs indexed on Arkiv (`services/robot-master/src/evidence.ts`) |
+| Replayable simulation | deterministic, generated Gazebo worlds (house, warehouse, forest) launched from a clean setup with `scripts/robot/scenario.sh <world>`; shown in the demo video |
+| Safe stop if 0G is unreachable, no faked decision | no answer, a late answer or a rejected answer: the robot holds, retries once, then `SAFE_STOP`, nothing invented (tested: "0G fails twice: hold, SAFE_STOP, nothing invented"); motor faults stop it locally with no network |
+
+0G is the brain, not the spinal cord: motion, navigation and the safety supervisor run in ROS 2 on the robot; 0G makes
+the decision at each checkpoint, and the record goes to 0G Storage.
+
+### 0G: Build with 0G Private Computer
+
+- **Main flow:** every booked job runs private (TEE, `0gm-1.0-35b-a3b`) inference on 0G Router at each stop. The
+  customer sees each request ID, model, trust mode, latency, cost and the answer under "How it decided".
+- **What breaks if 0G is removed:** the robot cannot decide anything at a checkpoint, so it holds and safe-stops: no
+  inspection, no cleaning, no job completed, and no agent is paid.
+- **Why come back tomorrow:** recurring jobs (cleaning, inspections, patrols) by robots whose signed record and score you
+  can check before you book.
+
+### How AI was used
+
+- **To build it:** the code and docs were written with an AI coding assistant (Claude Code, Anthropic), directed and
+  reviewed by the team. No other AI tools were used to build it.
+- **In the product:** 0G Private Computer models make the robot's checkpoint decisions (vision). Model output is
+  advisory: it is schema-checked, it can only choose from five allowed actions, it never controls motors, money or
+  keys, and a missing or invalid answer means a safe stop.
+
 ---
 
 ## The flow
@@ -221,7 +286,7 @@ Environment variables: `.env.example` (platform) and `services/robot-master/.env
 
 ## Tests
 
-`pnpm test` (API 67, robot agent 52, payments 3) and `python3 -m pytest tests/robot` (ROS logic, 62). They cover the
+`pnpm test` (API 80, robot agent 58, payments 3) and `python3 -m pytest tests/robot` (ROS logic, 68). They cover the
 task flow, payments and caps, never paying twice, 0G failure handling, robot identity, routing, notifications,
 access control and scores.
 

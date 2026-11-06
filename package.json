@@ -8,6 +8,7 @@
     "dev:web": "pnpm --filter @semmal/web dev",
     "test": "pnpm -r --if-present test",
     "typecheck": "pnpm -r --if-present typecheck",
-    "zerog:preflight": "pnpm --filter @semmal/api zerog:preflight"
+    "zerog:preflight": "pnpm --filter @semmal/api zerog:preflight",
+    "arkiv:query": "pnpm --filter @semmal/api arkiv:query"
   }
 }

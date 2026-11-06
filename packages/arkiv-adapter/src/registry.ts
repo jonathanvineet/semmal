@@ -139,6 +139,23 @@ export class ArkivRegistry {
   }
 
   /**
+   * Scored jobs, best first: SELECT semmal_episode_v2 [WHERE robot_id = ?] ORDER BY task_score DESC LIMIT 20.
+   * Raw rows (system fields, indexed columns, decoded body); used by `pnpm arkiv:query`.
+   */
+  async scoredEpisodes(robotId?: string) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let q: any = this.publicClient
+      .select({ $key: true, $owner: true, $expiresAt: true, task_id: true, robot_id: true, outcome: true, task_score: true, storage_root: true, body: true })
+      .from(EpisodeSchemaV2);
+    if (robotId) q = q.where(eq("robot_id", robotId));
+    const page = await q.orderBy(desc("task_score")).limit(20).fetch();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const plain = (v: unknown): unknown => (typeof v === "bigint" ? v.toString() : v && typeof v === "object" && "value" in (v as object) ? plain((v as { value: unknown }).value) : v);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return (page.entities as any[]).map((e) => ({ ...Object.fromEntries(Object.entries(e).map(([k, v]) => [k, plain(v)])), body: decodeJson(e.body) }) as Record<string, any>);
+  }
+
+  /**
    * One task's episode exactly as it is stored on Arkiv: the schema, every column (indexed values as the
    * chain returns them, the body decoded from its bytes), owner, creator, expiry. Only robot-signed records.
    */

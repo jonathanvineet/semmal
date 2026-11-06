@@ -7,6 +7,7 @@
     "dev": "tsx watch --env-file-if-exists=../../.env src/server.ts",
     "start": "tsx --env-file-if-exists=../../.env src/server.ts",
     "zerog:preflight": "tsx --env-file-if-exists=../../.env src/scripts/zerog-preflight.ts",
+    "arkiv:query": "tsx src/scripts/arkiv-query.ts",
     "test": "node --import tsx --test src/app.test.ts src/quote.test.ts src/runner.test.ts src/gateway.test.ts src/encode.test.ts src/verify.test.ts src/connect.test.ts src/route.test.ts src/notifications.test.ts src/scores.test.ts",
     "typecheck": "tsc --noEmit -p ."
   },
