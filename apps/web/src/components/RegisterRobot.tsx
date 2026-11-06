@@ -5,6 +5,8 @@
  * Arkiv entity; no private key is ever entered.
  */
 import Link from "next/link";
+import { arkivEntity } from "@/lib/explorers";
+import { ExplorerLink } from "./ui/ExplorerLink";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { formatEther, getAddress, isAddress } from "viem";
@@ -208,7 +210,7 @@ export function RegisterRobot() {
         <dl className="detail-grid">
           <div><dt>Robot id</dt><dd className="mono">{done.robotId}</dd></div>
           <div><dt>Profile version</dt><dd>{done.version}</dd></div>
-          <div><dt>Entity key</dt><dd className="mono">{short(done.entityKey)}</dd></div>
+          <div><dt>Entity key</dt><dd><ExplorerLink href={arkivEntity(done.entityKey)} value={done.entityKey} /></dd></div>
           <div><dt>Transaction</dt><dd><a className="link" href={`${ARKIV_EXPLORER}/tx/${done.txHash}`} target="_blank" rel="noreferrer">{short(done.txHash)}</a></dd></div>
         </dl>
         <p className="t-small muted">Arkiv records your wallet as its owner. Only your wallet can update or remove it.</p>

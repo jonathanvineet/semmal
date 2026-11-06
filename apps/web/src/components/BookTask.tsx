@@ -7,6 +7,8 @@
  * The platform never holds the money.
  */
 import { useEffect, useState } from "react";
+import { arkivAddress, arkivEntity, arkivTx, galileoAddress, galileoTx } from "@/lib/explorers";
+import { ExplorerLink } from "./ui/ExplorerLink";
 import { getAddress, parseEther, toHex } from "viem";
 import { GALILEO_CHAIN_ID, GALILEO_RPC, GALILEO_EXPLORER, memo } from "@semmal/zerog-pay";
 import { taskRequestCreateArgs } from "@semmal/arkiv-adapter/browser";
@@ -52,6 +54,7 @@ export function BookTask({ robotId, robotName, robotBase, site, area, plan, quot
   const [view, setView] = useState<TaskView | null>(null);
   const [dispatched, setDispatched] = useState<string | null>(null);
   const [payTx, setPayTx] = useState<string | null>(null);
+  const [bookingTx, setBookingTx] = useState<string | null>(null);
   // delivery: how long the drive takes decides the earliest time the robot can be on site
   const [drive, setDrive] = useState<{ durationS: number; distanceM: number; source: string } | null>(null);
   const [startAt, setStartAt] = useState("");
@@ -142,7 +145,8 @@ export function BookTask({ robotId, robotName, robotBase, site, area, plan, quot
         createdAt: new Date().toISOString(),
         ...(!asap && startAt ? { startAt: new Date(start).toISOString() } : {}),
       });
-      await ark.publish(`task:${id}`, w.account, args, "0.01");
+      const res = await ark.publish(`task:${id}`, w.account, args, "0.01");
+      setBookingTx(res.txHash);
       setTaskId(id);
       // Arkiv indexes in a few seconds; dispatch reads the booking back from Arkiv before sending it
       for (let i = 0; i < 6; i++) {
@@ -185,7 +189,7 @@ export function BookTask({ robotId, robotName, robotBase, site, area, plan, quot
       <div className="bk">
         <div className="bk__head">
           <span className="t-label muted">Booked on Arkiv</span>
-          <span className="mono t-small">{taskId}</span>
+          <span className="mono t-small">{taskId}{bookingTx ? <> · <ExplorerLink href={arkivTx(bookingTx)} value={bookingTx} label="booking on Arkiv" /></> : null}</span>
         </div>
         {dispatched && <p className="t-small muted">{dispatched}</p>}
         <ol className="bk__steps">
@@ -254,7 +258,8 @@ export function BookTask({ robotId, robotName, robotBase, site, area, plan, quot
           )
         )}
         {offer && expired && !has("PAID") && <p className="soft-warn t-small">The robot&apos;s offer expired before it was paid. Book again for a fresh offer.</p>}
-        {payTx && <p className="t-small muted">Payment <span className="mono">{payTx}</span></p>}
+        {payTx && <p className="t-small muted">Your payment on 0G Galileo: <ExplorerLink href={galileoTx(payTx)} value={payTx} /></p>}
+        {offer && <p className="t-small muted">Robot wallet: <ExplorerLink href={galileoAddress(offer.robotWallet)} value={offer.robotWallet} n={6} /> (0G Galileo) · <ExplorerLink href={arkivAddress(offer.robotWallet)} value={offer.robotWallet} label="its records on Arkiv" /></p>}
         {err && <p className="soft-warn">{err}</p>}
         <ComputeView taskId={taskId} />
         {view && view.events.length > 0 && (

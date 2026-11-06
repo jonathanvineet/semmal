@@ -263,3 +263,15 @@ Tests: `apps/api/src/gateway.test.ts` against a real WebSocket server.
   builder offers private mode only on TeeML models; the robot skips agents whose model cannot serve their trust mode.
 - Galileo RPC (`evmrpc-testnet.0g.ai`) sometimes fails with a network error; payment checks retry 4 times, and a robot
   resends the same paid job (same job id and payment) instead of paying again when the check could not run.
+
+## Explorers and scores (added 2026-11-06)
+
+- Explorer paths, read from each explorer's own route table: Arkiv `https://rabdi.explorer.arkiv.network` `/tx/`,
+  `/address/`, `/entity/`; 0G Galileo `https://chainscan-galileo.0g.ai` `/tx/:hash`, `/address/:address`
+  (bundle `static/js/main.*.js`). The docs list only the explorer roots. The 0G Storage explorer path for a root was not
+  confirmed, so roots are shown without a link.
+- Scores: formula `score-v1` in `packages/contracts` (`scoreRobot`, `scoreAgent`, `SCORE_RULES`); checkpoints on Arkiv as
+  `semmal_reputation_v1`, written by the instance owner's wallet, 120-day lifetime (Rabdi maximum about 182 days).
+  Evidence (episodes, incidents) now 120 days; registrations 90 days. Tests: `apps/api/src/scores.test.ts`.
+- Privacy change: camera frames are no longer handed to the platform or shown in the app; they go only to the vision
+  agent's private 0G call.

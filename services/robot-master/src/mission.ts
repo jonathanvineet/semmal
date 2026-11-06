@@ -145,7 +145,7 @@ export type Wallet = {
 export type DecisionDetail = {
   taskId: string; at: string; stop: string; attempt: number;
   agentId: string; agentName: string; agentPrice0G: string; paymentTx?: string;
-  question: string; frame: string; frameIndex?: number;
+  question: string; frame: string;
   model: string; trustMode: string;
   receipt?: Record<string, unknown>;
   output?: unknown;
@@ -534,8 +534,7 @@ export async function runTask(a: Assignment, d: Deps): Promise<EpisodeRecord | n
     const frame = leg.res.keyframePaths.at(-1);
     if (!frame) return finish("FAILED", `no camera frame at ${stop}`);
     const img = await local.keyframe(frame);
-    touch("camera frame", `robot camera at ${stop}`, `${img.width}x${img.height} frame kept on the robot; a copy went to ${visionAgent.displayName} for one check, and one to the platform's memory for ${a.customerWallet ? "the customer" : "the owner"} to see (not stored)`, true);
-    const frameIndex = await platform.postFrame?.(a.taskId, stop, img.dataUrl).catch(() => undefined);
+    touch("camera frame", `robot camera at ${stop}`, `${img.width}x${img.height} frame kept on the robot; one copy went to ${visionAgent.displayName} for a single private (TEE) 0G check and is not stored anywhere`, true);
 
     let answer: { action: string; confidence: number; observation: string; anomaly: string | null; found: boolean } | null = null;
     let reuse: { jobId: string; paymentTx: string } | undefined;
@@ -548,7 +547,7 @@ export async function runTask(a: Assignment, d: Deps): Promise<EpisodeRecord | n
       const tell = (x: Pick<DecisionDetail, "outcome" | "action" | "checks"> & { output?: unknown; reason?: string }) =>
         d.decision?.({
           taskId: a.taskId, at: now(), stop, attempt, agentId: visionAgent.agentId, agentName: visionAgent.displayName, agentPrice0G: visionAgent.price.amount,
-          paymentTx: rec?.paymentTx, question, frame: `${img.width}x${img.height} PNG from the robot's camera`, frameIndex,
+          paymentTx: rec?.paymentTx, question, frame: `${img.width}x${img.height} PNG from the robot's camera, never shown or stored`,
           model: visionAgent.inference?.model ?? "", trustMode: visionAgent.inference?.trustMode ?? "",
           receipt: r?.receipt as Record<string, unknown> | undefined, ...x,
         });

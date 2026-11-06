@@ -1,5 +1,7 @@
 "use client";
 import Link from "next/link";
+import { arkivAddress, arkivEntity, galileoAddress } from "@/lib/explorers";
+import { ExplorerLink } from "./ui/ExplorerLink";
 import { useCallback, useEffect, useState } from "react";
 import { useArkivWriter } from "@/lib/arkiv-writer";
 import { ApprovalCard } from "./ui/ApprovalCard";
@@ -9,6 +11,7 @@ import { AgentConsole } from "./AgentConsole";
 import { MyAgents } from "./MyAgents";
 import { RobotLink } from "./RobotLink";
 import { OwnerRequests } from "./OwnerRequests";
+import { Scores } from "./Scores";
 import { RobotEvidence } from "./RobotEvidence";
 import { ARKIV_EXPLORER, type Status } from "@/lib/api";
 
@@ -120,6 +123,7 @@ export function AdminDashboard() {
       {w.me?.address && !w.mismatch && (isAdmin ? Boolean(state) : true) && (
         <div className="grid admin-grid">
           <OwnerRequests />
+          <Scores isOwner={isAdmin} />
           <MyRobots owner={w.me!.address!} />
           {isAdmin && <article className="card integ span-6">
             <h3 className="t-card">Integrations</h3>
@@ -224,7 +228,13 @@ function MyRobots({ owner }: { owner: string }) {
         <ul className="role-list">
           {rows.map((r) => (
             <li key={r.data.robotId} className="my-robot">
-              <span><b>{r.data.displayName}</b> <span className="muted">· {r.data.robotId} · v{r.data.profileVersion}</span></span>
+              <span>
+                <b>{r.data.displayName}</b> <span className="muted">· {r.data.robotId} · v{r.data.profileVersion}</span>
+                <span className="t-small muted robot-chain">
+                  {r.entityKey && <>profile <ExplorerLink href={arkivEntity(r.entityKey)} value={r.entityKey} /> · </>}
+                  wallet <ExplorerLink href={arkivAddress(r.data.robotWallet)} value={r.data.robotWallet} n={6} label="on Arkiv" /> · <ExplorerLink href={galileoAddress(r.data.robotWallet)} value={r.data.robotWallet} n={6} label="on 0G Galileo" />
+                </span>
+              </span>
               <span className="robot-actions">
                 {confirm === r.data.robotId ? (
                   <>

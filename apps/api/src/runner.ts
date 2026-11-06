@@ -125,6 +125,11 @@ export class AgentRunner {
     return { apiKey: k.key, billing: `agent's own Router key ${k.keyId} · cap ${k.creditLimit} ${k.currency}/day` };
   }
 
+  /** Every finished job (agent, outcome, time), for scoring. Rejected jobs are not stored, so not counted. */
+  jobHistory() {
+    return this.db.prepare("SELECT agent_id AS agentId, status, created_at AS at FROM jobs").all() as { agentId: string; status: string; at: string }[];
+  }
+
   /** Billing summary per agent key, for the dashboard (never the secret). */
   agentKeys() {
     return this.db.prepare("SELECT agent_id AS agentId, model, key_id AS keyId, credit_limit AS creditLimit, currency, created_at AS createdAt FROM agent_keys").all();

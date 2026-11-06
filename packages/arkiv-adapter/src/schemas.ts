@@ -82,6 +82,15 @@ export const EpisodeSchema = defineSchema("semmal_episode_v1", {
 });
 
 /** Index of an incident bundle on 0G Storage. Owner: robot wallet. */
+/** A robot's or agent's published score (score-v1). Owner: the instance owner's wallet. Lives 120 days. */
+export const ReputationSchema = defineSchema("semmal_reputation_v1", {
+  subject_kind: str().indexed(),
+  subject_id: str().indexed(),
+  score: i32().indexed(),
+  status: str().indexed(),
+  body: bytes(),
+});
+
 export const IncidentSchema = defineSchema("semmal_incident_v1", {
   incident_id: str().indexed(),
   robot_id: str().indexed(),

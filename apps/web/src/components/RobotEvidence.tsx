@@ -5,6 +5,8 @@
  * on the server. Shows what the robot accessed, what it bought, what 0G told it and what it did.
  */
 import { useCallback, useEffect, useState } from "react";
+import { arkivEntity, arkivTx, galileoAddress, galileoTx } from "@/lib/explorers";
+import { ExplorerLink } from "./ui/ExplorerLink";
 import { ARKIV_EXPLORER } from "@/lib/api";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -45,7 +47,7 @@ function Episode({ b }: { b: any }) {
             <tr key={i}>
               <td className="mono">{hm(p.at)}</td><td>{p.agentName} <span className="muted">({p.kind})</span></td><td>{p.forWhat}</td>
               <td className="mono">{p.price0G} 0G</td>
-              <td title={p.paymentTx}>{p.paymentStatus}{p.paymentTx ? <span className="mono muted"> · {short(p.paymentTx, 8)}</span> : null}{p.payTo ? <span className="muted"> to {short(p.payTo, 6)}</span> : null}</td>
+              <td>{p.paymentStatus}{p.paymentTx ? <> · <ExplorerLink href={galileoTx(p.paymentTx)} value={p.paymentTx} /></> : null}{p.payTo ? <> to <ExplorerLink href={galileoAddress(p.payTo)} value={p.payTo} n={6} /></> : null}</td>
               <td>{p.status}</td>
               <td className="mono" title={p.providerRequestId}>{p.providerRequestId ? short(p.providerRequestId, 8) : "—"}{p.model ? <span className="muted"> · {p.model} · {p.trustMode}</span> : null}</td>
             </tr>
@@ -58,12 +60,12 @@ function Episode({ b }: { b: any }) {
         <tbody>
           <tr><td>Paid for by</td><td>{b.money?.funding ?? "—"}</td></tr>
           {b.money?.customerPayment && (
-            <tr><td>Customer paid</td><td className="mono" title={b.money.customerPayment.txHash}>{b.money.customerPayment.amount0G} 0G from {short(b.money.customerPayment.from, 6)} · {short(b.money.customerPayment.txHash, 8)}</td></tr>
+            <tr><td>Customer paid</td><td className="mono">{b.money.customerPayment.amount0G} 0G from <ExplorerLink href={galileoAddress(b.money.customerPayment.from)} value={b.money.customerPayment.from} n={6} /> · <ExplorerLink href={galileoTx(b.money.customerPayment.txHash)} value={b.money.customerPayment.txHash} /></td></tr>
           )}
           <tr><td>Agent budget</td><td className="mono">{b.money?.budget0G ?? "—"} 0G</td></tr>
           <tr><td>Paid to agents</td><td className="mono">{b.money?.agentsPaid0G ?? "0"} 0G</td></tr>
-          {b.money?.payout && <tr><td>Margin to the owner</td><td className="mono" title={b.money.payout.txHash}>{b.money.payout.amount0G} 0G to {short(b.money.payout.to, 6)} · {b.money.payout.status}{b.money.payout.txHash ? ` · ${short(b.money.payout.txHash, 8)}` : ""}</td></tr>}
-          {b.money?.refund && <tr><td>Refund to the customer</td><td className="mono" title={b.money.refund.txHash}>{b.money.refund.amount0G} 0G to {short(b.money.refund.to, 6)} · {b.money.refund.status}{b.money.refund.txHash ? ` · ${short(b.money.refund.txHash, 8)}` : ""}</td></tr>}
+          {b.money?.payout && <tr><td>Margin to the owner</td><td className="mono">{b.money.payout.amount0G} 0G to <ExplorerLink href={galileoAddress(b.money.payout.to)} value={b.money.payout.to} n={6} /> · {b.money.payout.status}{b.money.payout.txHash ? <> · <ExplorerLink href={galileoTx(b.money.payout.txHash)} value={b.money.payout.txHash} /></> : null}</td></tr>}
+          {b.money?.refund && <tr><td>Refund to the customer</td><td className="mono">{b.money.refund.amount0G} 0G to <ExplorerLink href={galileoAddress(b.money.refund.to)} value={b.money.refund.to} n={6} /> · {b.money.refund.status}{b.money.refund.txHash ? <> · <ExplorerLink href={galileoTx(b.money.refund.txHash)} value={b.money.refund.txHash} /></> : null}</td></tr>}
         </tbody>
       </table>
       {b.quote?.lines?.length > 0 && (
@@ -174,7 +176,7 @@ export function RobotEvidence({ robotId }: { robotId: string }) {
                       <Check ok={open.data.checks.manifestHash} label="content matches hash" />
                       <Check ok={open.data.checks.signature} label="signed by this robot" />
                       <Check ok={open.data.checks.arkivLink} label="matches Arkiv record" />
-                      <a className="t-small link" href={`${ARKIV_EXPLORER}/entity-explorer`} target="_blank" rel="noreferrer" title="Search this key in the entity explorer">entity <span className="mono">{short(r.rec.key)}</span></a>
+                      <span className="t-small">Arkiv entity <ExplorerLink href={arkivEntity(r.rec.key)} value={r.rec.key} /></span>
                       <span className="t-small muted mono" title={r.rec.data.storageRoot}>root {short(r.rec.data.storageRoot)}</span>
                     </div>
                     {open.data.checks.detail.length > 0 && <p className="t-small muted">{open.data.checks.detail.join(" · ")}</p>}

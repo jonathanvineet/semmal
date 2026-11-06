@@ -3,8 +3,8 @@ import { rabdi } from "@arkiv-network/sdk/chains";
 import { eq, desc } from "@arkiv-network/sdk/query";
 import { getAddress, hexToString, http } from "viem";
 import { AgentListing, RobotProfile, type AgentListing as TAgent, type RobotProfile as TRobot } from "@semmal/contracts";
-import { AgentProfileSchema, EpisodeSchema, IncidentSchema, JobClaimSchema, QuoteSchema, RobotProfileSchema, TaskRequestSchema } from "./schemas";
-import { EpisodeIndex, IncidentIndex, JobClaim, TaskQuote, TaskRequest } from "@semmal/contracts";
+import { AgentProfileSchema, EpisodeSchema, IncidentSchema, JobClaimSchema, QuoteSchema, ReputationSchema, RobotProfileSchema, TaskRequestSchema } from "./schemas";
+import { EpisodeIndex, IncidentIndex, JobClaim, ReputationCheckpoint, TaskQuote, TaskRequest } from "@semmal/contracts";
 import { RABDI_CHAIN_ID } from "./guarded-writer";
 import { addr } from "@arkiv-network/sdk/schema";
 
@@ -130,6 +130,10 @@ export class ArkivRegistry {
   }
   async listEpisodes(robotId: string) {
     return this.robotSigned(await this.readBodies(EpisodeSchema, eq("robot_id", robotId), EpisodeIndex, (d) => d.robotWallet));
+  }
+  /** Published score checkpoints (creator = the publisher named in the body). The caller keeps only trusted publishers. */
+  async listReputation() {
+    return this.readBodies(ReputationSchema, undefined, ReputationCheckpoint, (d) => d.publisherWallet);
   }
   async listIncidents(robotId: string) {
     return this.robotSigned(await this.readBodies(IncidentSchema, eq("robot_id", robotId), IncidentIndex, (d) => d.robotWallet));

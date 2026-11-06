@@ -5,6 +5,8 @@
  * The price is the model's live cost for one job plus your margin; it is not typed in.
  */
 import { motion } from "motion/react";
+import { arkivEntity, arkivTx } from "@/lib/explorers";
+import { ExplorerLink } from "./ui/ExplorerLink";
 import { useEffect, useMemo, useState } from "react";
 import { formatUnits, getAddress } from "viem";
 import { AgentListing } from "@semmal/contracts";
@@ -149,7 +151,7 @@ export function AgentBuilder() {
     return (
       <motion.div className="ab-done" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
         <b>{name.trim()} is on Arkiv.</b>
-        <span className="muted t-small">Agent id <span className="mono">{done.agentId}</span> · entity <span className="mono">{short(done.entityKey)}</span> · <a className="link" href={`${ARKIV_EXPLORER}/tx/${done.txHash}`} target="_blank" rel="noreferrer">transaction</a></span>
+        <span className="muted t-small">Agent id <span className="mono">{done.agentId}</span> · entity <ExplorerLink href={arkivEntity(done.entityKey)} value={done.entityKey} /> · <ExplorerLink href={arkivTx(done.txHash)} value={done.txHash} label="transaction" /></span>
         <button type="button" className="btn btn--secondary" onClick={() => { setDone(null); setName(""); setSummary(""); }}>Build another agent</button>
       </motion.div>
     );

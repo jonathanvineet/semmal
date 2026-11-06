@@ -636,3 +636,77 @@ export const IncidentIndex = z.object({
   requestIds: z.array(z.string().max(100)).max(20),
 });
 export type IncidentIndex = z.infer<typeof IncidentIndex>;
+
+// ---------------------------------------------------------------- reputation (score-v1)
+/**
+ * Performance scores for robots and agents. Deterministic and published (formula "score-v1"):
+ *
+ *  Robot (from its robot-signed Arkiv episodes and incidents):
+ *    judged     = completed + failed            (safe stops and aborts are not counted against it:
+ *                                                a correct safe stop is the right behaviour)
+ *    score      = round(100 * completed / judged - 20 * min(1, incidents / episodes))
+ *  Agent (from the runner's record of each paid job):
+ *    judged     = succeeded + failed            (rejected jobs are input/payment problems, not the agent's)
+ *    score      = round(100 * succeeded / judged)
+ *  Status: "new" under 3 judged jobs; "excluded" with >= 5 judged and score < 40, or no activity for
+ *  180 days; "watch" under 60; otherwise "good". Excluded robots and agents are left out of discovery
+ *  and hiring.
+ */
+export const SCORE_FORMULA = "score-v1" as const;
+export const SCORE_RULES = { minJudged: 3, excludeMinJudged: 5, excludeBelow: 40, watchBelow: 60, inactiveDays: 180, checkpointDays: 120 } as const;
+export type ScoreStatus = "new" | "good" | "watch" | "excluded";
+export type Score = { score: number; status: ScoreStatus; judged: number; counts: Record<string, number>; lastActiveAt: string | null; reason: string };
+
+function status(score: number, judged: number, lastActiveAt: string | null, now: number): { status: ScoreStatus; reason: string } {
+  const idle = lastActiveAt ? (now - Date.parse(lastActiveAt)) / 86_400_000 : null;
+  if (idle !== null && idle > SCORE_RULES.inactiveDays) return { status: "excluded", reason: `no activity for ${Math.floor(idle)} days` };
+  if (judged >= SCORE_RULES.excludeMinJudged && score < SCORE_RULES.excludeBelow) return { status: "excluded", reason: `score ${score} after ${judged} judged jobs` };
+  if (judged < SCORE_RULES.minJudged) return { status: "new", reason: `${judged} judged job${judged === 1 ? "" : "s"} so far` };
+  if (score < SCORE_RULES.watchBelow) return { status: "watch", reason: `score ${score}` };
+  return { status: "good", reason: `score ${score}` };
+}
+
+export function scoreRobot(episodes: { outcome: string; endedAt: string }[], incidents: { detectedAt: string }[], now = Date.now()): Score {
+  const c = { episodes: episodes.length, completed: 0, failed: 0, safeStops: 0, aborted: 0, incidents: incidents.length };
+  for (const e of episodes) {
+    if (e.outcome === "COMPLETED") c.completed++;
+    else if (e.outcome === "FAILED") c.failed++;
+    else if (e.outcome === "SAFE_STOP") c.safeStops++;
+    else c.aborted++;
+  }
+  const judged = c.completed + c.failed;
+  const base = judged ? (100 * c.completed) / judged : 100;
+  const score = Math.max(0, Math.min(100, Math.round(base - 20 * Math.min(1, c.episodes ? c.incidents / c.episodes : 0))));
+  const times = [...episodes.map((e) => e.endedAt), ...incidents.map((i) => i.detectedAt)].filter(Boolean).sort();
+  const lastActiveAt = times.at(-1) ?? null;
+  return { score, judged, counts: c, lastActiveAt, ...status(score, judged, lastActiveAt, now) };
+}
+
+export function scoreAgent(jobs: { status: string; at: string }[], now = Date.now()): Score {
+  const c = { jobs: jobs.length, succeeded: 0, failed: 0, rejected: 0 };
+  for (const j of jobs) {
+    if (j.status === "succeeded") c.succeeded++;
+    else if (j.status === "failed") c.failed++;
+    else c.rejected++;
+  }
+  const judged = c.succeeded + c.failed;
+  const score = judged ? Math.round((100 * c.succeeded) / judged) : 100;
+  const lastActiveAt = jobs.map((j) => j.at).sort().at(-1) ?? null;
+  return { score, judged, counts: c, lastActiveAt, ...status(score, judged, lastActiveAt, now) };
+}
+
+/** A published score checkpoint. Written by the instance owner's wallet; lives 120 days unless refreshed. */
+export const ReputationCheckpoint = z.object({
+  schemaVersion: z.literal(SCHEMA_VERSION),
+  formula: z.literal(SCORE_FORMULA),
+  subjectKind: z.enum(["robot", "agent"]),
+  subjectId: z.string().min(3).max(64),
+  score: z.number().int().min(0).max(100),
+  status: z.enum(["new", "good", "watch", "excluded"]),
+  judged: z.number().int().min(0),
+  counts: z.record(z.string().max(20), z.number().int().min(0)),
+  lastActiveAt: z.string().datetime().nullable(),
+  computedAt: z.string().datetime(),
+  publisherWallet: addrZ,
+});
+export type ReputationCheckpoint = z.infer<typeof ReputationCheckpoint>;

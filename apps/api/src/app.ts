@@ -5,7 +5,7 @@ import cors from "@fastify/cors";
 import { ArkivRegistry, arkivConfigFromEnv } from "@semmal/arkiv-adapter";
 import { ZeroGError, ZeroGRouter, zeroGConfigFromEnv } from "@semmal/zerog-pc-adapter";
 import { loadConfig } from "./config";
-import { LatLon, PricingPolicy, RobotSkill, TrustMode, distanceM, robotIdFromWallet } from "@semmal/contracts";
+import { LatLon, PricingPolicy, RobotSkill, SCORE_FORMULA, SCORE_RULES, TrustMode, distanceM, robotIdFromWallet, scoreAgent, scoreRobot } from "@semmal/contracts";
 import { routeBetween } from "./route";
 import { agentJobPrice, AGENT_TOKENS, quoteTask, SKILL_NEEDS } from "@semmal/quote";
 import { z } from "zod";
@@ -247,6 +247,50 @@ export function buildApp(deps: Deps = defaultDeps()) {
     }
   }
 
+  // ---------------------------------------------------------------- scores (score-v1)
+  /**
+   * Live scores for every robot and agent, from evidence nobody can quietly edit: robots from their own
+   * signed episodes and incidents on Arkiv, agents from the runner's record of each paid job. Excluded
+   * robots and agents are left out of discovery and hiring. Recomputed at most once a minute.
+   */
+  const scores = cached(60_000, async () => {
+    const [robots, agents] = await Promise.all([robotsFromArkiv(""), agentsFromArkiv("")]);
+    const robotScores = await Promise.all(
+      robots.map(async (r) => {
+        const [eps, incs] = await Promise.all([registry.listEpisodes(r.data.robotId).catch(() => []), registry.listIncidents(r.data.robotId).catch(() => [])]);
+        return { subjectKind: "robot" as const, subjectId: r.data.robotId, name: r.data.displayName, owner: r.data.ownerWallet, ...scoreRobot(eps.map((e) => e.data), incs.map((i) => i.data)) };
+      }),
+    );
+    const history = runner?.jobHistory() ?? [];
+    const agentScores = agents.map((a) => ({
+      subjectKind: "agent" as const, subjectId: a.data.agentId, name: a.data.displayName, owner: a.data.ownerWallet,
+      ...scoreAgent(history.filter((h) => h.agentId === a.data.agentId)),
+    }));
+    return { robots: robotScores, agents: agentScores };
+  });
+  const excluded = async () => {
+    const s = await scores("").catch(() => null);
+    return new Set([...(s?.robots ?? []), ...(s?.agents ?? [])].filter((x) => x.status === "excluded").map((x) => x.subjectId));
+  };
+
+  app.get("/api/scores", async (_req, reply) => {
+    try {
+      const [s, published] = await Promise.all([scores(""), registry.listReputation().catch(() => [])]);
+      // only checkpoints published by the instance owner count; the newest per subject
+      const owner = admin.snapshot.owner?.toLowerCase();
+      const latest = new Map<string, { entityKey: string; score: number; status: string; computedAt: string }>();
+      for (const p of published) {
+        if (!owner || p.data.publisherWallet.toLowerCase() !== owner) continue;
+        const prev = latest.get(p.data.subjectId);
+        if (!prev || p.data.computedAt > prev.computedAt) latest.set(p.data.subjectId, { entityKey: p.entityKey, score: p.data.score, status: p.data.status, computedAt: p.data.computedAt });
+      }
+      const withPublished = <T extends { subjectId: string }>(x: T) => ({ ...x, published: latest.get(x.subjectId) ?? null });
+      return { formula: SCORE_FORMULA, rules: SCORE_RULES, robots: s.robots.map(withPublished), agents: s.agents.map(withPublished) };
+    } catch {
+      return reply.code(502).send({ error: "Arkiv could not be reached" });
+    }
+  });
+
   app.get<{ Querystring: { owner?: string } }>("/api/robots", async (req) => {
     const owner = req.query.owner && /^0x[0-9a-fA-F]{40}$/.test(req.query.owner) ? req.query.owner.toLowerCase() : "";
     return listing(() => robotsFromArkiv(owner));
@@ -257,7 +301,8 @@ export function buildApp(deps: Deps = defaultDeps()) {
     const at = LatLon.safeParse({ lat: Number(req.query.lat), lon: Number(req.query.lon) });
     if (!at.success) return reply.code(400).send({ error: "lat and lon required" });
     try {
-      const robots = await robotsFromArkiv("");
+      const out = await excluded();
+      const robots = (await robotsFromArkiv("")).filter((r) => !out.has(r.data.robotId));
       const live = new Map((gateway?.publicView() ?? []).map((r) => [r.robotId, r]));
       const items = robots
         .filter((e) => e.data.location)
@@ -302,7 +347,10 @@ export function buildApp(deps: Deps = defaultDeps()) {
 
   app.get<{ Querystring: { kind?: string } }>("/api/agents", async (req) => {
     const kind = req.query.kind && /^[a-z-]{2,30}$/.test(req.query.kind) ? req.query.kind : "";
-    return listing(() => agentsFromArkiv(kind));
+    // excluded agents (bad score or inactive) are not offered for hiring; ?all=1 shows everything
+    const out = await excluded();
+    const all = (req.query as { all?: string }).all === "1";
+    return listing(async () => (await agentsFromArkiv(kind)).filter((a) => all || !out.has(a.data.agentId)));
   });
 
   /**
@@ -374,7 +422,8 @@ export function buildApp(deps: Deps = defaultDeps()) {
         policy = preview.policy;
       } else return reply.code(400).send({ error: "robotId or preview required" });
 
-      const agents = await registry.listAgents().catch(() => []);
+      const out = await excluded();
+      const agents = (await registry.listAgents().catch(() => [])).filter((a) => !out.has(a.data.agentId));
       // only agents priced in 0G can be paid by the robot
       const offers = agents.filter((a) => a.data.price.token === "0G").map((a) => ({
         agentId: a.data.agentId,
@@ -580,37 +629,6 @@ export function buildApp(deps: Deps = defaultDeps()) {
       customerWallet: task.data.customerWallet,
     }, { robotName: robot.data.displayName, ownerWallet: robot.data.ownerWallet });
     return r.ok ? { taskId: r.taskId, dispatched: true } : reply.code(409).send({ error: r.reason });
-  });
-
-  // ---------------------------------------------------------------- camera frames (memory only)
-  /**
-   * The robot hands over each frame it sent to 0G, so the customer can see exactly what was looked at.
-   * Kept in memory with the trip (never on disk, Arkiv or 0G Storage); gone when the API restarts.
-   */
-  app.post<{ Params: { taskId: string }; Body: { stop?: string; dataUrl?: string } }>("/api/tasks/:taskId/frames", { bodyLimit: 3 * 1024 * 1024 }, async (req, reply) => {
-    const bearer = (req.headers.authorization ?? "").replace(/^Bearer\s+/i, "");
-    const link = bearer.startsWith("slk_") ? gateway?.links.verify(bearer) : null;
-    if (!link) return reply.code(401).send({ error: "robot link token required" });
-    const t = gateway!.trips.get(req.params.taskId);
-    if (!t || t.robotId !== link.robotId) return reply.code(404).send({ error: "no such task for this robot" });
-    const dataUrl = String(req.body?.dataUrl ?? "");
-    if (!/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(dataUrl) || dataUrl.length > 2_500_000) return reply.code(400).send({ error: "dataUrl must be a base64 PNG, JPEG or WebP" });
-    t.frames ??= [];
-    t.frames.push({ at: new Date().toISOString(), stop: String(req.body?.stop ?? "").slice(0, 40), dataUrl });
-    if (t.frames.length > 12) t.frames.splice(0, t.frames.length - 12);
-    return { index: t.frames.length - 1 };
-  });
-
-  /** One frame, for the booking's customer only (it is their site). On an owner test task, for the owner. */
-  app.get<{ Params: { taskId: string; index: string } }>("/api/tasks/:taskId/frames/:index", async (req, reply) => {
-    const address = sessionAddress(req)?.toLowerCase();
-    if (!address) return reply.code(401).send({ error: "sign in with the wallet that booked" });
-    const t = gateway?.trips.get(req.params.taskId);
-    const f = t?.frames?.[Number(req.params.index)];
-    if (!t || !f) return reply.code(404).send({ error: "frame not available (frames are kept in memory only)" });
-    const viewer = t.meta.customerWallet ?? t.meta.ownerWallet;
-    if (!viewer || viewer.toLowerCase() !== address) return reply.code(403).send({ error: "only the customer who booked can see the pictures of their site" });
-    return { at: f.at, stop: f.stop, dataUrl: f.dataUrl };
   });
 
   // ---------------------------------------------------------------- the booking flow: approve, arrive, confirm

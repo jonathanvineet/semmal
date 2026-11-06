@@ -63,9 +63,9 @@ export function agentCreateArgs(input: TAgent, ttlDays = REGISTRATION_DAYS) {
 }
 
 // ---------------------------------------------------------------- coordination + evidence encoders
-import { EpisodeIndex, IncidentIndex, JobClaim, TaskQuote, TaskRequest } from "@semmal/contracts";
-import { addr as addrV, dec as decV, u64 } from "@arkiv-network/sdk/schema";
-import { EpisodeSchema, IncidentSchema, JobClaimSchema, QuoteSchema, TaskRequestSchema } from "./schemas";
+import { EpisodeIndex, IncidentIndex, JobClaim, ReputationCheckpoint, SCORE_RULES, TaskQuote, TaskRequest } from "@semmal/contracts";
+import { addr as addrV, dec as decV, i32 as i32V, u64 } from "@arkiv-network/sdk/schema";
+import { EpisodeSchema, IncidentSchema, JobClaimSchema, QuoteSchema, ReputationSchema, TaskRequestSchema } from "./schemas";
 
 const BLOCK_SECONDS = 2;
 /** Lifetime that ends at `iso` (rounded up to the 2 s block time, at least 2 blocks). */
@@ -74,7 +74,7 @@ export function expiresAt(iso: string, now = Date.now()) {
   return ExpirationTime.fromSeconds(Math.ceil(secs / BLOCK_SECONDS) * BLOCK_SECONDS);
 }
 const body = (v: unknown) => new TextEncoder().encode(canonicalJson(v));
-const EVIDENCE_DAYS = 90; // renew before expiry if longer retention is needed (Lifetime Extension)
+const EVIDENCE_DAYS = 120; // about 4 months; renew before expiry if longer retention is needed // renew before expiry if longer retention is needed (Lifetime Extension)
 
 export function taskRequestCreateArgs(input: TaskRequest) {
   const t = TaskRequest.parse(input);
@@ -118,5 +118,15 @@ export function incidentCreateArgs(input: IncidentIndex) {
     schema: IncidentSchema,
     values: { incident_id: i.incidentId, robot_id: i.robotId, fault_code: i.faultCode, severity: i.severity, storage_root: i.storageRoot, sequence: u64(BigInt(i.sequence)), body: body(i) },
     options: { expiration: ExpirationTime.fromDays(EVIDENCE_DAYS) },
+  };
+}
+
+/** A score checkpoint: about 4 months on Arkiv; publishing a newer one refreshes the record. */
+export function reputationCreateArgs(input: ReputationCheckpoint) {
+  const r = ReputationCheckpoint.parse(input);
+  return {
+    schema: ReputationSchema,
+    values: { subject_kind: r.subjectKind, subject_id: r.subjectId, score: i32V(r.score), status: r.status, body: body(r) },
+    options: { expiration: ExpirationTime.fromDays(SCORE_RULES.checkpointDays) },
   };
 }

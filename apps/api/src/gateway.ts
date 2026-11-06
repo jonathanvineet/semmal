@@ -86,8 +86,6 @@ export type Trip = {
   state?: { state: string; detail?: string; at: string };
   /** Every 0G decision the robot reported, in full (no image or prompt bytes). */
   decisions: Record<string, unknown>[];
-  /** Camera frames the robot sent to 0G for this task: memory only, for the customer to see. */
-  frames?: { at: string; stop: string; dataUrl: string }[];
 };
 
 export type LiveRobot = {

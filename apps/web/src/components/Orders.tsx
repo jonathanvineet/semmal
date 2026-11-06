@@ -5,6 +5,8 @@
  * booking view (pay the offer, the route and the robot on the map, progress).
  */
 import Link from "next/link";
+import { arkivEntity } from "@/lib/explorers";
+import { ExplorerLink } from "./ui/ExplorerLink";
 import { useCallback, useEffect, useState } from "react";
 import { HARDWARE, ROBOT_MODELS, ROBOT_SKILLS } from "@semmal/contracts";
 import { useWallet } from "@/lib/wallet";
@@ -12,7 +14,7 @@ import type { Listing, RobotProfile } from "@/lib/api";
 import { BookTask } from "./BookTask";
 
 type Order = {
-  taskId: string; robotId: string; robotName: string; robotModel: string | null; skill: string; maxBudget: string;
+  taskId: string; entityKey?: string; robotId: string; robotName: string; robotModel: string | null; skill: string; maxBudget: string;
   createdAt: string | null; startAt: string | null; deadline: string;
   offer: { amount: string; validUntil: string } | null; state: string | null;
   latest: { phase: string; etaAt: string | null; remainingM: number | null } | null;
@@ -136,7 +138,7 @@ export function Orders() {
                   plan={{ skill: o.skill, waypoints: 1, distanceM: 0, privacy: "private" }}
                   quote={o.offer?.amount ?? o.maxBudget}
                 />
-                <p className="t-small muted mono">{o.taskId}{o.lastEvent ? ` · last update ${new Date(o.lastEvent.at).toLocaleTimeString()}` : ""}</p>
+                <p className="t-small muted mono">{o.taskId}{o.lastEvent ? ` · last update ${new Date(o.lastEvent.at).toLocaleTimeString()}` : ""}{o.entityKey ? <> · booking <ExplorerLink href={arkivEntity(o.entityKey)} value={o.entityKey} /></> : null}</p>
               </div>
             )}
           </li>
