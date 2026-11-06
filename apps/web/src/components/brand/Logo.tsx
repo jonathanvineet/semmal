@@ -1,57 +1,40 @@
 /**
  * Semmal (செம்மல்): Tamil for a person of eminence, one honoured for doing the work well.
- * The mark: the Tamil letter செ on a warm gradient tile, with three nodes for the network of robots and agents.
+ *
+ * The mark is a robot: a line-drawn head whose antenna light is the pulli (புள்ளி), the dot Tamil writes
+ * over a letter and that செம்மல் itself carries. The logotype sets both scripts on one line:
+ * [robot] செம்மல் | Semmal. One ink colour, one accent; no gradients.
  */
-import { useId } from "react";
-
 export const TAMIL_NAME = "செம்மல்";
-const TAMIL_FONT = "var(--f-tamil), 'Noto Sans Tamil', 'Tamil Sangam MN', Latha, sans-serif";
 
-export function LogoMark({ size = 30, className }: { size?: number; className?: string }) {
-  const id = useId().replace(/[^a-zA-Z0-9]/g, "");
+export function LogoMark({ size = 26, className }: { size?: number; className?: string }) {
   return (
-    <svg viewBox="0 0 64 64" width={size} height={size} className={className} aria-hidden="true">
-      <defs>
-        <linearGradient id={`g${id}`} x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0" stopColor="#FFB547" />
-          <stop offset="0.5" stopColor="#FF5A3D" />
-          <stop offset="1" stopColor="#E3247C" />
-        </linearGradient>
-        <radialGradient id={`h${id}`} cx="0.3" cy="0.2" r="0.8">
-          <stop offset="0" stopColor="#fff" stopOpacity="0.35" />
-          <stop offset="1" stopColor="#fff" stopOpacity="0" />
-        </radialGradient>
-      </defs>
-      <rect x="2" y="2" width="60" height="60" rx="18" fill={`url(#g${id})`} />
-      <rect x="2" y="2" width="60" height="60" rx="18" fill={`url(#h${id})`} />
-      <g stroke="#fff" strokeOpacity="0.45" strokeWidth="1.6" strokeLinecap="round">
-        <path d="M13 14 20 20M51 14 44 20M32 55v-6" />
+    <svg viewBox="0 0 32 32" width={size} height={size} className={`brand__mark ${className ?? ""}`} aria-hidden="true">
+      <g fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M16 9V5.6" />
+        <rect x="5" y="9" width="22" height="18" rx="7" />
+        <path d="M2.4 15.5v5M29.6 15.5v5" />
+        <path d="M12.6 22.4h6.8" opacity="0.55" />
       </g>
-      <g fill="#fff" fillOpacity="0.85">
-        <circle cx="12" cy="13" r="3" />
-        <circle cx="52" cy="13" r="3" />
-        <circle cx="32" cy="57" r="2.6" />
-      </g>
-      <text x="32" y="43" textAnchor="middle" fontSize="27" fontWeight="800" fill="#fff" style={{ fontFamily: TAMIL_FONT }}>
-        செ
-      </text>
+      <circle cx="11.4" cy="17" r="2.1" fill="currentColor" />
+      <circle cx="20.6" cy="17" r="2.1" fill="currentColor" />
+      <circle className="brand__light" cx="16" cy="3.6" r="2.7" />
     </svg>
   );
 }
 
-/** The wordmark: mark + Semmal + செம்மல். */
-export function Logo({ size = 30, tamil = true, className }: { size?: number; tamil?: boolean; className?: string }) {
+/** [robot] செம்மல் | Semmal. `latin={false}` for tight spots. */
+export function Logo({ latin = true, size = 26, className }: { latin?: boolean; size?: number; className?: string }) {
   return (
     <span className={`brand ${className ?? ""}`}>
       <LogoMark size={size} />
-      <span className="brand__text">
-        <b className="brand__en">Semmal</b>
-        {tamil && (
-          <span className="brand__ta" lang="ta">
-            {TAMIL_NAME}
-          </span>
-        )}
-      </span>
+      <span className="brand__ta" lang="ta">{TAMIL_NAME}</span>
+      {latin && (
+        <>
+          <span className="brand__rule" aria-hidden="true" />
+          <span className="brand__en">Semmal</span>
+        </>
+      )}
     </span>
   );
 }

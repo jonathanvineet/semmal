@@ -1160,22 +1160,39 @@ a.xl { white-space: nowrap; }
 .sc__table { margin-bottom: 10px; }
 
 /* ---------- brand: Semmal (செம்மல்) ---------- */
-:root { --brand-grad: linear-gradient(120deg, #ffb547 0%, #ff5a3d 48%, #e3247c 100%); }
-.brand { display: inline-flex; align-items: center; gap: 10px; }
-.brand svg { flex: none; filter: drop-shadow(0 6px 14px rgb(255 90 61 / 0.35)); }
-.brand__text { display: grid; line-height: 1; gap: 2px; }
-.brand__en { font: 800 17px var(--font-text); letter-spacing: -0.02em; color: var(--p-ink); }
-.brand__ta { font: 800 11.5px var(--f-tamil), sans-serif; letter-spacing: 0.01em; background: var(--brand-grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
-.dock__brand { padding: 0 12px 0 4px; }
-.hero-brand { display: grid; gap: 10px; margin-bottom: 22px; }
-.hero-brand__name { margin: 0; display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 18px; line-height: 1.05; }
-.hero-brand__ta {
-  font: 800 clamp(48px, 6.2vw, 96px) var(--f-tamil), sans-serif; letter-spacing: 0;
-  background: var(--brand-grad); -webkit-background-clip: text; background-clip: text; color: transparent;
-  filter: drop-shadow(0 10px 30px rgb(255 90 61 / 0.28));
+/* one line, both scripts: the pulli dot (accent) · செம்மல் (ink) | Semmal (muted). No gradients. */
+.brand { display: inline-flex; align-items: center; gap: 9px; line-height: 1; white-space: nowrap; }
+.brand__mark { flex: none; color: var(--p-ink); overflow: visible; }
+.brand__light { fill: var(--p-accent); }
+.brand:hover .brand__light, .brand:focus-visible .brand__light { fill: color-mix(in oklab, var(--p-accent) 80%, #fff); }
+.brand__ta { font: 700 17px/1 var(--f-tamil), sans-serif; color: var(--p-ink); letter-spacing: 0; padding-top: 2px; }
+.brand__rule { width: 1px; height: 15px; background: color-mix(in oklab, var(--p-ink) 22%, transparent); }
+.brand__en { font: 600 15px/1 var(--font-text); letter-spacing: -0.01em; color: var(--p-muted); }
+.dock__brand { padding: 0 14px 0 12px; }
+
+
+/* hero: the name as one confident line, then the heading */
+.hero-brand { display: grid; gap: 10px; margin-bottom: 30px; }
+.hero-brand__name { margin: 0; display: flex; align-items: center; gap: 0 16px; flex-wrap: nowrap; line-height: 1; }
+.hero-brand__mark { width: clamp(40px, 3.6vw, 56px); height: auto; flex: none; }
+.hero-brand__ta { font: 700 clamp(40px, 4.2vw, 64px)/1 var(--f-tamil), sans-serif; color: var(--p-ink); padding-top: 0.08em; }
+.hero-brand__en { font: 500 clamp(18px, 1.6vw, 24px)/1 var(--font-text); letter-spacing: -0.02em; color: var(--p-muted); padding-left: 16px; border-left: 1px solid color-mix(in oklab, var(--p-ink) 22%, transparent); }
+.hero-brand__meaning { margin: 0; max-width: 54ch; font-size: 15px; line-height: 1.55; color: var(--p-muted); }
+.hero-brand__meaning em { font-style: normal; color: var(--p-ink); }
+@media (max-width: 640px) {
+  .hero-brand { margin-bottom: 22px; }
+  .hero-brand__name { gap: 0 12px; }
+  .hero-brand__en { padding-left: 12px; }
+  .world__hero { height: auto; min-height: 100svh; padding-top: 104px; }
 }
-.hero-brand__en { font: 800 clamp(28px, 2.6vw, 42px) var(--font-text); letter-spacing: -0.03em; color: var(--p-ink); }
-.hero-brand__meaning { margin: 0; max-width: 58ch; font-size: 16px; color: var(--p-muted); }
-.hero-brand__meaning em { font-style: normal; color: var(--p-ink); font-weight: 600; }
-.close-word__ta { font-family: var(--f-tamil), sans-serif; background: var(--brand-grad); -webkit-background-clip: text; background-clip: text; color: transparent; opacity: 0.55; }
-@media (max-width: 1100px) { .dock__brand .brand__text { display: none; } }
+
+/* footer: the same word, large and quiet */
+.close-word__ta { font-family: var(--f-tamil), sans-serif; font-weight: 700; color: inherit; }
+@media (max-width: 1100px) { .dock__brand .brand__rule, .dock__brand .brand__en { display: none; } }
+/* phones: the dock starts at the left edge (the logo first) and scrolls sideways instead of spilling off both sides */
+@media (max-width: 640px) {
+  .dock-wrap { justify-content: flex-start; }
+  .dock { max-width: 100%; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; }
+  .dock::-webkit-scrollbar { display: none; }
+  .dock > * { flex: none; }
+}

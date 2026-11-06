@@ -1,5 +1,6 @@
 "use client";
 import dynamic from "next/dynamic";
+import { LogoMark } from "../brand/Logo";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import gsap from "gsap";
@@ -109,15 +110,15 @@ export function WorldSection() {
             <div className="world__hero-text">
               <div className="hero-brand">
                 <p className="hero-brand__name">
+                  <LogoMark className="hero-brand__mark" size={56} />
                   <span className="hero-brand__ta" lang="ta">செம்மல்</span>
                   <span className="hero-brand__en">Semmal</span>
                 </p>
                 <p className="hero-brand__meaning">
-                  Tamil for <em>a person of eminence</em>, one honoured for doing the work well. Every robot here earns that name job by job:
-                  it does the work, pays its own way and answers for the result.
+                  Tamil for <em>a person of eminence</em>. Every robot here earns the name job by job: it does the work, pays its own way
+                  and answers for the result.
                 </p>
               </div>
-              <p className="world__eyebrow">Robot-as-a-service on 0G and Arkiv</p>
               <h1 id="hero-h">A private network where robots hire AI agents</h1>
               <p className="hero__lead">
                 Book a robot for a task. It finds, hires and pays its own specialist agents, runs private inference on 0G and records

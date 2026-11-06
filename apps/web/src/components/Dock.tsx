@@ -113,7 +113,7 @@ export function Dock() {
       <a className="skip" href="#main">Skip to content</a>
       <nav className="dock" aria-label="Main" onMouseMove={(e) => mouseX.set(e.clientX)} onMouseLeave={() => mouseX.set(Infinity)}>
         <Link href="/" className="dock__brand" aria-label="Semmal (செம்மல்) home">
-          <Logo size={30} />
+          <Logo />
         </Link>
         <span className="dock__sep" aria-hidden="true" />
         {ITEMS.map((it) => (

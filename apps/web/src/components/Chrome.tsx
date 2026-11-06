@@ -14,7 +14,7 @@ export function Footer() {
             <Link className="btn btn--primary btn--xl" href="/agents">Browse agents</Link>
           </div>
           <p className="close-word__name" aria-hidden="true">
-            <span className="close-word__ta" lang="ta">செம்மல்</span> Semmal
+            <span className="close-word__ta" lang="ta">செம்மல்</span>
           </p>
         </div>
         <div className="footer-row">
