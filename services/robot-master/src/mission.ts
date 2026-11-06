@@ -290,9 +290,17 @@ export async function runTask(a: Assignment, d: Deps): Promise<EpisodeRecord | n
 
   // ---- quote with live prices
   const [listed, catalog] = await Promise.all([platform.agents().catch(() => [] as AgentListing[]), platform.catalog().catch(() => ({ models: [] }))]);
-  // the robot can only pay agents priced in 0G
-  const agents = listed.filter((x) => x.price.token === "0G");
-  touch("agent listings", "Arkiv registry", `${listed.length} specialist agents read, ${agents.length} priced in 0G`);
+  // the robot can only pay agents priced in 0G, and only use agents whose model can serve their trust mode:
+  // 0G sends private requests to TEE providers only (catalog verifiability "TeeML"); when the catalog lists
+  // trust levels, a model without one would fail with 503 no_provider_for_trust_mode
+  const listsTrust = catalog.models.some((m) => m.verifiability);
+  const servable = (x: AgentListing) => {
+    if (!listsTrust || !x.inference || x.inference.trustMode === "standard") return true;
+    const m = catalog.models.find((c) => c.id === x.inference!.model);
+    return x.inference.trustMode === "private" ? m?.verifiability === "TeeML" : Boolean(m?.verifiability);
+  };
+  const agents = listed.filter((x) => x.price.token === "0G" && servable(x));
+  touch("agent listings", "Arkiv registry", `${listed.length} specialist agents read, ${agents.length} priced in 0G with a model that can serve their trust mode`);
   touch("model prices", "0G Router catalog", `${catalog.models.length} models`);
   const offers: SpecialistOffer[] = agents.map((x) => ({ agentId: x.agentId, name: x.displayName, kind: x.kind, price: x.price.amount, trustMode: x.inference?.trustMode ?? "none" }));
   const visionModel = agents.find((x) => x.kind === "vision" && x.inference)?.inference?.model;
@@ -447,19 +455,22 @@ export async function runTask(a: Assignment, d: Deps): Promise<EpisodeRecord | n
    * One agent job: pay the agent's owner (the wallet on its Arkiv listing) in 0G first, then send the
    * job with the payment's hash. Recorded as a purchase whatever happens. `blocked` means no money moved.
    */
-  const job = async (agent: AgentListing, forWhat: string, input: unknown) => {
-    const jobId = `job-${randomUUID().slice(0, 16)}`;
+  const job = async (agent: AgentListing, forWhat: string, input: unknown, reuse?: { jobId: string; paymentTx: string }) => {
+    const jobId = reuse?.jobId ?? `job-${randomUUID().slice(0, 16)}`;
     const price = micro(agent.price.amount);
     const rec: Purchase = {
       at: now(), agentId: agent.agentId, agentName: agent.displayName, kind: agent.kind, forWhat, price0G: agent.price.amount, payTo: agent.ownerWallet,
       paymentStatus: "not paid", status: "not run", model: agent.inference?.model, trustMode: agent.inference?.trustMode,
     };
     purchases.push(rec);
-    if (budget === null || spent + price > budget) {
+    if (!reuse && (budget === null || spent + price > budget)) {
       rec.status = "not bought: over the task's agent budget";
       return { r: null, latencyMs: 0, blocked: `paying ${agent.displayName} ${agent.price.amount} 0G would exceed the agent budget of ${fromMicro(budget ?? 0n)} 0G` };
     }
-    const pay = await d.wallet.pay({ to: agent.ownerWallet, wei: toWei(agent.price.amount), kind: "job", id: jobId }).catch((e) => ({ error: (e as Error).message }));
+    // a retry of a job whose payment could not be checked resends the same paid job: never pay twice
+    const pay = reuse
+      ? { txHash: reuse.paymentTx as `0x${string}`, status: "success" as const }
+      : await d.wallet.pay({ to: agent.ownerWallet, wei: toWei(agent.price.amount), kind: "job", id: jobId }).catch((e) => ({ error: (e as Error).message }));
     if ("error" in pay || pay.status !== "success") {
       rec.paymentStatus = "error" in pay ? `failed: ${pay.error}` : pay.status;
       if (!("error" in pay)) rec.paymentTx = pay.txHash;
@@ -467,8 +478,8 @@ export async function runTask(a: Assignment, d: Deps): Promise<EpisodeRecord | n
       rec.status = "not run: payment did not go through";
       return { r: null, latencyMs: 0, blocked: `could not pay ${agent.displayName}: ${rec.paymentStatus}` };
     }
-    spent += price;
-    Object.assign(rec, { paymentTx: pay.txHash, paymentStatus: "paid" });
+    if (!reuse) spent += price;
+    Object.assign(rec, { paymentTx: pay.txHash, paymentStatus: reuse ? "paid (same payment, resent)" : "paid" });
     const t0 = Date.now();
     let r;
     try {
@@ -488,7 +499,7 @@ export async function runTask(a: Assignment, d: Deps): Promise<EpisodeRecord | n
       providerRequestId: r?.receipt?.providerRequestId,
       billing: r?.receipt?.billing,
     });
-    return { r: r ?? null, latencyMs: r?.receipt?.latencyMs ?? Date.now() - t0, blocked: undefined as string | undefined, rec };
+    return { r: r ?? null, latencyMs: r?.receipt?.latencyMs ?? Date.now() - t0, blocked: undefined as string | undefined, rec, jobId, paymentTx: pay.txHash as string };
   };
 
   // ---- optional: a navigation agent orders the stops (the robot keeps its own order otherwise)
@@ -518,9 +529,13 @@ export async function runTask(a: Assignment, d: Deps): Promise<EpisodeRecord | n
     const frameIndex = await platform.postFrame?.(a.taskId, stop, img.dataUrl).catch(() => undefined);
 
     let answer: { action: string; confidence: number; observation: string; anomaly: string | null; found: boolean } | null = null;
+    let reuse: { jobId: string; paymentTx: string } | undefined;
     for (let attempt = 1; attempt <= 2 && !answer; attempt++) {
       const question = sp.ask(stop);
-      const { r, latencyMs, blocked, rec } = await job(visionAgent, `look at ${stop}`, { image: img.dataUrl, context: question });
+      const res = await job(visionAgent, `look at ${stop}`, { image: img.dataUrl, context: question }, reuse);
+      const { r, latencyMs, blocked, rec } = res;
+      // the agent never checked the payment (network), so the same paid job can be resent
+      reuse = r?.status === "rejected" && /payment could not be checked/i.test(r.reason ?? "") && "jobId" in res && res.paymentTx ? { jobId: res.jobId!, paymentTx: res.paymentTx } : undefined;
       const tell = (x: Pick<DecisionDetail, "outcome" | "action" | "checks"> & { output?: unknown; reason?: string }) =>
         d.decision?.({
           taskId: a.taskId, at: now(), stop, attempt, agentId: visionAgent.agentId, agentName: visionAgent.displayName, agentPrice0G: visionAgent.price.amount,

@@ -253,3 +253,13 @@ Tests: `apps/api/src/gateway.test.ts` against a real WebSocket server.
 - Who pays for 0G: the customer pays the robot; the robot pays the agent per job; the agent's price covers its own 0G
   inference, billed to its capped Router key (one platform deposit). The customer does not hold 0G compute credits directly;
   Privy/iAI credit use is not implemented (needs organiser confirmation).
+
+## Private mode and vision models (observed live 2026-11-06)
+
+- Live `/v1/models`: of 60 image-capable models only `0gm-1.0-35b-a3b` lists `verifiability: "TeeML"`; the rest list none.
+  A request in `private` mode for a model without a TEE provider fails with `503 no_provider_for_trust_mode` (seen for
+  `qwen2.5-vl-72b-instruct`), as documented; SEMMAL never downgrades.
+- Rule now applied: when the catalog lists trust levels at all, a model without one is treated as not TEE-backed. The agent
+  builder offers private mode only on TeeML models; the robot skips agents whose model cannot serve their trust mode.
+- Galileo RPC (`evmrpc-testnet.0g.ai`) sometimes fails with a network error; payment checks retry 4 times, and a robot
+  resends the same paid job (same job id and payment) instead of paying again when the check could not run.

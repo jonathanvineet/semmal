@@ -382,3 +382,24 @@ test("waiting to leave, the robot reports itself at its base; fast-forward sends
   assert.equal(calls.positions.at(-1)!.phase, "ARRIVED");
   assert.ok(Date.now() - t0 < 20_000, "fast-forward finished the trip in seconds");
 });
+
+test("the robot does not hire a private agent whose model has no TEE provider (0G would refuse it)", async () => {
+  const { calls, deps } = harness();
+  const cheapNoTee: AgentListing = { ...vision, agentId: "agt-cheap-000001", displayName: "Cheap", price: { amount: "0.01", token: "0G", unit: "job" }, inference: { model: "qwen2.5-vl-72b-instruct", trustMode: "private" } };
+  const platform = { ...deps.platform, agents: async () => [cheapNoTee, vision] };
+  const ep = (await runTask(task(), { ...deps, platform }))!;
+  assert.equal(ep.outcome, "COMPLETED");
+  assert.deepEqual(ep.hired, [vision.agentId]);
+  assert.ok(calls.pays.every((p) => p.id && true));
+});
+
+test("if the agent could not check the payment (network), the same paid job is resent: never paid twice", async () => {
+  let n = 0;
+  const { calls, deps } = harness({
+    job: async () => (++n === 1 ? { jobId: "j", agentId: vision.agentId, status: "rejected", reason: "Payment not accepted: payment could not be checked: HTTP request failed" } : ok("continue_mission")),
+  });
+  const ep = (await runTask(task(), deps))!;
+  assert.equal(ep.outcome, "COMPLETED");
+  assert.equal(calls.pays.filter((p) => p.kind === "job").length, 1, "one payment for two sends");
+  assert.equal(calls.jobs, 2);
+});

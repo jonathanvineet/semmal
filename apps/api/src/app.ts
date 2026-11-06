@@ -31,7 +31,17 @@ export function defaultDeps(): Deps {
     async (agentId) => (await registry.listAgents({ agentId }))[0]?.data ?? null,
     process.env.AGENT_JOBS_DB || "../../data/agent-jobs.db",
     // robot payments are checked on 0G Galileo before an agent runs
-    (want) => verifyTransfer(galileoClient(process.env.ZEROG_PAY_RPC_URL || GALILEO_RPC), want),
+    // network errors are retried (the RPC is flaky at times); a real mismatch is answered at once
+    async (want) => {
+      for (let i = 0; ; i++) {
+        try {
+          return await verifyTransfer(galileoClient(process.env.ZEROG_PAY_RPC_URL || GALILEO_RPC), want);
+        } catch (e) {
+          if (i >= 3) throw e;
+          await new Promise((r) => setTimeout(r, 1500 * (i + 1)));
+        }
+      }
+    },
   );
   const gateway = new Gateway(new LinkStore(process.env.ROBOT_LINKS_PATH || "../../data/robot-links.json"));
   const notes = new NotificationStore(process.env.NOTIFICATIONS_DB || "../../data/notifications.db");

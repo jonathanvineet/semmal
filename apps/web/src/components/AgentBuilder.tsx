@@ -28,7 +28,14 @@ const KINDS = [
 
 const ROBOT_TYPES = ["diff-drive-indoor", "diff-drive-outdoor", "aerial-multirotor", "legged-quadruped", "fixed-arm", "dexterous-hand", "humanoid", "mobile-manipulator"] as const;
 
-const trustOf = (v: string | null): "TeeML" | "TeeTLS" | "none" | "unknown" => (v === "TeeML" ? "TeeML" : v === "TeeTLS" ? "TeeTLS" : v === null ? "unknown" : "none");
+/**
+ * A model's trust level from the 0G catalog. When the catalog lists trust levels at all (some models show
+ * "TeeML"), a model without one is not TEE-backed: private mode would fail with 503
+ * no_provider_for_trust_mode. Only when no model lists one is it really unknown.
+ */
+let catalogListsTrust = false;
+const trustOf = (v: string | null): "TeeML" | "TeeTLS" | "none" | "unknown" =>
+  v === "TeeML" ? "TeeML" : v === "TeeTLS" ? "TeeTLS" : v === null && !catalogListsTrust ? "unknown" : "none";
 const allowed = (v: string | null): Trust[] => {
   const t = trustOf(v);
   if (t === "TeeML") return ["private", "verified", "standard"];
@@ -68,6 +75,7 @@ export function AgentBuilder() {
       .then(async (r) => {
         const d = await r.json();
         if (!r.ok) throw new Error(d.error ?? "0G model list unavailable");
+        catalogListsTrust = (d.models ?? []).some((m: CatalogModel) => m.verifiability);
         setCat(d);
       })
       .catch((e) => setCatErr((e as Error).message));
