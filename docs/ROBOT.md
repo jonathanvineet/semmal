@@ -82,12 +82,13 @@ static `map→odom` equal to the spawn pose (known start, no localisation yet). 
 
 | Name | Type | Publisher → subscriber | Rate / QoS | Units / notes |
 |---|---|---|---|---|
-| `/clock` | rosgraph_msgs/Clock | gz → all | 1 kHz | sim time (`use_sim_time: true`) |
+| `/clock_raw` | rosgraph_msgs/Clock | gz → clock_relay | 1 kHz | raw sim clock, one tick per physics step |
+| `/clock` | rosgraph_msgs/Clock | clock_relay → all | 50 Hz | sim time (`use_sim_time: true`); throttled so idle nodes stay cheap |
 | `/scan` | sensor_msgs/LaserScan | gz | 10 Hz, sensor QoS | 360 samples, 0.12–12 m, frame `base_scan` |
 | `/camera/image_raw`, `/camera/camera_info` | Image (rgb8 640×480), CameraInfo | gz | 15 Hz configured (~8 Hz observed headless) | frame `camera_optical_frame` |
 | `/imu/data` | sensor_msgs/Imu | gz | 100 Hz configured | frame `imu_link` |
 | `/odom`, `/tf` (odom→base_footprint) | Odometry, TFMessage | gz DiffDrive | 50 Hz | m, rad |
-| `/joint_states` | JointState | gz JointStatePublisher | every physics step (1 kHz) | wheel rad, rad/s |
+| `/joint_states` | JointState | gz JointStatePublisher | 100 Hz (`update_rate`) | wheel rad, rad/s |
 | `/wheel_encoders` | JointState | motor_sim_node | 50 Hz | wheel rad; the sim encoder fault freezes these |
 | `/motor/diagnostics` | MotorDiagnostics | motor_sim_node | 50 Hz | A, °C, rad/s |
 | `/battery_state` | BatteryState | battery_node | 1 Hz (sim time) | percentage 0–1 |
@@ -152,7 +153,7 @@ follower is the current navigation path. Nav2 (with AMCL) can replace it later b
 - The route follower does not plan around unexpected obstacles. The supervisor stops the robot, and the mission fails
   after 20 s without progress.
 - Motor current/temperature come from a first-order plant model, not real hardware.
-- `/joint_states` is bridged at the physics rate (1 kHz).
+- `/joint_states` is published at 100 Hz (JointStatePublisher `update_rate`; its default is every 1 kHz physics step).
 - The camera runs at ~8–10 Hz headless on this host (15 Hz configured).
 - Encoder-stale detection only counts while that wheel is commanded faster than 0.5 rad/s, so it is slower on routes
   with much turning (522 ms in the warehouse, 789 ms in the house, deadline 0.8 s). Making it robust is an open item.

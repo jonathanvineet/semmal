@@ -70,8 +70,8 @@ class MissionExecutor(Node):
         self.cmd_pub = self.create_publisher(Twist, '/cmd_vel_nav', 10)
         self.status_pub = self.create_publisher(String, '/mission/status', latched)
         self.create_subscription(SafetyState, '/safety/state', self._on_safety, latched, callback_group=self.cb)
-        self.create_subscription(Image, '/camera/image_raw', self._on_image, qos_profile_sensor_data,
-                                 callback_group=self.cb)
+        # The camera is subscribed only while capturing a keyframe (_capture): parsing every 15 Hz raw frame
+        # in Python cost most of a core and slowed the whole simulation, for one frame per waypoint.
         self.server = ActionServer(self, ExecuteMission, '/mission/execute', execute_callback=self._execute,
                                    goal_callback=self._on_goal, cancel_callback=lambda _g: CancelResponse.ACCEPT,
                                    callback_group=self.cb)
@@ -268,17 +268,24 @@ class MissionExecutor(Node):
         self._stop()
         return None
 
-    def _capture(self, g, wp, timeout=3.0):
+    def _capture(self, g, wp, timeout=5.0):
         """Save one camera frame received after arrival as a binary PPM on the robot host."""
         arrived = self.get_clock().now()
         end = time.monotonic() + timeout
         img = None
-        while time.monotonic() < end:
-            m = self.image
-            if m is not None and Time.from_msg(m.header.stamp) >= arrived:
-                img = m
-                break
-            time.sleep(0.05)
+        self.image = None
+        sub = self.create_subscription(Image, '/camera/image_raw', self._on_image, qos_profile_sensor_data,
+                                       callback_group=self.cb)
+        try:
+            while time.monotonic() < end:
+                m = self.image
+                if m is not None and Time.from_msg(m.header.stamp) >= arrived:
+                    img = m
+                    break
+                time.sleep(0.05)
+        finally:
+            self.destroy_subscription(sub)
+            self.image = None
         if img is None:
             self.get_logger().warn(f'no fresh camera frame at {wp}')
             return None

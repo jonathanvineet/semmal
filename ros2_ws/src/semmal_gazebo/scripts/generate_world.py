@@ -8,8 +8,9 @@ Deterministic: same inputs -> byte-identical outputs.
 Layout keys: floor, walls (outer, automatic; omit for an open outdoor site), interior_walls (axis-aligned
 segments with door gaps), rooms (visual floor finishes), obstacles (solid boxes), trees (cylinder trunk +
 canopy; the trunk collides), logs (fallen trunks lying along x or y; collide), furniture (Fuel models from
-config/models.yaml, footprints from config/model_catalog.yaml), markers (visual only), scene (sky and
-ambient colours), robot_spawn, map.
+config/models.yaml, footprints from config/model_catalog.yaml), markers (visual only), signs (text painted on
+the floor or mounted flat on a wall; visual only, textures rendered to media/signs/), scene (sky and ambient
+colours), robot_spawn, map.
 """
 import argparse
 import glob
@@ -24,6 +25,10 @@ PKG = os.path.dirname(HERE)
 SRC = os.path.dirname(PKG)
 WORLDS_DIR = os.path.join(PKG, 'config', 'worlds')
 FACING = {'east': 0.0, 'north': 90.0, 'west': 180.0, 'south': -90.0}
+MEDIA_DIR = os.path.join(PKG, 'media', 'signs')
+SIGN_FONTS = ['/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
+              '/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf']
+SIGN_PX_PER_M = 400
 
 
 def load_yaml(path):
@@ -276,6 +281,7 @@ def render_sdf(layout):
     rooms = ''.join(room_floor(r) for r in layout.get('rooms', []))
     furniture = ''.join(include_model(f) for f in furniture_items(layout))
     markers = ''.join(box_model(m, z_centre=m['z'], collide=False) for m in layout.get('markers', []))
+    signs = ''.join(sign_model(sg) for sg in (layout.get('signs') or {}).get('items', []))
     nature = ''.join(tree_model(t) for t in tree_items(layout)) + ''.join(log_model(g) for g in log_items(layout))
     scene = layout.get('scene') or {}
     ambient = _rgba(scene.get('ambient', [0.6, 0.6, 0.6, 1]))
@@ -324,10 +330,77 @@ def render_sdf(layout):
       </link>
     </model>
 {rooms}{models}{furniture}{nature}
-{markers}
+{markers}{signs}
   </world>
 </sdf>
 """
+
+
+def _facing_deg(v):
+    return FACING[v] if isinstance(v, str) else float(v)
+
+
+def sign_texture(sg, style, out_dir):
+    """Render a sign's text to a PNG (deterministic for a given Pillow version and font)."""
+    from PIL import Image, ImageDraw, ImageFont
+    font_path = next((f for f in SIGN_FONTS if os.path.exists(f)), None)
+    if not font_path:
+        raise SystemExit(f'no bold font for signs; install fonts-dejavu-core (looked for {SIGN_FONTS})')
+    st = {**style, **sg}
+    W, H = int(round(sg['w'] * SIGN_PX_PER_M)), int(round(sg['h'] * SIGN_PX_PER_M))
+
+    def rgb(c):
+        return tuple(int(round(v * 255)) for v in c[:3])
+    img = Image.new('RGB', (W, H), rgb(st['bg']))
+    d = ImageDraw.Draw(img)
+    b = max(4, H // 16)  # border and underline thickness
+    d.rectangle([b, b, W - 1 - b, H - 1 - b], outline=rgb(st['accent']), width=b)
+    text = st['text']
+    size = int(H * 0.62)
+    while True:
+        font = ImageFont.truetype(font_path, size)
+        x0, y0, x1, y1 = d.textbbox((0, 0), text, font=font)
+        if x1 - x0 <= W * 0.84 or size <= 8:
+            break
+        size -= 2
+    tx, ty = (W - (x1 - x0)) / 2 - x0, (H - (y1 - y0)) / 2 - y0 - b * 0.6
+    d.text((tx, ty), text, font=font, fill=rgb(st['fg']))
+    bar = (x1 - x0) * 0.5
+    d.rectangle([(W - bar) / 2, ty + y1 + b * 0.8, (W + bar) / 2, ty + y1 + b * 1.8], fill=rgb(st['accent']))
+    os.makedirs(out_dir, exist_ok=True)
+    path = os.path.join(out_dir, f"{sg['name']}.png")
+    img.save(path, optimize=False)
+    return path
+
+
+def sign_model(sg):
+    """A textured, self-lit plane (emissive map = the same texture, so it reads the same on a dim wall). Base orientation: normal +z, text along +x, letter tops toward +y.
+    floor: lies 3.5 mm above the ground, upright for someone looking toward `faces`.
+    wall:  stands up (roll 90 deg) with its front pointing toward `faces`."""
+    f = math.radians(_facing_deg(sg['faces']))
+    if sg['mount'] == 'floor':
+        roll, yaw, z = 0.0, f - math.pi / 2, sg.get('z', 0.0035)
+    elif sg['mount'] == 'wall':
+        roll, yaw, z = math.pi / 2, f + math.pi / 2, sg['z']
+    else:
+        raise ValueError(f"sign {sg['name']}: mount must be floor or wall")
+    tex = f"../media/signs/{sg['name']}.png"  # relative to worlds/<world>.sdf
+    return f"""
+    <model name="{sg['name']}">
+      <static>true</static>
+      <pose>{sg['x']:g} {sg['y']:g} {z:g} {_r(roll):g} 0 {_r(yaw):g}</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry><plane><normal>0 0 1</normal><size>{sg['w']:g} {sg['h']:g}</size></plane></geometry>
+          <material>
+            <ambient>1 1 1 1</ambient><diffuse>1 1 1 1</diffuse><specular>0.05 0.05 0.05 1</specular>
+            <emissive>1 1 1 1</emissive>
+            <pbr><metal><albedo_map>{tex}</albedo_map><emissive_map>{tex}</emissive_map>
+              <roughness>0.9</roughness><metalness>0</metalness></metal></pbr>
+          </material>
+        </visual>
+      </link>
+    </model>"""
 
 
 # ---------------------------------------------------------------------------------- map
@@ -401,6 +474,9 @@ def generate(name, world_dir=None, map_dir=None):
     sdf_path = os.path.join(world_dir, f'{name}.sdf')
     with open(sdf_path, 'w', encoding='utf-8') as f:
         f.write(render_sdf(layout))
+    signs = layout.get('signs') or {}
+    for sg in signs.get('items', []):
+        sign_texture(sg, signs.get('style', {}), MEDIA_DIR)
     return sdf_path, write_map(layout, map_dir)
 
 

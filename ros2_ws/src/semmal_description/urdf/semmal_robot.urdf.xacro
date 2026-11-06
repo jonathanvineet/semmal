@@ -311,6 +311,9 @@
     </plugin>
     <plugin filename="gz-sim-joint-state-publisher-system" name="gz::sim::systems::JointStatePublisher">
       <topic>/model/${model_name}/joint_states</topic>
+      <!-- Default is every physics step (1 kHz). motor_sim republishes encoders at 50 Hz, so 100 Hz is plenty
+           and keeps the Python node from spending most of a core parsing joint states. -->
+      <update_rate>100</update_rate>
       <joint_name>left_wheel_joint</joint_name>
       <joint_name>right_wheel_joint</joint_name>
     </plugin>

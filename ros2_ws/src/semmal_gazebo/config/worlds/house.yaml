@@ -119,3 +119,16 @@ map:
   resolution: 0.05
   margin: 0.5
   max_obstacle_z: 0.6   # geometry wholly above this height (wall-mounted, tabletops on tall legs) is not drawn
+
+# SEMMAL branding, visual only (no collision: not in the map, the lidar or the robot's way).
+# `faces`: floor text is upright for someone looking that way; a wall sign's front points that way.
+signs:
+  style: { text: SEMMAL, bg: [0.09, 0.12, 0.18, 1], fg: [1.0, 1.0, 1.0, 1], accent: [0.10, 0.60, 0.25, 1] }
+  items:
+    # Garage floor between the dock and the door: the robot drives over it leaving on every task.
+    - { name: sign_garage_floor, mount: floor, x: -8.5,  y: -3.3, w: 2.6, h: 0.8,  faces: north }
+    # Hallway north wall, straight ahead of the robot as it comes out of the garage door.
+    - { name: sign_hall_garage,  mount: wall, x: -8.5,  y: 0.92, z: 1.35, w: 1.8, h: 0.5, faces: south }
+    # Hallway end walls, seen down the length of the hallway.
+    - { name: sign_hall_east,    mount: wall, x: 11.99, y: -0.25, z: 1.35, w: 2.0, h: 0.55, faces: west }
+    - { name: sign_hall_west,    mount: wall, x: -11.99, y: -0.25, z: 1.35, w: 2.0, h: 0.55, faces: east }

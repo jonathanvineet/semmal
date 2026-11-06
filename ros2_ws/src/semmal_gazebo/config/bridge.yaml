@@ -1,6 +1,7 @@
 # ros_gz_bridge parameter_bridge config. Only these topics cross the Gazebo<->ROS boundary.
 # Velocity chain: mission/teleop -> /cmd_vel_nav|/cmd_vel_teleop -> safety_supervisor -> /cmd_vel -> Gazebo.
-- ros_topic_name: /clock
+# Raw 1 kHz clock; semmal_gazebo/clock_relay republishes it on /clock at 50 Hz (see clock_relay.cpp).
+- ros_topic_name: /clock_raw
   gz_topic_name: /clock
   ros_type_name: rosgraph_msgs/msg/Clock
   gz_type_name: gz.msgs.Clock
