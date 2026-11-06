@@ -226,3 +226,16 @@ Tests: `apps/api/src/gateway.test.ts` against a real WebSocket server.
   Reaches private IPv4 ranges and localhost only.
 - **Limits:** facts are self-reported (no TPM/secure element); runtime "hardware" is refused until an
   on-board evidence rule is tested on each real robot.
+
+## Location, routing and maps (added 2026-11-06)
+
+- Routing: OSRM HTTP API v5 (https://project-osrm.org/docs/v5.24.0/api/): `/route/v1/driving/{lon},{lat};{lon},{lat}?overview=full&geometries=geojson`;
+  `routes[0].distance` metres, `.duration` seconds, geometry GeoJSON [lon, lat]. Demo server `router.project-osrm.org`
+  (https://github.com/Project-OSRM/osrm-backend/wiki/Demo-server): "reasonable, non-commercial use", "Do not exceed
+  1 request per second", no uptime guarantee. SEMMAL caches routes 6 h, throttles to ~1/s, and falls back to a straight
+  line at 30 km/h labelled "straight-line". Production needs its own OSRM or a paid router.
+- Map tiles: OSM standard tiles `https://tile.openstreetmap.org/{z}/{x}/{y}.png` (https://operations.osmfoundation.org/policies/tiles/):
+  attribution shown, browser sends Referer, no bulk/offline use, no SLA. Fine for development; production needs a tile provider.
+- Privacy: Arkiv robot profiles carry only a 2-decimal (~1 km) base and a service radius. The exact base stays on the robot;
+  the customer's site goes from the browser to the platform (in memory) to the robot, never to Arkiv or into evidence
+  bundles (episodes keep ~1 km points). Live positions are kept in platform memory only.

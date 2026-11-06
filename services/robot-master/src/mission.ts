@@ -20,7 +20,8 @@ import { NavigationPlanOutput, VisionInspectionOutput, type AgentListing, type J
 import { quoteTask, toWei, weiToMicro, type SpecialistOffer } from "@semmal/quote";
 import type { TransferCheck } from "@semmal/zerog-pay";
 import type { LocalApi } from "./local";
-import type { PlatformApi } from "./platform";
+import type { PlatformApi, TravelRoute } from "./platform";
+import { coarse, distanceM } from "@semmal/contracts";
 import type { TaskState, TaskStore } from "./store";
 
 export type Assignment = {
@@ -30,6 +31,9 @@ export type Assignment = {
   maxBudget?: string;
   deadline?: string;
   customerWallet?: string;
+  /** The customer's site (exact; never written to evidence) and when to be there. */
+  site?: { lat: number; lon: number };
+  startAt?: string;
 };
 
 export type Decision = {
@@ -68,6 +72,8 @@ export type EpisodeRecord = {
   stops: string[];
   quote?: { quoteId: string; amount: string; cost: string; lines: { label: string; amount: string; source: string }[] };
   /** Native 0G on Galileo. */
+  /** The trip to the customer's site. Points rounded to about 1 km: the exact address is not kept. */
+  travel?: { from: { lat: number; lon: number }; to: { lat: number; lon: number }; distanceM: number; plannedS: number; routeSource: string; departedAt: string; arrivedAt: string; startAt?: string };
   money: {
     token: "0G";
     funding: "customer payment" | "robot's own balance (owner test task)" | "none";
@@ -141,6 +147,13 @@ export type Deps = {
   awaitPayment: (taskId: string, waitMs: number) => Promise<string | null>;
   quoteValidMs?: number;
   paymentPollMs?: number;
+  /** The robot's exact base (from its setup); the trip starts here. */
+  base?: { lat: number; lon: number };
+  /** Live position while travelling, to the platform only. */
+  position?: (p: { taskId: string; lat: number; lon: number; phase: "TRAVELLING" | "ARRIVED"; etaAt?: string; remainingM?: number }) => void;
+  /** Development only: travel this many times faster than the route's driving time. */
+  travelSpeedup?: number;
+  travelTickMs?: number;
   local: LocalApi;
   platform: PlatformApi;
   evidence: EvidenceSink;
@@ -169,6 +182,7 @@ export async function runTask(a: Assignment, d: Deps): Promise<EpisodeRecord | n
   let paid: { from: string; wei: bigint; txHash: string } | null = null;
   let budget: bigint | null = null; // micro-0G the robot may spend on agents
   let spent = 0n; // micro-0G actually paid to agents
+  let travel: EpisodeRecord["travel"];
   const money: EpisodeRecord["money"] = { token: "0G", funding: "none", budget0G: null, agentsPaid0G: "0" };
   const now = () => new Date().toISOString();
   const touch = (what: string, source: string, detail: string, leftRobot = false) => access.push({ at: now(), what, source, detail, leftRobot });
@@ -198,7 +212,7 @@ export async function runTask(a: Assignment, d: Deps): Promise<EpisodeRecord | n
     money.agentsPaid0G = fromMicro(spent);
     const ep: EpisodeRecord = {
       episodeId, taskId: a.taskId, robotId: d.robotId, world, skill: a.skill, outcome, startedAt, endedAt: now(), stops,
-      quote: quoteDoc, money,
+      quote: quoteDoc, money, ...(travel ? { travel } : {}),
       hired: hired.map((h) => h.agentId), decisions, access, purchases, actions, transitions: store.history(a.taskId), mission,
     };
     await d.evidence.episode(ep).catch(() => undefined); // evidence retries on its own; never blocks safety
@@ -305,6 +319,43 @@ export async function runTask(a: Assignment, d: Deps): Promise<EpisodeRecord | n
     budget = cap;
   }
   money.budget0G = fromMicro(budget);
+
+  // ---- travel to the customer's site, timed to arrive at the booked time
+  if (a.site) {
+    if (!d.base) return finish("FAILED", "this robot has no base location set (pnpm setup); it cannot plan the trip");
+    const route: TravelRoute = await platform.route(d.base, a.site).catch(() => straight(d.base!, a.site!));
+    const speed = Math.max(1, d.travelSpeedup ?? 1);
+    const travelMs = (route.durationS * 1000) / speed;
+    const startAtMs = a.startAt ? Date.parse(a.startAt) : Date.now();
+    const departMs = Math.max(Date.now(), startAtMs - travelMs);
+    touch("customer site", "booking (platform)", `about ${coarse(a.site.lat)}, ${coarse(a.site.lon)}; exact address used for the trip only, not kept here`);
+    touch("route", route.source === "osrm" ? "OSRM driving route" : "straight line (routing unavailable)", `${(route.distanceM / 1000).toFixed(1)} km, ${Math.round(route.durationS / 60)} min driving`);
+    if (departMs > Date.now()) {
+      move("PAID", `leaving at ${new Date(departMs).toISOString().slice(11, 16)} to arrive by ${new Date(startAtMs).toISOString().slice(11, 16)}`);
+      await sleep(departMs - Date.now());
+    }
+    const departedAt = now();
+    move("TRAVELLING", `${(route.distanceM / 1000).toFixed(1)} km to the site, about ${Math.round(travelMs / 60_000)} min`);
+    const cum = [0];
+    for (let i = 1; i < route.coords.length; i++) cum.push(cum[i - 1]! + distanceM(pt(route.coords[i - 1]!), pt(route.coords[i]!)));
+    const total = cum.at(-1) || 1;
+    const t0 = Date.now();
+    const eta = new Date(t0 + travelMs).toISOString();
+    for (;;) {
+      const f = Math.min(1, (Date.now() - t0) / Math.max(1, travelMs));
+      const p = along(route.coords, cum, f * total);
+      if (f >= 1) break;
+      d.position?.({ taskId: a.taskId, lat: p.lat, lon: p.lon, phase: "TRAVELLING", etaAt: eta, remainingM: Math.round(total * (1 - f)) });
+      await sleep(d.travelTickMs ?? 2000);
+    }
+    d.position?.({ taskId: a.taskId, lat: a.site.lat, lon: a.site.lon, phase: "ARRIVED", remainingM: 0 });
+    travel = {
+      from: { lat: coarse(d.base.lat), lon: coarse(d.base.lon) }, to: { lat: coarse(a.site.lat), lon: coarse(a.site.lon) },
+      distanceM: route.distanceM, plannedS: route.durationS, routeSource: route.source, departedAt, arrivedAt: now(), ...(a.startAt ? { startAt: a.startAt } : {}),
+    };
+    move("ARRIVED", `on site${a.startAt && Date.parse(a.startAt) > Date.now() ? `; starting at ${a.startAt.slice(11, 16)}` : ""}`);
+    if (a.startAt && Date.parse(a.startAt) > Date.now()) await sleep(Date.parse(a.startAt) - Date.now());
+  }
 
   // ---- hire (the robot chooses)
   move("DISCOVERING_SPECIALISTS", `${offers.length} agents on Arkiv`);
@@ -457,4 +508,22 @@ export async function runTask(a: Assignment, d: Deps): Promise<EpisodeRecord | n
   const back = await drive([sp.home], false);
   if (!back.ok) return finish(back.safety ? "SAFE_STOP" : "FAILED", back.why);
   return finish("COMPLETED", `visited ${stops.join(", ")}; back at ${sp.home}`);
+}
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const pt = (c: [number, number]) => ({ lat: c[0], lon: c[1] });
+/** The point `m` metres along a polyline with cumulative distances `cum`. */
+function along(coords: [number, number][], cum: number[], m: number) {
+  for (let i = 1; i < coords.length; i++) {
+    if (cum[i]! >= m) {
+      const seg = cum[i]! - cum[i - 1]! || 1;
+      const t = (m - cum[i - 1]!) / seg;
+      return { lat: coords[i - 1]![0] + (coords[i]![0] - coords[i - 1]![0]) * t, lon: coords[i - 1]![1] + (coords[i]![1] - coords[i - 1]![1]) * t };
+    }
+  }
+  return pt(coords.at(-1)!);
+}
+function straight(a: { lat: number; lon: number }, b: { lat: number; lon: number }): TravelRoute {
+  const dm = distanceM(a, b);
+  return { source: "straight-line", distanceM: Math.round(dm), durationS: Math.round(dm / 8.33), coords: [[a.lat, a.lon], [b.lat, b.lon]] };
 }

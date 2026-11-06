@@ -92,6 +92,8 @@ type Session = { id: string; socket: WebSocket; robotId: string; lastSeq: number
 
 export class Gateway {
   private live = new Map<string, LiveRobot>();
+  /** Live travel per task (positions, the customer's site). In memory only, never on Arkiv. */
+  readonly trips = new Map<string, { robotId: string; site?: { lat: number; lon: number }; startAt?: string; points: { at: string; lat: number; lon: number; phase: string; etaAt?: string; remainingM?: number }[] }>();
   private sessions = new Map<string, Session>();
   private sweeper: NodeJS.Timeout;
 
@@ -177,6 +179,15 @@ export class Gateway {
         case "incident_notice":
           this.event(robotId, "incident", `${m.faultCode} (${m.severity}) · ${m.safetyAction} · ${m.persistence}`);
           break;
+        case "position": {
+          const t = this.trips.get(m.taskId);
+          if (!t || t.robotId !== robotId) break; // only for a task this robot was given
+          const prev = t.points.at(-1);
+          t.points.push({ at: m.ts, lat: m.lat, lon: m.lon, phase: m.phase, etaAt: m.etaAt, remainingM: m.remainingM });
+          if (t.points.length > 500) t.points.splice(0, t.points.length - 500);
+          if (m.phase !== prev?.phase) this.event(robotId, "mission", `${m.taskId}: ${m.phase}${m.etaAt ? ` · ETA ${m.etaAt.slice(11, 16)}` : ""}`);
+          break;
+        }
         case "task_ack":
           this.event(robotId, "task", `${m.taskId} ${m.accepted ? "accepted" : `declined${m.reason ? `: ${m.reason}` : ""}`}`);
           break;
@@ -247,6 +258,7 @@ export class Gateway {
     if (r.safetyState && r.safetyState !== "NORMAL") return { ok: false as const, reason: `The robot reports ${r.safetyState}; tasks wait until it is NORMAL` };
     const taskId = task.taskId ?? `task-${randomUUID().slice(0, 12)}`;
     this.send(s, { ...task, type: "task_assignment", taskId, assignedAt: new Date().toISOString() });
+    this.trips.set(taskId, { robotId, site: task.site, startAt: task.startAt, points: [] });
     this.event(robotId, "task", `${taskId} sent: ${task.skill}, ${task.plan.waypoints} stops`);
     return { ok: true as const, taskId };
   }

@@ -80,7 +80,23 @@ export async function runSetup(name: string) {
     console.log(`  Robot wallet: ${address}`);
   }
 
-  // 3. platform, Arkiv, link token
+  // 3. where the robot is based (exact here, on this PC; only a ~1 km version is ever published)
+  let base = cur.SEMMAL_BASE_LAT && cur.SEMMAL_BASE_LON ? `${cur.SEMMAL_BASE_LAT}, ${cur.SEMMAL_BASE_LON}` : "";
+  console.log("\nWhere is the robot based? Latitude, longitude (e.g. from a map app: 13.0827, 80.2707). Customers see it only to about 1 km.");
+  for (;;) {
+    const a = (await ask(`Base location${base ? ` [${base}]` : ""}: `)) || base;
+    const [lat, lon] = a.split(",").map((x) => Number(x.trim()));
+    if (Number.isFinite(lat) && Number.isFinite(lon) && Math.abs(lat!) <= 90 && Math.abs(lon!) <= 180 && a.includes(",")) { base = `${lat}, ${lon}`; break; }
+    console.log("  Use the form latitude, longitude.");
+  }
+  let radius = cur.SEMMAL_SERVICE_RADIUS_KM ?? "15";
+  for (;;) {
+    const a = (await ask(`How far will it travel for a job, in km [${radius}]: `)) || radius;
+    if (Number(a) >= 1 && Number(a) <= 500) { radius = String(Number(a)); break; }
+    console.log("  A number from 1 to 500.");
+  }
+
+  // 4. platform, Arkiv, link token
   let platform = cur.SEMMAL_PLATFORM_URL ?? "";
   for (;;) {
     const a = await ask(`\nPlatform address, the Mac running the API, e.g. http://10.0.0.5:3001${platform ? ` [${platform}]` : ""}: `);
@@ -100,6 +116,9 @@ export async function runSetup(name: string) {
     {
       ...cur,
       SEMMAL_HARDWARE: hw,
+      SEMMAL_BASE_LAT: base.split(",")[0]!.trim(),
+      SEMMAL_BASE_LON: base.split(",")[1]!.trim(),
+      SEMMAL_SERVICE_RADIUS_KM: radius,
       SEMMAL_ROBOT_ID: robotId,
       SEMMAL_PLATFORM_URL: platform,
       SEMMAL_GATEWAY_URL: `${platform.replace(/^http/, "ws")}/api/gateway`,

@@ -62,9 +62,12 @@ pnpm setup house                              # then: pnpm setup warehouse, pnpm
 Setup asks, in the terminal:
 1. Which hardware: house → Create 3, warehouse → TurtleBot 4, forest → Jackal.
 2. The robot's wallet: **[g]** generates a new one, or **[i]** imports a private key you created (typed hidden).
-3. The platform address, `http://<mac-ip>:<api-port>`.
-4. Your Arkiv access key (hidden).
-5. The link token (leave it empty for now).
+3. Where the robot is based (latitude, longitude, e.g. from a map app) and how far it will travel for a job. Only a ~1 km version is ever published.
+4. The platform address, `http://<mac-ip>:<api-port>`.
+5. Your Arkiv access key (hidden).
+6. The link token (leave it empty for now).
+
+For testing, give the three robots bases a few km from where you'll book. To watch a trip without waiting for real driving time, add `SEMMAL_TRAVEL_SPEEDUP=20` to `~/.semmal/robots/<name>/robot.env`; the robot then travels 20× faster than the road estimate (a development setting only).
 
 Everything is saved in `~/.semmal/robots/<name>/`, owner-only. Run setup again any time to change something; the wallet is never replaced. Never paste a private key anywhere else, including a chat.
 
@@ -79,7 +82,7 @@ cd services/robot-master && pnpm start house    # terminal 2: identity service, 
 
 Terminal 2 prints the robot wallet and "register at /robots/new by connecting to <ip>". In the browser, at /robots/new:
 1. Nickname.
-2. **Connect**: enter that IP, then Connect. Expect four ✓ checks and "Supported robot: iRobot Create 3", with its facts listed.
+2. **Connect**: enter that IP, then Connect. Expect four ✓ checks, "Supported robot: iRobot Create 3", its facts, and a map of its base (about 1 km).
 3. Skills (from that robot's list), area, then pricing. Defaults in 0G: minimum fee **0.01**, maximum quote **0.15**, max spend per task **0.1**. A vision job costs about 0.02 0G, so the house run quotes about 0.08.
 4. Robot wallet: already filled in from the robot.
 5. Publish (your wallet signs).
@@ -94,7 +97,7 @@ Repeat for warehouse and forest, one at a time (Ctrl-C both terminals, or `scrip
 
 Start the robot as above: `scenario.sh <name>` plus `pnpm start <name>` (or the installed service). Then there are two ways to start a job:
 
-- **As a customer (the full payment flow):** on /quote, pick the robot and the job, then **Book**. The booking is signed on Arkiv by your wallet. The robot replies with a signed offer, and you click **Pay X 0G to the robot**, which your wallet confirms on Galileo. The robot checks the payment on chain, then pays each agent's owner before each job. At the end it sends the margin to you as the owner, or refunds the customer if it could not finish.
+- **As a customer (the full payment flow):** on /quote, set **Where** (Use my location, or click the map). Robots are listed nearest first; ones outside their travel radius are greyed out. Pick a robot and the job, then choose **On site at**: the earliest time is the drive time plus 15 minutes. Then **Book**. Your address goes to the robot only, never onto Arkiv. The booking is signed on Arkiv by your wallet. The robot replies with a signed offer, and you click **Pay X 0G to the robot**, which your wallet confirms on Galileo. The robot checks the payment on chain and sets off so it arrives on time. The booking map shows its route and live position. Once it's on site it starts the job (the Gazebo run), paying each agent's owner before each job. At the end it sends the margin to you as the owner, or refunds the customer if it could not finish.
 - **As the owner (quick test):** click **Send task: home.cleaning** (or `warehouse.inspection` or `outdoor.patrol`). No customer pays; the robot pays its agents from its own balance, up to max spend per task.
 
 Then:
@@ -112,5 +115,6 @@ Then:
 - The vision model sees rendered Gazebo frames. The models may misjudge a flat spill or call the smoke a pillar; that is a real result and is shown as such. A low-confidence answer is rejected.
 - Payments are real 0G transfers on the Galileo testnet. There is no escrow contract, so the customer trusts the robot between paying and completion. The robot refunds what it did not spend if it cannot finish.
 - With a management key, each agent has its own capped 0G key, but all keys draw on one Router deposit (yours). It is a per-agent spend cap and usage record, not a separate wallet.
+- Getting to the customer is a drive along a real road route (OSRM demo server, cached, at most 1 request a second; a direct line if it's unreachable, and the map says so). The robot reports its position along that route; Gazebo then runs the job at the site. In production this is a real vehicle and GPS.
 - The identity proves the robot holds its wallet key and runs a supported robot's stack. The facts are self-reported (no TPM), and real Create 3, TurtleBot 4 and Jackal hardware is not accepted until its on-board check is tested.
 - One simulation at a time per PC. Each robot keeps its own task store and evidence queue (`data/robot-master/<rbt-id>`) and only signs incidents carrying its own robot id.

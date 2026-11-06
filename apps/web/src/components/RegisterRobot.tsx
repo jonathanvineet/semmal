@@ -17,6 +17,7 @@ import { useArkivWriter } from "@/lib/arkiv-writer";
 import { ARKIV_EXPLORER } from "@/lib/api";
 import { QuoteBreakdown, type QuoteResult } from "./QuoteBreakdown";
 import { RobotCanvas, RobotSolo, RobotView, preloadRobots } from "./robots3d/Robot3D";
+import { MapView } from "./map/MapView";
 
 preloadRobots(HARDWARE.map((x) => x.asset));
 
@@ -61,6 +62,10 @@ export function RegisterRobot() {
   const model = verified && verified.hardware.ok ? verified.hardware.model : "";
   const m = HARDWARE.find((x) => x.id === model) ?? HARDWARE[1];
   const robotWallet = verified ? verified.identity.wallet : "";
+  // the base the robot reported (already rounded to about 1 km by the robot) and how far it travels
+  const vf = verified?.identity.facts;
+  const base = vf?.baseLat && vf?.baseLon ? { lat: Number(vf.baseLat), lon: Number(vf.baseLon) } : null;
+  const radiusKm = vf?.serviceRadiusKm ? Number(vf.serviceRadiusKm) : undefined;
 
   const connect = async () => {
     setConnecting(true);
@@ -120,6 +125,8 @@ export function RegisterRobot() {
       robotType: m.robotType,
       hardware: { base: m.base, sensors: [...m.sensors] },
       ...(verified ? { attestation: (({ schema: _s, ...rest }) => rest)(verified.identity) } : {}),
+      ...(base ? { location: base } : {}),
+      ...(radiusKm ? { serviceRadiusKm: radiusKm } : {}),
       capabilities: skills as TRobot["capabilities"],
       rosInterfaceVersion: "0.1.0",
       profileVersion: check?.nextVersion ?? 1,
@@ -128,7 +135,7 @@ export function RegisterRobot() {
     };
     const r = RobotProfile.safeParse(draft);
     return r.success ? r.data : null;
-  }, [walletOk, w.account, robotId, robotWallet, name, model, m, skills, check, area, minFee, maxQuote, margin, spendCap, verified]);
+  }, [walletOk, w.account, robotId, robotWallet, name, model, m, skills, check, area, minFee, maxQuote, margin, spendCap, verified, base?.lat, base?.lon, radiusKm]);
 
   const policyOk = isAmount(minFee) && isAmount(maxQuote) && isAmount(spendCap) && Number(maxQuote) >= Number(minFee) && Number(minFee) > 0;
   // a live example quote for the first chosen skill, so the owner sees what their limits do
@@ -289,6 +296,14 @@ export function RegisterRobot() {
                           {conn.hardware.ok ? <>Supported robot: <b>{HARDWARE.find((x) => x.id === (conn.hardware as { model: string }).model)?.name}</b></> : conn.hardware.reason}
                         </li>
                       </ul>
+                      {conn.verified && (base ? (
+                        <div className="conn__where">
+                          <MapView className="conn__map" center={base} robots={[{ id: "me", label: `${name.trim() || "Your robot"} · base, about 1 km`, ...base, active: true }]} fit={[base]} />
+                          <p className="t-small muted">Based near {base.lat}, {base.lon} (to about 1 km; the exact spot stays on the robot){radiusKm ? ` · travels up to ${radiusKm} km` : ""}. Customers nearby will see it.</p>
+                        </div>
+                      ) : (
+                        <p className="soft-warn t-small">The robot did not report a base location. Run pnpm setup on it and set one, so customers nearby can find it.</p>
+                      ))}
                       <dl className="conn__facts">
                         {Object.entries(conn.identity.facts).map(([k, v]) => <div key={k}><dt>{k}</dt><dd className="mono">{v}</dd></div>)}
                       </dl>

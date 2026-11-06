@@ -16,18 +16,21 @@
     "@react-three/postprocessing": "^3.2.2",
     "@semmal/arkiv-adapter": "workspace:*",
     "@semmal/contracts": "workspace:*",
+    "@semmal/zerog-pay": "workspace:*",
     "gsap": "^3.15.1",
+    "leaflet": "^1.9.4",
     "motion": "^14.9.1",
     "next": "^16.4.5",
     "postprocessing": "^6.39.6",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
+    "react-leaflet": "^5.0.0",
     "three": "^0.187.0",
     "viem": "^2.57.16",
-    "zod": "^4.6.7",
-    "@semmal/zerog-pay": "workspace:*"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@types/leaflet": "^1.9.22",
     "@types/node": "^24",
     "@types/react": "^19",
     "@types/react-dom": "^19",

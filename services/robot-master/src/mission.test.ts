@@ -42,7 +42,7 @@ type HarnessOpts = {
   payFails?: (to: string) => boolean;
 };
 function harness(opts: HarnessOpts = {}) {
-  const calls = { pays: [] as { to: string; wei: bigint; kind: string; id: string }[], dwell: [] as number[], missions: [] as string[][], holds: [] as boolean[], jobs: 0, quotes: 0, claims: 0, acks: [] as [boolean, string?][], states: [] as string[], episodes: [] as EpisodeRecord[] };
+  const calls = { positions: [] as { phase: string; lat: number; lon: number }[], pays: [] as { to: string; wei: bigint; kind: string; id: string }[], dwell: [] as number[], missions: [] as string[][], holds: [] as boolean[], jobs: 0, quotes: 0, claims: 0, acks: [] as [boolean, string?][], states: [] as string[], episodes: [] as EpisodeRecord[] };
   const result = (wps: string[]): MissionResult => ({ success: true, outcome: "COMPLETED", message: "ok", reached: wps, keyframePaths: ["/data/kf/a.ppm"] });
   let last: string[] = [];
   const local: LocalApi = {
@@ -57,6 +57,7 @@ function harness(opts: HarnessOpts = {}) {
     robot: async () => ({ ...robot, ...opts.profile }),
     agents: async () => [vision, inspection],
     catalog: async () => ({ rate: "1", models: [{ id: "m-vis", promptNeuron: "1000000000", completionNeuron: "1000000000", verifiability: "TeeML" }] }),
+    route: async (from, to) => ({ source: "osrm" as const, distanceM: 1200, durationS: 600, coords: [[from.lat, from.lon], [(from.lat + to.lat) / 2, (from.lon + to.lon) / 2], [to.lat, to.lon]] as [number, number][] }),
     runJob: async (_id, job) => { calls.jobs++; return (opts.job ?? (async () => ok("continue_mission")))((job as { input: { context?: string } }).input); },
   };
   const store = new TaskStore(mkdtempSync(join(tmpdir(), "rm-")));
@@ -74,6 +75,10 @@ function harness(opts: HarnessOpts = {}) {
     },
     awaitPayment: async () => (opts.payTx === undefined ? `0x${"cc".repeat(32)}` : opts.payTx),
     paymentPollMs: 1,
+    base: { lat: 13.0827, lon: 80.2707 },
+    travelSpeedup: 6000, // 600 s of driving in 0.1 s
+    travelTickMs: 10,
+    position: (p: { phase: string; lat: number; lon: number }) => { calls.positions.push(p); },
     quoteValidMs: 300,
     evidence: { quote: async () => { calls.quotes++; }, claim: async () => { calls.claims++; }, episode: async (e: EpisodeRecord) => { calls.episodes.push(e); } },
     progress: (s: string) => { calls.states.push(s); },
@@ -278,4 +283,23 @@ test("a robot priced in another token takes no paid tasks", async () => {
   const { calls, deps } = harness({ profile: { pricing: { ...robot.pricing!, token: "USDC" as never } } });
   assert.equal(await runTask(task(), deps), null);
   assert.match(calls.acks[0]![1]!, /not in 0G/);
+});
+
+test("a job at the customer's site: the robot travels there, reports its position, then works", async () => {
+  const site = { lat: 13.0611, lon: 80.2547 };
+  const { calls, deps } = harness();
+  const ep = (await runTask(task({ site, startAt: new Date(Date.now() + 50).toISOString() }), deps))!;
+  assert.equal(ep.outcome, "COMPLETED");
+  assert.ok(calls.positions.some((p) => p.phase === "TRAVELLING"));
+  assert.deepEqual(calls.positions.at(-1), { taskId: ep.taskId, lat: site.lat, lon: site.lon, phase: "ARRIVED", remainingM: 0 });
+  assert.ok(calls.states.indexOf("ARRIVED") < calls.states.indexOf("EXECUTING"), "works only after arriving");
+  assert.deepEqual(ep.travel!.to, { lat: 13.06, lon: 80.25 }, "the evidence keeps only a ~1 km position");
+  assert.ok(!JSON.stringify(ep).includes("13.0611"), "the exact site is not in the evidence");
+});
+
+test("without a base location the robot cannot plan the trip and says so", async () => {
+  const { deps } = harness();
+  const ep = (await runTask(task({ site: { lat: 13.06, lon: 80.25 } }), { ...deps, base: undefined }))!;
+  assert.equal(ep.outcome, "FAILED");
+  assert.match(ep.transitions.at(-1)!.reason, /no base location/);
 });

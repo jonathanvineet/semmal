@@ -9,7 +9,10 @@ export interface PlatformApi {
   agents(): Promise<AgentListing[]>;
   catalog(): Promise<{ models: CatalogModel[] }>;
   runJob(agentId: string, job: Record<string, unknown>): Promise<AgentResult>;
+  route(from: { lat: number; lon: number }, to: { lat: number; lon: number }): Promise<TravelRoute>;
 }
+
+export type TravelRoute = { source: "osrm" | "straight-line"; distanceM: number; durationS: number; coords: [number, number][] };
 
 export function httpPlatform(base: string, linkToken: string): PlatformApi {
   const get = async <T>(path: string): Promise<T> => {
@@ -27,6 +30,9 @@ export function httpPlatform(base: string, linkToken: string): PlatformApi {
     },
     async catalog() {
       return get("/api/zerog/catalog");
+    },
+    async route(from, to) {
+      return get<TravelRoute>(`/api/route?from=${from.lat},${from.lon}&to=${to.lat},${to.lon}`);
     },
     async runJob(agentId, job) {
       const r = await fetch(`${base}/api/agents/${agentId}/jobs`, {

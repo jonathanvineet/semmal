@@ -14,12 +14,22 @@ import { createServer } from "node:http";
 import { homedir, networkInterfaces } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
+import { coarse } from "@semmal/contracts";
 import { identitySigner } from "./device";
 import { answer, type IdentityFile } from "./identity";
 import { loadProfile } from "./profile";
 
 export function lanIps() {
   return Object.values(networkInterfaces()).flat().filter((a) => a && a.family === "IPv4" && !a.internal).map((a) => a!.address);
+}
+
+/** Add the robot's base (rounded to about 1 km) and service radius from its setup to the node's facts. */
+function withBase(file: IdentityFile | null): IdentityFile | null {
+  const lat = Number(process.env.SEMMAL_BASE_LAT);
+  const lon = Number(process.env.SEMMAL_BASE_LON);
+  if (!file || !Number.isFinite(lat) || !Number.isFinite(lon) || !process.env.SEMMAL_BASE_LAT) return file;
+  const facts = { ...(file.facts as Record<string, string>), baseLat: coarse(lat).toFixed(2), baseLon: coarse(lon).toFixed(2), serviceRadiusKm: String(Number(process.env.SEMMAL_SERVICE_RADIUS_KM || 15)) };
+  return { ...file, facts };
 }
 
 export function serveIdentity(o: { keyPath: string; file: string; port: number; log: (m: string) => void }) {
@@ -42,7 +52,7 @@ export function serveIdentity(o: { keyPath: string; file: string; port: number; 
     const now = Date.now();
     hits = hits.filter((t) => now - t < 60_000);
     if (hits.push(now) > 30) return send(429, { error: "too many requests" });
-    const r = await answer(readFile(), u.searchParams.get("nonce") ?? "", signer).catch((e) => ({ ok: false as const, code: 500, error: (e as Error).message }));
+    const r = await answer(withBase(readFile()), u.searchParams.get("nonce") ?? "", signer).catch((e) => ({ ok: false as const, code: 500, error: (e as Error).message }));
     if (!r.ok) {
       o.log(`identity requested: ${r.error}`);
       return send(r.code, { error: r.error });

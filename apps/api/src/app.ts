@@ -5,7 +5,8 @@ import cors from "@fastify/cors";
 import { ArkivRegistry, arkivConfigFromEnv } from "@semmal/arkiv-adapter";
 import { ZeroGError, ZeroGRouter, zeroGConfigFromEnv } from "@semmal/zerog-pc-adapter";
 import { loadConfig } from "./config";
-import { PricingPolicy, RobotSkill, TrustMode, robotIdFromWallet } from "@semmal/contracts";
+import { LatLon, PricingPolicy, RobotSkill, TrustMode, distanceM, robotIdFromWallet } from "@semmal/contracts";
+import { routeBetween } from "./route";
 import { agentJobPrice, AGENT_TOKENS, quoteTask, SKILL_NEEDS } from "@semmal/quote";
 import { z } from "zod";
 import { arkivRpcProxy } from "./arkiv-rpc-proxy";
@@ -162,6 +163,54 @@ export function buildApp(deps: Deps = defaultDeps()) {
   app.get<{ Querystring: { owner?: string } }>("/api/robots", async (req) => {
     const owner = req.query.owner && /^0x[0-9a-fA-F]{40}$/.test(req.query.owner) ? req.query.owner.toLowerCase() : "";
     return listing(() => robotsFromArkiv(owner));
+  });
+
+  /** Robots near a point, nearest first, with live availability. Uses each robot's coarse public base. */
+  app.get<{ Querystring: { lat?: string; lon?: string } }>("/api/robots/near", async (req, reply) => {
+    const at = LatLon.safeParse({ lat: Number(req.query.lat), lon: Number(req.query.lon) });
+    if (!at.success) return reply.code(400).send({ error: "lat and lon required" });
+    try {
+      const robots = await robotsFromArkiv("");
+      const live = new Map((gateway?.publicView() ?? []).map((r) => [r.robotId, r]));
+      const items = robots
+        .filter((e) => e.data.location)
+        .map((e) => {
+          const km = distanceM(at.data, e.data.location!) / 1000;
+          const l = live.get(e.data.robotId);
+          return { ...e, distanceKm: Math.round(km * 10) / 10, inRange: km <= (e.data.serviceRadiusKm ?? 10) + 1.5, online: l?.online ?? false, availability: l?.availability ?? "offline" };
+        })
+        .sort((a, b) => a.distanceKm - b.distanceKm);
+      return { items };
+    } catch {
+      return reply.code(502).send({ error: "Arkiv could not be reached" });
+    }
+  });
+
+  /** A driving route between two points (OSRM demo server, cached; straight line if unreachable). */
+  const routeBucket = new Map<string, { n: number; at: number }>();
+  app.get<{ Querystring: { from?: string; to?: string } }>("/api/route", async (req, reply) => {
+    const pt = (v?: string) => {
+      const [lat, lon] = (v ?? "").split(",").map(Number);
+      return LatLon.safeParse({ lat, lon });
+    };
+    const a = pt(req.query.from);
+    const b = pt(req.query.to);
+    if (!a.success || !b.success) return reply.code(400).send({ error: "from and to as lat,lon" });
+    const k = req.ip;
+    const now = Date.now();
+    const bk = routeBucket.get(k);
+    if (!bk || now - bk.at > 60_000) routeBucket.set(k, { n: 1, at: now });
+    else if (++bk.n > 30) return reply.code(429).send({ error: "too many route requests" });
+    return routeBetween(a.data, b.data);
+  });
+
+  /** Live tracking of a booked robot on its way: positions the robot reported, its route and the site. */
+  app.get<{ Params: { taskId: string } }>("/api/tasks/:taskId/track", async (req, reply) => {
+    const t = gateway?.trips.get(req.params.taskId);
+    if (!t) return reply.code(404).send({ error: "no trip for this task (not dispatched, or the platform restarted)" });
+    const first = t.points[0];
+    const route = first && t.site ? await routeBetween({ lat: first.lat, lon: first.lon }, t.site) : null;
+    return { robotId: t.robotId, site: t.site ?? null, startAt: t.startAt ?? null, latest: t.points.at(-1) ?? null, points: t.points.slice(-200), route };
   });
 
   app.get<{ Querystring: { kind?: string } }>("/api/agents", async (req) => {
@@ -405,7 +454,7 @@ export function buildApp(deps: Deps = defaultDeps()) {
    * After the customer's wallet put the booking on Arkiv, hand it to the robot. The booking itself is
    * the authority: it is read back from Arkiv (owner = customer) and checked before dispatch.
    */
-  app.post<{ Params: { taskId: string } }>("/api/tasks/:taskId/dispatch", async (req, reply) => {
+  app.post<{ Params: { taskId: string }; Body: { site?: unknown } }>("/api/tasks/:taskId/dispatch", async (req, reply) => {
     if (!gateway) return reply.code(503).send({ error: "gateway not available" });
     if (!/^task-[a-z0-9-]{6,58}$/.test(req.params.taskId)) return reply.code(400).send({ error: "bad task id" });
     const task = (await registry.listTasks({ taskId: req.params.taskId }).catch(() => []))[0];
@@ -414,7 +463,17 @@ export function buildApp(deps: Deps = defaultDeps()) {
     const robot = (await registry.listRobots({ robotId: task.data.robotId }).catch(() => []))[0];
     if (!robot) return reply.code(404).send({ error: "robot not on Arkiv" });
     if (!robot.data.capabilities.includes(task.data.skill)) return reply.code(409).send({ error: "this robot does not offer that skill" });
+    // the customer's site: sent to the robot only, never written to Arkiv
+    const site = req.body?.site === undefined ? undefined : LatLon.safeParse(req.body.site);
+    if (site && !site.success) return reply.code(400).send({ error: "site must be { lat, lon }" });
+    if (site?.success && robot.data.location && robot.data.serviceRadiusKm) {
+      const km = distanceM(robot.data.location, site.data) / 1000;
+      // the public base is coarse (about 1 km), so allow that much on top of the radius
+      if (km > robot.data.serviceRadiusKm + 1.5) return reply.code(409).send({ error: `this robot serves ${robot.data.serviceRadiusKm} km around its base; your site is about ${km.toFixed(1)} km away` });
+    }
     const r = gateway.assign(task.data.robotId, {
+      ...(site?.success ? { site: site.data } : {}),
+      ...(task.data.startAt ? { startAt: task.data.startAt } : {}),
       taskId: task.data.taskId,
       skill: task.data.skill,
       plan: task.data.plan,

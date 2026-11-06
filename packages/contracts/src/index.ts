@@ -188,6 +188,26 @@ export const identityMessage = (d: { wallet: string; hardwareModel: string; fact
 export const canonicalFacts = (v: unknown): string =>
   JSON.stringify(v, (_k, x) => (x && typeof x === "object" && !Array.isArray(x) ? Object.fromEntries(Object.entries(x).sort(([a], [b]) => (a < b ? -1 : 1))) : x));
 
+// ---------------------------------------------------------------- location
+/** Coarse position for public records: two decimals (about 1 km). Exact positions never go to Arkiv. */
+export const coarse = (v: number) => Math.round(v * 100) / 100;
+export const CoarseLocation = z.object({
+  lat: z.number().min(-90).max(90).refine((v) => coarse(v) === v, "at most 2 decimals (about 1 km)"),
+  lon: z.number().min(-180).max(180).refine((v) => coarse(v) === v, "at most 2 decimals (about 1 km)"),
+});
+export const LatLon = z.object({ lat: z.number().min(-90).max(90), lon: z.number().min(-180).max(180) });
+export type LatLon = z.infer<typeof LatLon>;
+
+/** Great-circle distance in metres. */
+export function distanceM(a: LatLon, b: LatLon) {
+  const R = 6_371_000;
+  const rad = (d: number) => (d * Math.PI) / 180;
+  const dLat = rad(b.lat - a.lat);
+  const dLon = rad(b.lon - a.lon);
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+
 export const RobotProfile = z.object({
   schemaVersion: z.literal(SCHEMA_VERSION),
   robotId: id,
@@ -207,6 +227,10 @@ export const RobotProfile = z.object({
   profileVersion: z.number().int().min(1),
   /** Coarse only. Never an exact location. */
   serviceArea: z.string().max(40),
+  /** Where the robot is based, to about 1 km, as the robot reported it when it was connected. */
+  location: CoarseLocation.optional(),
+  /** How far from its base the robot will travel for a job. */
+  serviceRadiusKm: z.number().min(1).max(500).optional(),
   /** The owner's limits; the robot quotes each task inside them. */
   pricing: PricingPolicy.optional(),
   /** The signed connect challenge from registration: proves the robot wallet's key was on the device that reported these facts. */
@@ -431,7 +455,7 @@ export const GwMissionProgress = z.object({
   seq,
   ts,
   taskId: z.string().max(64),
-  state: z.enum(["TASK_RECEIVED", "AWAITING_PAYMENT", "PAID", "VALIDATING", "PLANNING", "DISCOVERING_SPECIALISTS", "HIRING_SPECIALISTS", "EXECUTING", "VERIFYING", "COMPLETED", "FAILED", "ABORTED", "PAUSED", "DEGRADED", "INCIDENT", "WAITING_FOR_0G", "SAFE_STOP"]),
+  state: z.enum(["TASK_RECEIVED", "AWAITING_PAYMENT", "PAID", "TRAVELLING", "ARRIVED", "VALIDATING", "PLANNING", "DISCOVERING_SPECIALISTS", "HIRING_SPECIALISTS", "EXECUTING", "VERIFYING", "COMPLETED", "FAILED", "ABORTED", "PAUSED", "DEGRADED", "INCIDENT", "WAITING_FOR_0G", "SAFE_STOP"]),
   detail: z.string().max(200).optional(),
 });
 export const GwIncidentNotice = z.object({
@@ -444,15 +468,32 @@ export const GwIncidentNotice = z.object({
   safetyAction: z.string().max(40),
   persistence: z.enum(["LOCAL_DURABLE", "STORAGE_CONFIRMED", "ARKIV_CONFIRMED"]),
 });
+/** The robot's position while it travels to a job. Live only: kept by the platform, never on Arkiv. */
+export const GwPosition = z.object({
+  type: z.literal("position"),
+  seq,
+  ts,
+  taskId: z.string().max(64),
+  lat: z.number().min(-90).max(90),
+  lon: z.number().min(-180).max(180),
+  phase: z.enum(["TRAVELLING", "ARRIVED"]),
+  etaAt: z.string().datetime().optional(),
+  remainingM: z.number().min(0).max(1_000_000).optional(),
+});
 export const GwTaskAck = z.object({ type: z.literal("task_ack"), seq, ts, taskId: z.string().max(64), accepted: z.boolean(), reason: z.string().max(200).optional() });
-export const RobotToPlatform = z.discriminatedUnion("type", [GwHello, GwHeartbeat, GwMissionProgress, GwIncidentNotice, GwTaskAck]);
+export const RobotToPlatform = z.discriminatedUnion("type", [GwHello, GwHeartbeat, GwMissionProgress, GwIncidentNotice, GwTaskAck, GwPosition]);
 export type RobotToPlatform = z.infer<typeof RobotToPlatform>;
 
 export type PlatformToRobot =
   | { type: "welcome"; sessionId: string; serverTime: string; heartbeatSeconds: number }
   | { type: "ack"; seq: number }
   | { type: "error"; code: string; message: string; seq?: number }
-  | { type: "task_assignment"; taskId: string; skill: string; plan: { waypoints: number; distanceM: number; privacy: string }; maxBudget?: string; deadline?: string; customerWallet?: string; assignedAt: string }
+  | {
+      type: "task_assignment"; taskId: string; skill: string; plan: { waypoints: number; distanceM: number; privacy: string };
+      maxBudget?: string; deadline?: string; customerWallet?: string; assignedAt: string;
+      /** The customer's site (exact; only the robot and the platform see it) and when to be there. */
+      site?: { lat: number; lon: number }; startAt?: string;
+    }
   | { type: "recovery_approval"; incidentId: string; approvedBy: string; approvedAt: string }
   /** The customer says they paid. The robot checks the transfer on chain itself before it starts. */
   | { type: "payment_notice"; taskId: string; txHash: string };
@@ -473,6 +514,8 @@ export const TaskRequest = z.object({
   area: z.string().max(40),
   maxBudget: amountZ,
   deadline: z.string().datetime(),
+  /** When the customer wants the robot on site (the delivery date). The address itself is never on Arkiv. */
+  startAt: z.string().datetime().optional(),
   note: z.string().max(200).optional(),
 });
 export type TaskRequest = z.infer<typeof TaskRequest>;

@@ -6,7 +6,8 @@
 import Link from "next/link";
 import { motion } from "motion/react";
 import { useEffect, useMemo, useState } from "react";
-import { ROBOT_MODELS, ROBOT_SKILLS } from "@semmal/contracts";
+import { HARDWARE, ROBOT_MODELS, ROBOT_SKILLS } from "@semmal/contracts";
+import { MapView, type Pt } from "./map/MapView";
 import { useApi, type Listing, type RobotProfile } from "@/lib/api";
 import { QuoteLines, type QuoteResult } from "./QuoteBreakdown";
 import { RobotCanvas, RobotView } from "./robots3d/Robot3D";
@@ -18,8 +19,10 @@ const PRIVACY = [
   { id: "standard", label: "Any", hint: "Cheapest provider" },
 ] as const;
 
-const assetOf = (r: RobotProfile) => ROBOT_MODELS.find((m) => m.id === r.model)?.asset ?? "rover";
-const typeName = (r: RobotProfile) => ROBOT_MODELS.find((m) => m.id === r.model)?.name ?? "Robot";
+const assetOf = (r: RobotProfile) => HARDWARE.find((m) => m.id === r.model)?.asset ?? ROBOT_MODELS.find((m) => m.id === r.model)?.asset ?? "rover";
+const typeName = (r: RobotProfile) => HARDWARE.find((m) => m.id === r.model)?.name ?? ROBOT_MODELS.find((m) => m.id === r.model)?.name ?? "Robot";
+type Near = { data: RobotProfile; distanceKm: number; inRange: boolean; online: boolean; availability: string };
+const SITE_KEY = "semmal:site";
 
 function SliderField({ id, label, unit, min, max, step, value, onChange }: { id: string; label: string; unit?: string; min: number; max: number; step: number; value: number; onChange: (v: number) => void }) {
   const clamp = (v: number) => Math.min(max, Math.max(min, Number.isFinite(v) ? v : min));
@@ -51,9 +54,43 @@ function SliderField({ id, label, unit, min, max, step, value, onChange }: { id:
 
 export function QuoteTask() {
   const { data, error } = useApi<Listing<RobotProfile>>("/api/robots");
-  const robots = useMemo(() => (data?.items ?? []).filter((r) => r.data.pricing), [data]);
+  // the customer's site: kept in this browser only; sent to the robot only when booking
+  const [site, setSite] = useState<Pt | null>(null);
+  const [near, setNear] = useState<Near[] | null>(null);
+  const [locMsg, setLocMsg] = useState<string | null>(null);
+  useEffect(() => {
+    try {
+      const v = JSON.parse(localStorage.getItem(SITE_KEY) ?? "null");
+      if (v && typeof v.lat === "number") setSite(v);
+    } catch { /* none saved */ }
+  }, []);
+  const pick = (p: Pt) => {
+    const v = { lat: Math.round(p.lat * 1e5) / 1e5, lon: Math.round(p.lon * 1e5) / 1e5 };
+    setSite(v);
+    localStorage.setItem(SITE_KEY, JSON.stringify(v));
+  };
+  const useMyLocation = () => {
+    setLocMsg(null);
+    if (!navigator.geolocation) return setLocMsg("This browser cannot share a location; click the map instead.");
+    navigator.geolocation.getCurrentPosition(
+      (g) => pick({ lat: g.coords.latitude, lon: g.coords.longitude }),
+      () => setLocMsg("Location not shared; click the map where you need the robot."),
+      { enableHighAccuracy: false, timeout: 10_000 },
+    );
+  };
+  useEffect(() => {
+    if (!site) return setNear(null);
+    fetch(`/api/robots/near?lat=${site.lat}&lon=${site.lon}`).then((r) => r.json()).then((d) => setNear(d.items ?? [])).catch(() => setNear([]));
+  }, [site]);
+  const robots = useMemo(() => {
+    const all = (data?.items ?? []).filter((r) => r.data.pricing);
+    if (!near) return all;
+    // with a site: nearest first, only robots that have a base on Arkiv
+    return near.filter((n) => n.data.pricing).map((n) => ({ ...(all.find((r) => r.data.robotId === n.data.robotId) ?? { data: n.data }), near: n }));
+  }, [data, near]) as ({ data: RobotProfile; near?: Near })[];
   const [robotId, setRobotId] = useState<string | null>(null);
-  const robot = robots.find((r) => r.data.robotId === robotId)?.data ?? robots[0]?.data;
+  const chosen = robots.find((r) => r.data.robotId === robotId) ?? robots.find((r) => r.near?.inRange) ?? robots[0];
+  const robot = chosen?.data;
   const [skill, setSkill] = useState<string>("");
   const [waypoints, setWaypoints] = useState(4);
   const [distance, setDistance] = useState(160);
@@ -93,7 +130,32 @@ export function QuoteTask() {
         <Link className="btn btn--primary" href="/robots/new">Register a robot</Link>
       </div>
     );
-  if (!robot) return <div className="wb wb--loading" aria-busy="true" />;
+  if (!robot && !site) return <div className="wb wb--loading" aria-busy="true" />;
+
+  const map = (
+    <div className="wb__where">
+      <div className="wb__colhead">
+        <span className="t-label muted">Where</span>
+        <button type="button" className="btn btn--secondary btn--sm" onClick={useMyLocation}>Use my location</button>
+      </div>
+      <MapView
+        className="wb__map"
+        center={site ?? (robots.find((r) => r.data.location)?.data.location ?? { lat: 13.0827, lon: 80.2707 })}
+        site={site}
+        robots={robots.filter((r) => r.data.location).map((r) => ({ id: r.data.robotId, label: `${r.data.displayName}${r.near ? ` · ${r.near.distanceKm} km` : ""}`, ...r.data.location!, active: r.data.robotId === robot?.robotId, dim: r.near ? !r.near.inRange : false }))}
+        onPick={pick}
+        onRobot={setRobotId}
+        fit={[...(site ? [site] : []), ...(robot?.location ? [robot.location] : [])]}
+      />
+      <p className="t-small muted">{locMsg ?? (site ? "Your site is kept in this browser. Only the robot you book gets it." : "Click the map where you need the robot, or use your location.")}</p>
+    </div>
+  );
+  if (!robot)
+    return (
+      <div className="wb">
+        <aside className="wb__col wb__robots">{map}<p className="muted">No robots with a base near enough yet.</p></aside>
+      </div>
+    );
 
   const status =
     q?.status === "ok" ? `Quote from ${robot.displayName}: ${q.quote} 0G` : q?.status === "declined" ? `${robot.displayName} declines: ${q.reason}` : "Working out the price";
@@ -109,15 +171,18 @@ export function QuoteTask() {
           <span className="wb__count">{robots.length}</span>
         </div>
         <div className="wb__scroll" role="radiogroup" aria-label="Choose a robot">
+          {map}
           {robots.map((r) => {
             const on = r.data.robotId === robot.robotId;
+            const out = r.near ? !r.near.inRange : false;
             return (
-              <button key={r.data.robotId} type="button" role="radio" aria-checked={on} className={`rb ${on ? "is-on" : ""}`} onClick={() => setRobotId(r.data.robotId)}>
+              <button key={r.data.robotId} type="button" role="radio" aria-checked={on} disabled={out} className={`rb ${on ? "is-on" : ""} ${out ? "is-out" : ""}`} onClick={() => setRobotId(r.data.robotId)}>
                 <RobotView asset={assetOf(r.data)} active={on} className="rb__view" zoom={1.1} />
                 <span className="rb__txt">
                   <b>{r.data.displayName}</b>
                   <span className="muted">{typeName(r.data)}</span>
                   <span className="rb__range">{r.data.pricing!.minFee}–{r.data.pricing!.maxQuote} 0G</span>
+                  {r.near && <span className="rb__dist">{r.near.distanceKm} km away{out ? " · outside its area" : ""} · {r.near.online ? r.near.availability : "offline"}</span>}
                 </span>
               </button>
             );
@@ -185,7 +250,7 @@ export function QuoteTask() {
         <div className="wb__scroll wq__lines">
           {q && !err && <QuoteLines q={q} />}
           {q?.status === "ok" && !err && (
-            <BookTask key={`${robot.robotId}-${skill}-${waypoints}-${distance}-${privacy}`} robotId={robot.robotId} area={robot.serviceArea} plan={{ skill, waypoints, distanceM: distance, privacy }} quote={q.quote} />
+            <BookTask key={`${robot.robotId}-${skill}-${waypoints}-${distance}-${privacy}`} robotId={robot.robotId} robotName={robot.displayName} robotBase={robot.location ?? null} site={site} area={robot.serviceArea} plan={{ skill, waypoints, distanceM: distance, privacy }} quote={q.quote} />
           )}
         </div>
       </section>
