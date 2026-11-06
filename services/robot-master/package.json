@@ -1,0 +1,30 @@
+{
+  "name": "@semmal/robot-master",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "The robot master agent: runs on the robot PC next to ROS 2. Takes tasks, quotes, hires agents, calls 0G through the runner, drives ROS, safe-stops, and writes its own signed evidence to 0G Storage and Arkiv.",
+  "scripts": {
+    "start": "tsx --env-file-if-exists=.env.robot src/index.ts",
+    "keygen": "tsx src/keygen.ts",
+    "test": "node --import tsx --test src/*.test.ts",
+    "typecheck": "tsc --noEmit -p ."
+  },
+  "dependencies": {
+    "@0gfoundation/0g-storage-ts-sdk": "^1.2.13",
+    "@arkiv-network/sdk": "1.0.1",
+    "@semmal/arkiv-adapter": "workspace:*",
+    "@semmal/contracts": "workspace:*",
+    "@semmal/quote": "workspace:*",
+    "ethers": "^6.17.0",
+    "viem": "^2.57.16",
+    "ws": "^8.22.1",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^24",
+    "@types/ws": "^8",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9"
+  }
+}

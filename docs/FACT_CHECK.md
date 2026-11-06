@@ -169,3 +169,21 @@ NORMAL. Live state is in memory (PostgreSQL/Redis later). `services/robot-link` 
 side: it relays state written by the ROS 2 gateway node (`SEMMAL_STATE_FILE`) and reports DEGRADED,
 declining tasks, when that state is missing; battery falls back to the host's own reading.
 Tests: `apps/api/src/gateway.test.ts` against a real WebSocket server.
+
+## 0G Storage and zerobot (checked 2026-11-06)
+
+- SDK: `@0gfoundation/0g-storage-ts-sdk` with `ethers` as peer dependency
+  (https://docs.0g.ai/developer-hub/building-on-0g/storage/sdk). Upload: `ZgFile.fromFilePath` or
+  `new MemData(bytes)` → `merkleTree()` → `new Indexer(INDEXER).upload(file, RPC, signer)` →
+  `{ rootHash, txHash }`. Download with proof: `indexer.download(rootHash, outPath, true)` (Node only;
+  the browser build cannot download with `indexer.download`). Browser uploads can use a
+  `BrowserProvider` signer (`/browser` entry). Fees paid by the signer; exact amounts not documented.
+- Galileo testnet (https://docs.0g.ai/developer-hub/testnet/testnet-overview): chain **16602**, RPC
+  `https://evmrpc-testnet.0g.ai` (development only), explorer `https://chainscan-galileo.0g.ai`, faucet
+  `https://faucet.0g.ai` (0.1 0G/day), turbo indexer `https://indexer-storage-testnet-turbo.0g.ai`, flow
+  contract `0x22E03a6A89B950F1c82ec5e74F8eCa321a105296` ("may change during testnet").
+- zerobot (https://github.com/0gfoundation/zerobot, Apache-2.0): on-chain command dispatch for a Unitree
+  Go2 over WebRTC with Galileo contracts and a mock robot; no ROS 2/Gazebo integration documented. Not
+  adopted: SEMMAL's robot runs on ROS 2 + Gazebo with the 0G call inside the master agent's loop.
+- Signing decision (2026-11-06): evidence is written automatically by the robot's own device key on
+  the robot PC (CLAUDE.md rule 0.11); the platform holds no key.

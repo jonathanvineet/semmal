@@ -994,3 +994,12 @@ main > section.workbench > .wrap { height: auto; display: grid; gap: 18px; }
 .rl__kind--online, .rl__kind--task { color: var(--ok); background: color-mix(in oklab, var(--ok) 12%, transparent); }
 .rl__kind--incident, .rl__kind--offline { color: #f3cf6b; background: color-mix(in oklab, var(--warn) 12%, transparent); }
 .rl__kind--safety { color: var(--ice); background: color-mix(in oklab, var(--ice) 12%, transparent); }
+
+/* ------------------------------------------------------------- booking (quote workbench) */
+.bk { display: grid; gap: 12px; margin-top: 14px; padding: 16px; border-radius: 18px; background: var(--well); }
+.bk__head { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.bk__steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; font-size: 14.5px; }
+.bk__steps li { display: flex; align-items: center; gap: 10px; color: var(--p-muted); }
+.bk__steps li::before { content: ""; width: 10px; height: 10px; border-radius: 50%; background: var(--soft-fill); box-shadow: inset 0 0 0 1px var(--soft-line); }
+.bk__steps li.is-done { color: var(--p-ink); }
+.bk__steps li.is-done::before { background: var(--ok); box-shadow: 0 0 8px var(--ok); }

@@ -41,6 +41,8 @@ def _setup(context):
              on_exit=Shutdown(reason='safety_supervisor exited: stopping simulation')),
         node('semmal_incident', 'incident_recorder', [{'robot_id': robot_id}]),
         node('semmal_mission', 'mission_executor', [{'waypoints_file': w['waypoints_file']}]),
+        # localhost-only bridge to the robot master agent (state file + mission/hold/keyframe API)
+        node('semmal_gateway', 'gateway_node', [{'waypoints_file': w['waypoints_file']}]),
         Node(package='semmal_sim_faults', executable='fault_injector', output='screen',
              parameters=[common], condition=IfCondition(LaunchConfiguration('use_fault_injector'))),
     ]

@@ -356,5 +356,105 @@ export type PlatformToRobot =
   | { type: "welcome"; sessionId: string; serverTime: string; heartbeatSeconds: number }
   | { type: "ack"; seq: number }
   | { type: "error"; code: string; message: string; seq?: number }
-  | { type: "task_assignment"; taskId: string; skill: string; plan: { waypoints: number; distanceM: number; privacy: string }; quote?: string; assignedAt: string }
+  | { type: "task_assignment"; taskId: string; skill: string; plan: { waypoints: number; distanceM: number; privacy: string }; maxBudget?: string; deadline?: string; customerWallet?: string; assignedAt: string }
   | { type: "recovery_approval"; incidentId: string; approvedBy: string; approvedAt: string };
+
+// ---------------------------------------------------------------- coordination + evidence on Arkiv
+const addrZ = z.string().regex(/^0x[0-9a-fA-F]{40}$/);
+const amountZ = z.string().regex(/^\d+(\.\d{1,6})?$/);
+const hex32 = z.string().regex(/^0x[0-9a-fA-F]{64}$/);
+
+/** A customer's booking. Owned by the customer's wallet; expires at its deadline. */
+export const TaskRequest = z.object({
+  schemaVersion: z.literal(SCHEMA_VERSION),
+  taskId: z.string().regex(/^task-[a-z0-9-]{6,58}$/),
+  customerWallet: addrZ,
+  robotId: z.string().max(64),
+  skill: RobotSkill,
+  plan: z.object({ waypoints: z.number().int().min(1).max(50), distanceM: z.number().min(0).max(20000), privacy: TrustMode }),
+  area: z.string().max(40),
+  maxBudget: amountZ,
+  deadline: z.string().datetime(),
+  note: z.string().max(200).optional(),
+});
+export type TaskRequest = z.infer<typeof TaskRequest>;
+
+/** The robot's offer for a task. Signed by the robot's device key; expires at validUntil. */
+export const TaskQuote = z.object({
+  schemaVersion: z.literal(SCHEMA_VERSION),
+  quoteId: z.string().regex(/^quote-[a-z0-9-]{6,58}$/),
+  taskId: z.string().max(64),
+  robotId: z.string().max(64),
+  robotWallet: addrZ,
+  amount: amountZ,
+  cost: amountZ,
+  lines: z.array(z.object({ label: z.string().max(60), usdc: z.string().max(20), source: z.string().max(20) })).max(12),
+  validUntil: z.string().datetime(),
+});
+export type TaskQuote = z.infer<typeof TaskQuote>;
+
+/** The robot hiring an agent for one job. Robot-signed; expires at the job deadline. */
+export const JobClaim = z.object({
+  schemaVersion: z.literal(SCHEMA_VERSION),
+  jobId: z.string().max(64),
+  taskId: z.string().max(64),
+  robotId: z.string().max(64),
+  robotWallet: addrZ,
+  agentId: z.string().max(64),
+  price: amountZ,
+  deadline: z.string().datetime(),
+});
+export type JobClaim = z.infer<typeof JobClaim>;
+
+/** One decision inside an episode: what 0G was asked, what came back, what the robot did. */
+export const DecisionRecord = z.object({
+  at: z.string().datetime(),
+  checkpoint: z.string().max(60),
+  agentId: z.string().max(64),
+  providerRequestId: z.string().max(100).optional(),
+  model: z.string().max(80),
+  trustMode: z.string().max(20),
+  latencyMs: z.number().int().min(0),
+  outcome: z.enum(["accepted", "rejected", "failed", "timeout"]),
+  action: z.string().max(60),
+});
+
+/** Arkiv index of an episode bundle stored on 0G Storage. Robot-signed. */
+export const EpisodeIndex = z.object({
+  schemaVersion: z.literal(SCHEMA_VERSION),
+  episodeId: z.string().max(64),
+  taskId: z.string().max(64),
+  robotId: z.string().max(64),
+  robotWallet: addrZ,
+  outcome: z.enum(["COMPLETED", "FAILED", "ABORTED", "SAFE_STOP"]),
+  startedAt: z.string().datetime(),
+  endedAt: z.string().datetime(),
+  storageRoot: hex32,
+  manifestHash: hex32,
+  robotSignature: z.string().regex(/^0x[0-9a-fA-F]+$/).max(200),
+  requestIds: z.array(z.string().max(100)).max(50),
+  agents: z.array(z.string().max(64)).max(10),
+  seqFrom: z.number().int().min(0),
+  seqTo: z.number().int().min(0),
+});
+export type EpisodeIndex = z.infer<typeof EpisodeIndex>;
+
+/** Arkiv index of an incident bundle stored on 0G Storage. Robot-signed. */
+export const IncidentIndex = z.object({
+  schemaVersion: z.literal(SCHEMA_VERSION),
+  incidentId: z.string().max(64),
+  robotId: z.string().max(64),
+  robotWallet: addrZ,
+  taskId: z.string().max(64).optional(),
+  episodeId: z.string().max(64).optional(),
+  faultCode: z.string().max(60),
+  severity: z.enum(["info", "warning", "critical"]),
+  safetyAction: z.string().max(40),
+  detectedAt: z.string().datetime(),
+  sequence: z.number().int().min(0),
+  storageRoot: hex32,
+  manifestHash: hex32,
+  robotSignature: z.string().regex(/^0x[0-9a-fA-F]+$/).max(200),
+  requestIds: z.array(z.string().max(100)).max(20),
+});
+export type IncidentIndex = z.infer<typeof IncidentIndex>;

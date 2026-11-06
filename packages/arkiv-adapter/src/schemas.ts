@@ -4,7 +4,7 @@
  * canonical JSON (public data only, never secrets, live location or customer data).
  * str() columns hold at most 128 UTF-8 bytes; bytes() at most 128 KiB per create.
  */
-import { addr, bool, bytes, dec, defineSchema, i32, str } from "@arkiv-network/sdk/schema";
+import { addr, bool, bytes, dec, defineSchema, i32, str, u64 } from "@arkiv-network/sdk/schema";
 
 export const RobotProfileSchema = defineSchema("semmal_robot_profile_v2", {
   robot_id: str().indexed(),
@@ -38,4 +38,56 @@ export const AgentProfileSchema = defineSchema("semmal_agent_profile_v2", {
   price: dec().indexed(),
   display_name: str(),
   listing: bytes(),
+});
+
+// ---------------------------------------------------------------- coordination (expiring) + evidence
+/** A customer's booking. Owner: customer wallet. Expires at the task deadline. */
+export const TaskRequestSchema = defineSchema("semmal_task_request_v1", {
+  task_id: str().indexed(),
+  robot_id: str().indexed(),
+  skill: str().indexed(),
+  area: str().indexed(),
+  customer: addr().indexed(),
+  max_budget: dec().indexed(),
+  body: bytes(),
+});
+
+/** A robot's offer. Owner: robot wallet. Expires when the offer lapses. */
+export const QuoteSchema = defineSchema("semmal_quote_v1", {
+  quote_id: str().indexed(),
+  task_id: str().indexed(),
+  robot_id: str().indexed(),
+  amount: dec().indexed(),
+  body: bytes(),
+});
+
+/** A robot hiring an agent for one job. Owner: robot wallet. Expires at the job deadline. */
+export const JobClaimSchema = defineSchema("semmal_job_claim_v1", {
+  job_id: str().indexed(),
+  task_id: str().indexed(),
+  robot_id: str().indexed(),
+  agent_id: str().indexed(),
+  body: bytes(),
+});
+
+/** Index of an episode bundle on 0G Storage. Owner: robot wallet. */
+export const EpisodeSchema = defineSchema("semmal_episode_v1", {
+  episode_id: str().indexed(),
+  task_id: str().indexed(),
+  robot_id: str().indexed(),
+  outcome: str().indexed(),
+  storage_root: str().indexed(),
+  ended_at: u64().indexed(),
+  body: bytes(),
+});
+
+/** Index of an incident bundle on 0G Storage. Owner: robot wallet. */
+export const IncidentSchema = defineSchema("semmal_incident_v1", {
+  incident_id: str().indexed(),
+  robot_id: str().indexed(),
+  fault_code: str().indexed(),
+  severity: str().indexed(),
+  storage_root: str().indexed(),
+  sequence: u64().indexed(),
+  body: bytes(),
 });

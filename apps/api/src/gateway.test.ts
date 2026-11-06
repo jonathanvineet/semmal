@@ -109,3 +109,19 @@ test("a token cannot speak for another robot, and revoking it closes the link", 
   await assert.rejects(connect(url, token).open, /HTTP 401/);
   await app.close();
 });
+
+test("runner: a robot's link token may send jobs only in its own name", async () => {
+  const { app, gateway } = await start();
+  const token = gateway.links.issue("rbt-test-3", "0x00000000000000000000000000000000000000aa");
+  const base = { jobId: "job-000009", parentTaskId: "t", targetAgentId: "agt-x-000000", capabilityId: "vision.inspection", input: {}, budgetLimit: "1", deadline: new Date(Date.now() + 60_000).toISOString(), idempotencyKey: "idem-000009" };
+  const other = await app.inject({ method: "POST", url: "/api/agents/agt-x-000000/jobs", headers: { authorization: `Bearer ${token}` }, payload: { ...base, requestingRobotId: "rbt-someone" } });
+  assert.equal(other.statusCode, 403);
+  const bad = await app.inject({ method: "POST", url: "/api/agents/agt-x-000000/jobs", headers: { authorization: "Bearer slk_wrong" }, payload: { ...base, requestingRobotId: "rbt-test-3" } });
+  assert.equal(bad.statusCode, 401);
+  const none = await app.inject({ method: "POST", url: "/api/agents/agt-x-000000/jobs", payload: { ...base, requestingRobotId: "rbt-test-3" } });
+  assert.equal(none.statusCode, 401);
+  // authorised: reaches the runner (none configured in this test app → 503, not 401/403)
+  const ok = await app.inject({ method: "POST", url: "/api/agents/agt-x-000000/jobs", headers: { authorization: `Bearer ${token}` }, payload: { ...base, requestingRobotId: "rbt-test-3" } });
+  assert.equal(ok.statusCode, 503);
+  await app.close();
+});

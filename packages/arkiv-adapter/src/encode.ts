@@ -54,3 +54,62 @@ export function agentCreateArgs(input: TAgent, ttlDays = 30) {
     options: { expiration: ExpirationTime.fromDays(ttlDays) },
   };
 }
+
+// ---------------------------------------------------------------- coordination + evidence encoders
+import { EpisodeIndex, IncidentIndex, JobClaim, TaskQuote, TaskRequest } from "@semmal/contracts";
+import { addr as addrV, dec as decV, u64 } from "@arkiv-network/sdk/schema";
+import { EpisodeSchema, IncidentSchema, JobClaimSchema, QuoteSchema, TaskRequestSchema } from "./schemas";
+
+const BLOCK_SECONDS = 2;
+/** Lifetime that ends at `iso` (rounded up to the 2 s block time, at least 2 blocks). */
+export function expiresAt(iso: string, now = Date.now()) {
+  const secs = Math.max(2 * BLOCK_SECONDS, Math.ceil((Date.parse(iso) - now) / 1000));
+  return ExpirationTime.fromSeconds(Math.ceil(secs / BLOCK_SECONDS) * BLOCK_SECONDS);
+}
+const body = (v: unknown) => new TextEncoder().encode(canonicalJson(v));
+const EVIDENCE_DAYS = 90; // renew before expiry if longer retention is needed (Lifetime Extension)
+
+export function taskRequestCreateArgs(input: TaskRequest) {
+  const t = TaskRequest.parse(input);
+  return {
+    schema: TaskRequestSchema,
+    values: { task_id: t.taskId, robot_id: t.robotId, skill: t.skill, area: t.area, customer: addrV(t.customerWallet), max_budget: decV(t.maxBudget), body: body(t) },
+    options: { expiration: expiresAt(t.deadline) },
+  };
+}
+
+export function quoteCreateArgs(input: TaskQuote) {
+  const q = TaskQuote.parse(input);
+  return {
+    schema: QuoteSchema,
+    values: { quote_id: q.quoteId, task_id: q.taskId, robot_id: q.robotId, amount: decV(q.amount), body: body(q) },
+    options: { expiration: expiresAt(q.validUntil) },
+  };
+}
+
+export function jobClaimCreateArgs(input: JobClaim) {
+  const c = JobClaim.parse(input);
+  return {
+    schema: JobClaimSchema,
+    values: { job_id: c.jobId, task_id: c.taskId, robot_id: c.robotId, agent_id: c.agentId, body: body(c) },
+    options: { expiration: expiresAt(c.deadline) },
+  };
+}
+
+export function episodeCreateArgs(input: EpisodeIndex) {
+  const e = EpisodeIndex.parse(input);
+  return {
+    schema: EpisodeSchema,
+    values: { episode_id: e.episodeId, task_id: e.taskId, robot_id: e.robotId, outcome: e.outcome, storage_root: e.storageRoot, ended_at: u64(BigInt(Math.floor(Date.parse(e.endedAt) / 1000))), body: body(e) },
+    options: { expiration: ExpirationTime.fromDays(EVIDENCE_DAYS) },
+  };
+}
+
+export function incidentCreateArgs(input: IncidentIndex) {
+  const i = IncidentIndex.parse(input);
+  return {
+    schema: IncidentSchema,
+    values: { incident_id: i.incidentId, robot_id: i.robotId, fault_code: i.faultCode, severity: i.severity, storage_root: i.storageRoot, sequence: u64(BigInt(i.sequence)), body: body(i) },
+    options: { expiration: ExpirationTime.fromDays(EVIDENCE_DAYS) },
+  };
+}

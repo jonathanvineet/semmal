@@ -3,7 +3,8 @@ import { rabdi } from "@arkiv-network/sdk/chains";
 import { eq, desc } from "@arkiv-network/sdk/query";
 import { getAddress, hexToString, http } from "viem";
 import { AgentListing, RobotProfile, type AgentListing as TAgent, type RobotProfile as TRobot } from "@semmal/contracts";
-import { AgentProfileSchema, RobotProfileSchema } from "./schemas";
+import { AgentProfileSchema, EpisodeSchema, IncidentSchema, JobClaimSchema, QuoteSchema, RobotProfileSchema, TaskRequestSchema } from "./schemas";
+import { EpisodeIndex, IncidentIndex, JobClaim, TaskQuote, TaskRequest } from "@semmal/contracts";
 import { RABDI_CHAIN_ID } from "./guarded-writer";
 import { addr } from "@arkiv-network/sdk/schema";
 
@@ -86,6 +87,46 @@ export class ArkivRegistry {
       if (!cur || e.data.profileVersion > cur.data.profileVersion) byWallet.set(w, e);
     }
     return [...byWallet.values()];
+  }
+
+  // ---------------------------------------------------------------- coordination + evidence reads
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private async readBodies<T>(schema: any, where: any, parser: { safeParse(v: unknown): { success: boolean; data?: T } }, ownerOf: (d: T) => string) {
+    let q = this.publicClient.select({ $key: true, $owner: true, $creator: true, $expiresAt: true, $createdAt: true, body: true }).from(schema);
+    if (where) q = q.where(where);
+    const page = await q.limit(100).fetch();
+    return this.toEntries(page.entities, "body", parser, ownerOf);
+  }
+
+  /** Robot-signed records count only if signed by the wallet on the robot's registered profile. */
+  private async robotWallet(robotId: string) {
+    return (await this.listRobots({ robotId }))[0]?.data.robotWallet.toLowerCase() ?? null;
+  }
+  private async robotSigned<T extends { robotId: string; robotWallet: string }>(rows: RegistryEntry<T>[]) {
+    const wallets = new Map<string, string | null>();
+    const out: RegistryEntry<T>[] = [];
+    for (const r of rows) {
+      if (!wallets.has(r.data.robotId)) wallets.set(r.data.robotId, await this.robotWallet(r.data.robotId));
+      if (wallets.get(r.data.robotId) === r.data.robotWallet.toLowerCase()) out.push(r);
+    }
+    return out;
+  }
+
+  async listTasks(filter: { robotId?: string; taskId?: string } = {}) {
+    const where = filter.taskId ? eq("task_id", filter.taskId) : filter.robotId ? eq("robot_id", filter.robotId) : undefined;
+    return this.readBodies(TaskRequestSchema, where, TaskRequest, (d) => d.customerWallet);
+  }
+  async listQuotes(taskId: string) {
+    return this.robotSigned(await this.readBodies(QuoteSchema, eq("task_id", taskId), TaskQuote, (d) => d.robotWallet));
+  }
+  async listJobClaims(taskId: string) {
+    return this.robotSigned(await this.readBodies(JobClaimSchema, eq("task_id", taskId), JobClaim, (d) => d.robotWallet));
+  }
+  async listEpisodes(robotId: string) {
+    return this.robotSigned(await this.readBodies(EpisodeSchema, eq("robot_id", robotId), EpisodeIndex, (d) => d.robotWallet));
+  }
+  async listIncidents(robotId: string) {
+    return this.robotSigned(await this.readBodies(IncidentSchema, eq("robot_id", robotId), IncidentIndex, (d) => d.robotWallet));
   }
 
   /**

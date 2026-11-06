@@ -10,6 +10,7 @@ import { ROBOT_MODELS, ROBOT_SKILLS } from "@semmal/contracts";
 import { useApi, type Listing, type RobotProfile } from "@/lib/api";
 import { QuoteLines, type QuoteResult } from "./QuoteBreakdown";
 import { RobotCanvas, RobotView } from "./robots3d/Robot3D";
+import { BookTask } from "./BookTask";
 
 const PRIVACY = [
   { id: "private", label: "Private", hint: "TEE only, prompts stay inside" },
@@ -181,7 +182,12 @@ export function QuoteTask() {
             {q?.status === "ok" && <span className="t-small muted">Cost {q.cost} · margin {q.marginApplied}</span>}
           </div>
         </div>
-        <div className="wb__scroll wq__lines">{q && !err && <QuoteLines q={q} />}</div>
+        <div className="wb__scroll wq__lines">
+          {q && !err && <QuoteLines q={q} />}
+          {q?.status === "ok" && !err && (
+            <BookTask key={`${robot.robotId}-${skill}-${waypoints}-${distance}-${privacy}`} robotId={robot.robotId} area={robot.serviceArea} plan={{ skill, waypoints, distanceM: distance, privacy }} quote={q.quote} />
+          )}
+        </div>
       </section>
     </div>
   );

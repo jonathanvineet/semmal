@@ -16,7 +16,7 @@
 8. Emergency stop and safety interlocks must work without internet, 0G, Arkiv, or Storage.
 9. Do not claim a feature works without a test or live integration proving it.
 10. At the end of each phase, report changed files, commands run, tests, failures, and next steps.
-11. **No private keys anywhere.** No wallet private key, mnemonic, or signer key is read, stored, generated, or entered in code, `.env`, config, scripts, tests, logs, or docs. Every on-chain write (Arkiv entities, Storage uploads, payments) is signed by the user's own wallet (EIP-1193, e.g. MetaMask) in the browser, after an in-app approval that shows the maximum fee. The backend is read-only toward chains; its Arkiv RPC proxy allowlists read methods and refuses every send/sign method. Admin access is wallet sign-in (EIP-4361); the owner wallet is claimed once with a setup code the API prints, and roles/trusted publishers live in `data/admin.json`, managed from `/admin`, never in `.env`. Service API keys that have no wallet alternative (0G Router `sk-` key) stay server-side only.
+11. **No private keys on the platform.** No wallet key, mnemonic or signer key in this repo, in platform env files, in the browser, in logs or in AI context. People sign their own actions in their own wallet (EIP-1193) after an in-app approval. The only key in the system is each **robot's own device key**: generated on the robot PC, stored outside the repo (`~/.semmal/robot-key`, mode 600), never transmitted; it signs only allowlisted evidence writes (Arkiv episode/incident/quote/claim entities, 0G Storage uploads) under a daily fee cap, so evidence is written automatically and no person can alter or withhold it. Service API keys with no wallet alternative (0G Router `sk-`) stay server-side only.
 
 ## 1. Product architecture and boundaries
 
@@ -109,7 +109,7 @@ Keep these concepts distinct:
 
 Router unified balance is not per-agent accounting. For the MVP, one disclosed Router billing account plus an internal per-agent metering ledger is acceptable. Label it application accounting, not native 0G subaccounts. Verify whether independent Router accounts/keys with separate balances are supported before claiming independent agent compute economics.
 
-A robot's payment to a specialist for a service is separate from the specialist's inference bill. Use spending caps, allowlisted recipients, per-task budgets, and idempotency keys. Payments are signed by the owner's wallet after in-app approval; there is no server-side signing service and no private key in the system (rule 0.11). Confirm with hackathon organisers whether the required Privy/iAI flow accepts a robot/service-owned account; a robot wallet does not automatically satisfy that requirement.
+A robot's payment to a specialist for a service is separate from the specialist's inference bill. Use spending caps, allowlisted recipients, per-task budgets, and idempotency keys. Customer and owner payments are signed by their own wallet after in-app approval; the platform holds no signer (rule 0.11). Confirm with hackathon organisers whether the required Privy/iAI flow accepts a robot/service-owned account; a robot wallet does not automatically satisfy that requirement.
 
 ### 2.3 Arkiv
 
@@ -439,7 +439,7 @@ Create canonical signed incident data with at least:
 }
 ```
 
-Values above are fixtures. Use canonical serialisation and sequence numbers. The manifest hash is signed by the robot owner's wallet (EIP-191 via the wallet, never a key file); until that is wired, write `SIMULATED_SIGNATURE`.
+Values above are fixtures. Use canonical serialisation and sequence numbers. The manifest hash is signed (EIP-191) by the **robot's own device key** on the robot PC (rule 0.11), automatically, so no person can alter or withhold the record.
 
 ### 8.4 Durable offline queue
 
@@ -517,7 +517,7 @@ Live GPS/telemetry belongs in PostgreSQL/Redis and WebSocket. Arkiv gets selecte
 
 - Secrets only in environment/secrets manager. Commit `.env.example`, never `.env`.
 - Separate customer auth, robot wallet, agent wallet, and Router credentials.
-- No private keys at all (rule 0.11): wallets sign in the browser; the server holds no signer.
+- No private keys on the platform (rule 0.11): people sign in their own browser wallet; the only key is each robot's device key, which never leaves the robot PC and signs only allowlisted evidence writes under a fee cap.
 - No Router or Arkiv access keys in browser or LLM context.
 - Least-privilege keys where supported; separate dev/test/demo credentials.
 - Authenticated robot gateway and replay protection.

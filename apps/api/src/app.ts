@@ -10,6 +10,7 @@ import { z } from "zod";
 import { arkivRpcProxy } from "./arkiv-rpc-proxy";
 import { AdminStore, readCookie, WalletAuth } from "./admin";
 import { AgentRunner } from "./runner";
+import { fetchBundle, verifyEpisode, verifyIncident } from "./verify";
 import { Gateway, LinkStore, MAX_MESSAGE_BYTES } from "./gateway";
 import websocket from "@fastify/websocket";
 
@@ -367,14 +368,107 @@ export function buildApp(deps: Deps = defaultDeps()) {
     return r.ok ? { taskId: r.taskId } : reply.code(409).send({ error: r.reason });
   });
 
+  // ---------------------------------------------------------------- bookings, offers, evidence (Arkiv)
+  /** A task with the robot's offers and job claims: everything public about it on Arkiv. */
+  app.get<{ Params: { taskId: string } }>("/api/tasks/:taskId", async (req, reply) => {
+    if (!/^task-[a-z0-9-]{6,58}$/.test(req.params.taskId)) return reply.code(400).send({ error: "bad task id" });
+    try {
+      const task = (await registry.listTasks({ taskId: req.params.taskId }))[0];
+      if (!task) return reply.code(404).send({ error: "task not on Arkiv (or expired)" });
+      const [quotes, claims] = await Promise.all([registry.listQuotes(req.params.taskId), registry.listJobClaims(req.params.taskId)]);
+      const live = gateway?.publicView().find((r) => r.robotId === task.data.robotId);
+      const events = gateway ? gateway.taskEvents(task.data.robotId, task.data.taskId) : [];
+      return { task, quotes, claims, events, robot: live ?? { robotId: task.data.robotId, online: false, availability: "offline" } };
+    } catch {
+      return reply.code(502).send({ error: "Arkiv could not be reached" });
+    }
+  });
+
+  /**
+   * After the customer's wallet put the booking on Arkiv, hand it to the robot. The booking itself is
+   * the authority: it is read back from Arkiv (owner = customer) and checked before dispatch.
+   */
+  app.post<{ Params: { taskId: string } }>("/api/tasks/:taskId/dispatch", async (req, reply) => {
+    if (!gateway) return reply.code(503).send({ error: "gateway not available" });
+    if (!/^task-[a-z0-9-]{6,58}$/.test(req.params.taskId)) return reply.code(400).send({ error: "bad task id" });
+    const task = (await registry.listTasks({ taskId: req.params.taskId }).catch(() => []))[0];
+    if (!task) return reply.code(404).send({ error: "booking not found on Arkiv yet; try again in a few seconds" });
+    if (Date.parse(task.data.deadline) <= Date.now()) return reply.code(409).send({ error: "the booking's deadline has passed" });
+    const robot = (await registry.listRobots({ robotId: task.data.robotId }).catch(() => []))[0];
+    if (!robot) return reply.code(404).send({ error: "robot not on Arkiv" });
+    if (!robot.data.capabilities.includes(task.data.skill)) return reply.code(409).send({ error: "this robot does not offer that skill" });
+    const r = gateway.assign(task.data.robotId, {
+      taskId: task.data.taskId,
+      skill: task.data.skill,
+      plan: task.data.plan,
+      maxBudget: task.data.maxBudget,
+      deadline: task.data.deadline,
+      customerWallet: task.data.customerWallet,
+    });
+    return r.ok ? { taskId: r.taskId, dispatched: true } : reply.code(409).send({ error: r.reason });
+  });
+
+  app.get<{ Params: { robotId: string } }>("/api/robots/:robotId/evidence", async (req, reply) => {
+    if (!/^[a-z0-9][a-z0-9-]{2,63}$/.test(req.params.robotId)) return reply.code(400).send({ error: "bad robot id" });
+    try {
+      const [episodes, incidents] = await Promise.all([registry.listEpisodes(req.params.robotId), registry.listIncidents(req.params.robotId)]);
+      return { episodes, incidents };
+    } catch {
+      return reply.code(502).send({ error: "Arkiv could not be reached" });
+    }
+  });
+
+  /** Download an episode or incident bundle from 0G Storage with proof and verify it end to end. */
+  app.get<{ Params: { robotId: string; kind: string; id: string } }>("/api/evidence/:robotId/:kind/:id", async (req, reply) => {
+    const { robotId, kind, id } = req.params;
+    if (!/^[a-z0-9][a-z0-9-]{2,63}$/.test(robotId) || !["episode", "incident"].includes(kind) || !/^[A-Za-z0-9-]{3,64}$/.test(id)) return reply.code(400).send({ error: "bad request" });
+    try {
+      const robot = (await registry.listRobots({ robotId }))[0];
+      if (!robot) return reply.code(404).send({ error: "robot not on Arkiv" });
+      const records = kind === "episode" ? await registry.listEpisodes(robotId) : await registry.listIncidents(robotId);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const rec = records.find((r: any) => (kind === "episode" ? r.data.episodeId : r.data.incidentId) === id);
+      if (!rec) return reply.code(404).send({ error: `${kind} not on Arkiv` });
+      const indexer = process.env.ZEROG_STORAGE_INDEXER_URL || "https://indexer-storage-testnet-turbo.0g.ai";
+      const got = await fetchBundle(indexer, rec.data.storageRoot, process.env.EVIDENCE_CACHE_DIR || "../../data/evidence-cache");
+      if (!got.ok) return { record: rec, checks: { storageProof: false, manifestHash: null, signature: false, arkivLink: false, detail: [`download with proof failed: ${got.error}`] } };
+      const checks = kind === "episode" ? await verifyEpisode(got.text, rec.data, robot.data.robotWallet) : await verifyIncident(got.text, rec.data, robot.data.robotWallet);
+      return { record: rec, bundle: JSON.parse(got.text), checks };
+    } catch (e) {
+      return reply.code(502).send({ error: `verification could not run: ${(e as Error).message}` });
+    }
+  });
+
   // ---------------------------------------------------------------- agent runner
   /**
    * Run one job for a specialist agent listed on Arkiv. For now only the owner wallet may send jobs
    * (the test console); robots will send them through the authenticated robot gateway next.
    */
+  /**
+   * Who may send a job: a linked robot (its link token; the job must name that robot), or the owner
+   * wallet's session (the dashboard's test console). Robots are rate limited.
+   */
+  const jobBucket = new Map<string, { n: number; at: number }>();
+  const JOBS_PER_MIN = 30;
+  const authorizeJob = async (req: FastifyRequest<{ Params: { agentId: string } }>, reply: FastifyReply) => {
+    const bearer = (req.headers.authorization ?? "").replace(/^Bearer\s+/i, "");
+    if (bearer.startsWith("slk_")) {
+      const link = gateway?.links.verify(bearer);
+      if (!link) return reply.code(401).send({ error: "invalid or revoked link token" });
+      const named = (req.body as { requestingRobotId?: string } | undefined)?.requestingRobotId;
+      if (named !== link.robotId) return reply.code(403).send({ error: "requestingRobotId must be the robot this token belongs to" });
+      const b = jobBucket.get(link.robotId);
+      const now = Date.now();
+      if (!b || now - b.at > 60_000) jobBucket.set(link.robotId, { n: 1, at: now });
+      else if (++b.n > JOBS_PER_MIN) return reply.code(429).send({ error: `at most ${JOBS_PER_MIN} jobs a minute per robot` });
+      return;
+    }
+    return requireAdmin(req, reply);
+  };
+
   app.post<{ Params: { agentId: string } }>(
     "/api/agents/:agentId/jobs",
-    { preHandler: requireAdmin, bodyLimit: 3 * 1024 * 1024 },
+    { preHandler: authorizeJob, bodyLimit: 3 * 1024 * 1024 },
     async (req, reply) => {
       if (!runner) return reply.code(503).send({ error: "agent runner is not available" });
       if (!/^[a-z0-9][a-z0-9-]{2,63}$/.test(req.params.agentId)) return reply.code(400).send({ error: "bad agent id" });

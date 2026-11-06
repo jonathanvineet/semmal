@@ -225,14 +225,19 @@ export class Gateway {
     return { ...this.state(robotId), linked: this.links.has(robotId) };
   }
 
+  /** Progress the robot reported for one task (task acks, mission states, incidents during it). */
+  taskEvents(robotId: string, taskId: string) {
+    return this.state(robotId).events.filter((e) => e.detail.includes(taskId));
+  }
+
   /** Send a task to a connected robot. The robot validates it and answers with task_ack. */
-  assign(robotId: string, task: Omit<Extract<PlatformToRobot, { type: "task_assignment" }>, "type" | "assignedAt" | "taskId">) {
+  assign(robotId: string, task: Omit<Extract<PlatformToRobot, { type: "task_assignment" }>, "type" | "assignedAt" | "taskId"> & { taskId?: string }) {
     const s = this.sessions.get(robotId);
     if (!s?.hello) return { ok: false as const, reason: "The robot is not connected" };
     const r = this.state(robotId);
     if (r.safetyState && r.safetyState !== "NORMAL") return { ok: false as const, reason: `The robot reports ${r.safetyState}; tasks wait until it is NORMAL` };
-    const taskId = `task-${randomUUID().slice(0, 12)}`;
-    this.send(s, { type: "task_assignment", taskId, assignedAt: new Date().toISOString(), ...task });
+    const taskId = task.taskId ?? `task-${randomUUID().slice(0, 12)}`;
+    this.send(s, { ...task, type: "task_assignment", taskId, assignedAt: new Date().toISOString() });
     this.event(robotId, "task", `${taskId} sent: ${task.skill}, ${task.plan.waypoints} stops`);
     return { ok: true as const, taskId };
   }
