@@ -211,3 +211,18 @@ Tests: `apps/api/src/gateway.test.ts` against a real WebSocket server.
   adopted: SEMMAL's robot runs on ROS 2 + Gazebo with the 0G call inside the master agent's loop.
 - Signing decision (2026-11-06): evidence is written automatically by the robot's own device key on
   the robot PC (CLAUDE.md rule 0.11); the platform holds no key.
+
+## Supported hardware and robot identity (added 2026-11-06)
+
+- Supported: iRobot Create 3 (iRobot Education), TurtleBot 4 (Clearpath Robotics), Jackal UGV (Clearpath
+  Robotics), all ROS 2 robots. During development each runs in Gazebo on the Ubuntu PC as a stand-in:
+  Create 3 -> `cleaner` body (house), TurtleBot 4 -> `rover` body (warehouse), Jackal -> `field` body (forest),
+  all diff-drive in simulation. The Create 3 entry adds a camera and 2D lidar, which the stock base lacks.
+  Vendor facts above (makers, ROS 2 support) are from general knowledge and still need checking against
+  vendor docs before any hardware claim.
+- Identity: `semmal_identity` node -> facts file -> device identity service (`pnpm start <name>`, port 8770)
+  signs `identityMessage` (EIP-191) over a fresh platform nonce; the platform (`apps/api/src/connect.ts`)
+  checks signature, nonce, freshness (2 min), facts hash, and `detectHardware` (body + expected sensors).
+  Reaches private IPv4 ranges and localhost only.
+- **Limits:** facts are self-reported (no TPM/secure element); runtime "hardware" is refused until an
+  on-board evidence rule is tested on each real robot.

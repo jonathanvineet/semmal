@@ -68,7 +68,7 @@ export const ROBOT_MODELS = [
   { id: "manipulator", name: "Mobile manipulator", robotType: "mobile-manipulator", asset: "manipulator", base: "Wheeled base with an arm", sensors: ["lidar-2d", "depth-camera", "imu", "joint-encoders", "battery"], skills: ["manipulation.pick-place", "indoor.delivery", "warehouse.inspection"], note: "Drives to the job, then picks and places." },
 ] as const;
 /** Older ids stay valid so profiles already on Arkiv still parse. */
-export const RobotModelId = z.enum(["rover", "cleaner", "field-rover", "drone", "quadruped", "arm", "hand", "humanoid", "manipulator", "semmal-rover-sim", "custom-diff-drive"]);
+export const RobotModelId = z.enum(["create3", "turtlebot4", "jackal", "rover", "cleaner", "field-rover", "drone", "quadruped", "arm", "hand", "humanoid", "manipulator", "semmal-rover-sim", "custom-diff-drive"]);
 
 /**
  * Where a robot works, at city or metro level only (never an exact site or live location).
@@ -109,6 +109,85 @@ export const PricingPolicy = z
   .refine((p) => Number(p.maxQuote) >= Number(p.minFee), { message: "maxQuote must be at least minFee" });
 export type PricingPolicy = z.infer<typeof PricingPolicy>;
 
+// ---------------------------------------------------------------- supported hardware + device identity
+/**
+ * The hardware SEMMAL supports: real, customisable ROS 2 robots. A robot is registered by connecting
+ * to it: its identity node reports what it is (facts) and its device identity service signs a fresh
+ * challenge with the robot's own key. The platform decides the model from the facts with
+ * `detectHardware`; it never takes the robot's word alone.
+ *
+ * runtime "gazebo": the robot runs in Gazebo on a PC, as a stand-in for this hardware during
+ * development. It must load the matching robot description (body) with the expected sensors.
+ * runtime "hardware": the real robot. Its on-board evidence rule has not been tested yet, so it is
+ * not accepted until it is.
+ */
+export const HARDWARE = [
+  {
+    id: "create3", name: "iRobot Create 3", maker: "iRobot Education", robotType: "diff-drive-indoor", asset: "rover", body: "cleaner",
+    base: "Create 3 base with a camera and 2D lidar added", sensors: ["lidar-2d", "rgb-camera", "imu", "wheel-encoders", "bumper", "battery"],
+    expectSensors: ["camera", "gpu_lidar", "imu"],
+    skills: ["home.cleaning", "indoor.delivery"],
+    note: "Round home robot base with native ROS 2. Visits rooms, spots spills and clutter.",
+  },
+  {
+    id: "turtlebot4", name: "TurtleBot 4", maker: "Clearpath Robotics", robotType: "diff-drive-indoor", asset: "rover", body: "rover",
+    base: "Create 3 base, Raspberry Pi 4, OAK-D camera, 2D lidar", sensors: ["lidar-2d", "rgb-camera", "imu", "wheel-encoders", "bumper", "battery"],
+    expectSensors: ["camera", "gpu_lidar", "imu"],
+    skills: ["warehouse.inspection", "warehouse.patrol", "indoor.delivery"],
+    note: "Open ROS 2 mobile robot. Inspects panels and patrols aisles.",
+  },
+  {
+    id: "jackal", name: "Jackal UGV", maker: "Clearpath Robotics", robotType: "diff-drive-outdoor", asset: "rover", body: "field",
+    base: "Rugged all-terrain base with camera, 2D lidar and GPS", sensors: ["lidar-2d", "rgb-camera", "imu", "wheel-encoders", "gps", "battery"],
+    expectSensors: ["camera", "gpu_lidar", "imu"],
+    skills: ["outdoor.patrol", "site.inspection"],
+    note: "Outdoor ROS 2 robot for trails and sites. Patrols and reports hazards.",
+  },
+] as const;
+export type HardwareId = (typeof HARDWARE)[number]["id"];
+
+/** What a robot reports about itself. Short strings only; no serial numbers, hostnames or locations. */
+export const HardwareFacts = z.record(z.string().regex(/^[a-zA-Z][a-zA-Z0-9]{0,31}$/), z.string().max(160)).refine((f) => Object.keys(f).length <= 24, { message: "at most 24 facts" });
+export type HardwareFacts = z.infer<typeof HardwareFacts>;
+
+export type HardwareCheck = { ok: true; model: HardwareId; runtime: "gazebo" | "hardware" } | { ok: false; reason: string };
+
+/** Which supported hardware the signed facts describe. Pure; the platform runs it, not the robot. */
+export function detectHardware(f: HardwareFacts): HardwareCheck {
+  const hw = HARDWARE.find((h) => h.id === f.model);
+  if (!hw) return { ok: false, reason: `${f.model ? `"${f.model}" is not` : "no model is"} a supported robot` };
+  if (f.runtime === "hardware") return { ok: false, reason: `on-board checks for a real ${hw.name} are not tested yet; it cannot be registered as hardware` };
+  if (f.runtime !== "gazebo") return { ok: false, reason: "unknown runtime" };
+  if (f.body !== hw.body) return { ok: false, reason: `the loaded robot description is "${f.body ?? "none"}", not the ${hw.name} body` };
+  if (!f.description) return { ok: false, reason: "no robot description is loaded; is the robot stack running?" };
+  const have = new Set((f.sensors ?? "").split(",").filter(Boolean));
+  const missing = hw.expectSensors.filter((s) => !have.has(s));
+  if (missing.length) return { ok: false, reason: `the loaded description lacks ${missing.join(", ")}` };
+  return { ok: true, model: hw.id, runtime: "gazebo" };
+}
+
+/** The robot's answer to a connect challenge, signed (EIP-191) by its device key. */
+export const RobotIdentity = z.object({
+  schema: z.literal("semmal-robot-identity-v1"),
+  wallet: evmAddress,
+  hardwareModel: z.string().max(40),
+  facts: HardwareFacts,
+  /** sha256 over the canonical JSON of `facts` (0x-hex). */
+  factsHash: z.string().regex(/^0x[0-9a-f]{64}$/),
+  nonce: z.string().regex(/^[A-Za-z0-9]{16,64}$/),
+  issuedAt: z.string().datetime(),
+  signature: z.string().regex(/^0x[0-9a-fA-F]{130}$/),
+});
+export type RobotIdentity = z.infer<typeof RobotIdentity>;
+
+/** The exact text the robot signs. Anyone can rebuild it from a stored attestation and check the signature. */
+export const identityMessage = (d: { wallet: string; hardwareModel: string; factsHash: string; nonce: string; issuedAt: string }) =>
+  `SEMMAL robot identity\nwallet: ${d.wallet}\nhardware: ${d.hardwareModel}\nfactsHash: ${d.factsHash}\nnonce: ${d.nonce}\nissuedAt: ${d.issuedAt}`;
+
+/** Stable JSON: object keys sorted at every level. */
+export const canonicalFacts = (v: unknown): string =>
+  JSON.stringify(v, (_k, x) => (x && typeof x === "object" && !Array.isArray(x) ? Object.fromEntries(Object.entries(x).sort(([a], [b]) => (a < b ? -1 : 1))) : x));
+
 export const RobotProfile = z.object({
   schemaVersion: z.literal(SCHEMA_VERSION),
   robotId: id,
@@ -130,6 +209,8 @@ export const RobotProfile = z.object({
   serviceArea: z.string().max(40),
   /** The owner's limits; the robot quotes each task inside them. */
   pricing: PricingPolicy.optional(),
+  /** The signed connect challenge from registration: proves the robot wallet's key was on the device that reported these facts. */
+  attestation: RobotIdentity.omit({ schema: true }).optional(),
   /** Older profiles carried a fixed price; still readable, no longer written. */
   price: z.object({ amount: decimalAmount, token: z.string().max(12), unit: z.enum(["task", "hour"]) }).optional(),
 }).refine((r) => r.pricing || r.price, { message: "a pricing policy is required" });

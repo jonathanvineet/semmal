@@ -5,10 +5,12 @@
   "type": "module",
   "description": "The robot master agent: runs on the robot PC next to ROS 2. Takes tasks, quotes, hires agents, calls 0G through the runner, drives ROS, safe-stops, and writes its own signed evidence to 0G Storage and Arkiv.",
   "scripts": {
-    "start": "tsx --env-file-if-exists=.env.robot src/index.ts",
+    "start": "tsx src/index.ts",
     "keygen": "tsx src/keygen.ts",
     "test": "node --import tsx --test src/*.test.ts",
-    "typecheck": "tsc --noEmit -p ."
+    "typecheck": "tsc --noEmit -p .",
+    "identify": "tsx src/identify.ts",
+    "setup": "tsx src/setup.ts"
   },
   "dependencies": {
     "@0gfoundation/0g-storage-ts-sdk": "^1.2.13",

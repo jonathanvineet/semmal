@@ -16,6 +16,7 @@ from launch_ros.parameter_descriptions import ParameterValue
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from world_config import resolve  # noqa: E402
+from hardware_config import body_for  # noqa: E402
 
 
 def _setup(context):
@@ -24,9 +25,7 @@ def _setup(context):
     x, y, yaw = (str(v) for v in w['spawn'])
     gz_share = get_package_share_directory('semmal_gazebo')
     xacro_file = os.path.join(get_package_share_directory('semmal_description'), 'urdf', 'semmal_robot.urdf.xacro')
-    variant = LaunchConfiguration('robot').perform(context)
-    if variant not in ('rover', 'cleaner', 'field'):
-        raise RuntimeError(f'unknown robot {variant!r}; use rover | cleaner | field')
+    variant = body_for(LaunchConfiguration('hardware').perform(context))
     robot_description = ParameterValue(Command(['xacro ', xacro_file, ' model_name:=semmal', f' variant:={variant}']), value_type=str)
     args = f'-r -s --headless-rendering {w["sdf"]}' if headless else f'-r {w["sdf"]}'
     return [
@@ -52,6 +51,6 @@ def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument('world', default_value='warehouse', description='warehouse | house | forest'),
         DeclareLaunchArgument('headless', default_value='false', description='Run gz server only (no GUI)'),
-        DeclareLaunchArgument('robot', default_value='rover', description='body style: rover | cleaner | field'),
+        DeclareLaunchArgument('hardware', default_value='turtlebot4', description='create3 | turtlebot4 | jackal'),
         OpaqueFunction(function=_setup),
     ])

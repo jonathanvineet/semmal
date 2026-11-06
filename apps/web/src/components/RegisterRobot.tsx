@@ -8,7 +8,7 @@ import Link from "next/link";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { formatEther, getAddress, isAddress } from "viem";
-import { ROBOT_MODELS, ROBOT_SKILLS, RobotProfile, SERVICE_AREAS, robotIdFromWallet, type RobotProfile as TRobot } from "@semmal/contracts";
+import { HARDWARE, ROBOT_SKILLS, RobotProfile, type RobotIdentity, type HardwareCheck, SERVICE_AREAS, robotIdFromWallet, type RobotProfile as TRobot } from "@semmal/contracts";
 import { Select } from "./ui/Select";
 import { ApprovalCard } from "./ui/ApprovalCard";
 import { robotCreateArgs } from "@semmal/arkiv-adapter/browser";
@@ -18,9 +18,13 @@ import { ARKIV_EXPLORER } from "@/lib/api";
 import { QuoteBreakdown, type QuoteResult } from "./QuoteBreakdown";
 import { RobotCanvas, RobotSolo, RobotView, preloadRobots } from "./robots3d/Robot3D";
 
-preloadRobots(ROBOT_MODELS.map((x) => x.asset));
+preloadRobots(HARDWARE.map((x) => x.asset));
 
-const STEPS = ["Nickname", "Model", "Skills", "Pricing", "Robot wallet", "Publish"] as const;
+type Connect =
+  | { ok: false; error: string }
+  | { ok: true; verified: boolean; identity: RobotIdentity; robotId: string; hardware: HardwareCheck; checks: { signature: boolean; nonce: boolean; fresh: boolean; factsHash: boolean; modelMatches: boolean } };
+
+const STEPS = ["Nickname", "Connect", "Skills", "Pricing", "Robot wallet", "Publish"] as const;
 type Check = { robotId: string; takenByOther: boolean; existing: { entityKey: string; creator: string; profileVersion: number }[]; nextVersion: number };
 
 const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
@@ -35,16 +39,16 @@ export function RegisterRobot() {
   const [step, setStep] = useState(0);
   const [dir, setDir] = useState(1);
   const [name, setName] = useState("");
-  const [model, setModel] = useState<string>("rover");
-  const [hoverModel, setHoverModel] = useState<string | null>(null);
-  const [skills, setSkills] = useState<string[]>(["warehouse.inspection"]);
+  const [host, setHost] = useState("");
+  const [conn, setConn] = useState<Connect | null>(null);
+  const [connecting, setConnecting] = useState(false);
+  const [skills, setSkills] = useState<string[]>([]);
   const [minFee, setMinFee] = useState("0.01");
   const [maxQuote, setMaxQuote] = useState("0.15");
   const [margin, setMargin] = useState(25);
   const [spendCap, setSpendCap] = useState("0.1");
   const [example, setExample] = useState<QuoteResult | null>(null);
   const [area, setArea] = useState<string>("");
-  const [robotWallet, setRobotWallet] = useState("");
   const [check, setCheck] = useState<Check | null>(null);
   const [checking, setChecking] = useState(false);
   const [maxFee, setMaxFee] = useState("0.01");
@@ -52,7 +56,33 @@ export function RegisterRobot() {
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<{ entityKey: string; txHash: string; robotId: string; version: number } | null>(null);
 
-  const m = ROBOT_MODELS.find((x) => x.id === model) ?? ROBOT_MODELS[0];
+  // the model and wallet come from the robot itself, checked by the platform (never typed in)
+  const verified = conn?.ok && conn.verified && conn.hardware.ok ? conn : null;
+  const model = verified && verified.hardware.ok ? verified.hardware.model : "";
+  const m = HARDWARE.find((x) => x.id === model) ?? HARDWARE[1];
+  const robotWallet = verified ? verified.identity.wallet : "";
+
+  const connect = async () => {
+    setConnecting(true);
+    setConn(null);
+    try {
+      const [h, port] = host.trim().replace(/^https?:\/\//, "").split(":");
+      const r = await fetch("/api/robots/connect", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ host: h, ...(port ? { port: Number(port) } : {}) }) });
+      const d = (await r.json()) as Connect;
+      setConn(d);
+      if (d.ok && d.verified && d.hardware.ok) {
+        const hw = HARDWARE.find((x) => x.id === (d.hardware as { model: string }).model)!;
+        setSkills((cur) => {
+          const keep = cur.filter((c) => (hw.skills as readonly string[]).includes(c));
+          return keep.length ? keep : [hw.skills[0]];
+        });
+      }
+    } catch {
+      setConn({ ok: false, error: "The SEMMAL API is not reachable." });
+    } finally {
+      setConnecting(false);
+    }
+  };
   const skillChoices = ROBOT_SKILLS.filter((x) => (m.skills as readonly string[]).includes(x.id));
   const walletOk = isAddress(robotWallet);
   const robotId = walletOk ? robotIdFromWallet(robotWallet) : "";
@@ -89,6 +119,7 @@ export function RegisterRobot() {
       model: model as TRobot["model"],
       robotType: m.robotType,
       hardware: { base: m.base, sensors: [...m.sensors] },
+      ...(verified ? { attestation: (({ schema: _s, ...rest }) => rest)(verified.identity) } : {}),
       capabilities: skills as TRobot["capabilities"],
       rosInterfaceVersion: "0.1.0",
       profileVersion: check?.nextVersion ?? 1,
@@ -97,7 +128,7 @@ export function RegisterRobot() {
     };
     const r = RobotProfile.safeParse(draft);
     return r.success ? r.data : null;
-  }, [walletOk, w.account, robotId, robotWallet, name, model, m, skills, check, area, minFee, maxQuote, margin, spendCap]);
+  }, [walletOk, w.account, robotId, robotWallet, name, model, m, skills, check, area, minFee, maxQuote, margin, spendCap, verified]);
 
   const policyOk = isAmount(minFee) && isAmount(maxQuote) && isAmount(spendCap) && Number(maxQuote) >= Number(minFee) && Number(minFee) > 0;
   // a live example quote for the first chosen skill, so the owner sees what their limits do
@@ -122,7 +153,7 @@ export function RegisterRobot() {
 
   const valid = [
     /^[\p{L}\p{N} .'-]{2,40}$/u.test(name.trim()),
-    true,
+    Boolean(verified),
     skills.length > 0 && area !== "",
     policyOk,
     walletOk && !check?.takenByOther && !checking,
@@ -131,7 +162,7 @@ export function RegisterRobot() {
   // what each finished step chose, shown under its name in the step list
   const summary = [
     name.trim(),
-    m.name,
+    verified ? m.name : "",
     skills.length ? `${skills.length} skill${skills.length === 1 ? "" : "s"}${area ? ` · ${area}` : ""}` : "",
     policyOk ? `${norm(minFee)}–${norm(maxQuote)} 0G · ${margin}%` : "",
     walletOk ? short(robotWallet) : "",
@@ -176,7 +207,7 @@ export function RegisterRobot() {
         <p className="t-small muted">Arkiv records your wallet as its owner. Only your wallet can update or remove it.</p>
         <div className="btn-row">
           <Link className="btn btn--primary" href="/#top">See it in the network</Link>
-          <button className="btn btn--secondary" type="button" onClick={() => { setDone(null); setStep(0); setName(""); setRobotWallet(""); }}>Register another robot</button>
+          <button className="btn btn--secondary" type="button" onClick={() => { setDone(null); setStep(0); setName(""); setConn(null); setHost(""); }}>Register another robot</button>
         </div>
       </motion.div>
     );
@@ -225,32 +256,44 @@ export function RegisterRobot() {
 
               {step === 1 && (
                 <>
-                  <h2>Which model is it?</h2>
-                  <p className="muted">The platform decides its sensors and how SEMMAL can drive it safely.</p>
-                  <div className="model-grid" role="radiogroup" aria-label="Robot model">
-                    {ROBOT_MODELS.map((x) => (
-                      <button
-                        key={x.id}
-                        type="button"
-                        role="radio"
-                        aria-checked={model === x.id}
-                        className={`model ${model === x.id ? "is-on" : ""}`}
-                        onPointerEnter={() => setHoverModel(x.id)}
-                        onPointerLeave={() => setHoverModel(null)}
-                        onClick={() => {
-                          setModel(x.id);
-                          setSkills((cur) => {
-                            const keep = cur.filter((c) => (x.skills as readonly string[]).includes(c));
-                            return keep.length ? keep : [x.skills[0]];
-                          });
-                        }}
-                      >
-                        <RobotView asset={x.asset} active={model === x.id || hoverModel === x.id} className="model__view" />
+                  <h2>Connect your robot</h2>
+                  <p className="muted">
+                    SEMMAL works with these robots. Start yours, then enter its address on your network. SEMMAL asks it to sign a fresh
+                    challenge with its own wallet key and checks which robot it is.
+                  </p>
+                  <div className="model-grid" aria-label="Supported robots">
+                    {HARDWARE.map((x) => (
+                      <div key={x.id} className={`model ${model === x.id ? "is-on" : ""}`} aria-current={model === x.id ? "true" : undefined}>
+                        <RobotView asset={x.asset} active={model === x.id} className="model__view" />
                         <b>{x.name}</b>
-                        <span>{x.note}</span>
-                      </button>
+                        <span>{x.maker} · {x.note}</span>
+                      </div>
                     ))}
                   </div>
+                  <div className="conn">
+                    <label className="field conn__field">
+                      <span className="t-label muted">Robot address</span>
+                      <input className="mono" value={host} spellCheck={false} placeholder="10.71.81.42" onChange={(e) => setHost(e.target.value)} onKeyDown={(e) => e.key === "Enter" && host.trim() && connect()} />
+                      <span className="field__hint">The IP the robot printed when you ran pnpm start on it (port 8770 unless you changed it)</span>
+                    </label>
+                    <button type="button" className="btn btn--primary" disabled={!host.trim() || connecting} onClick={connect}>{connecting ? "Connecting…" : "Connect"}</button>
+                  </div>
+                  {conn && !conn.ok && <p className="soft-warn">{conn.error}</p>}
+                  {conn?.ok && (
+                    <div className={`conn__result ${conn.verified ? "is-ok" : "is-bad"}`}>
+                      <ul className="conn__checks">
+                        <li className={conn.checks.signature ? "ok" : "bad"}>Holds the key of wallet <span className="mono">{short(conn.identity.wallet)}</span></li>
+                        <li className={conn.checks.nonce && conn.checks.fresh ? "ok" : "bad"}>Answered this challenge just now (not a replay)</li>
+                        <li className={conn.checks.factsHash && conn.checks.modelMatches ? "ok" : "bad"}>Its report matches what it signed</li>
+                        <li className={conn.hardware.ok ? "ok" : "bad"}>
+                          {conn.hardware.ok ? <>Supported robot: <b>{HARDWARE.find((x) => x.id === (conn.hardware as { model: string }).model)?.name}</b></> : conn.hardware.reason}
+                        </li>
+                      </ul>
+                      <dl className="conn__facts">
+                        {Object.entries(conn.identity.facts).map(([k, v]) => <div key={k}><dt>{k}</dt><dd className="mono">{v}</dd></div>)}
+                      </dl>
+                    </div>
+                  )}
                 </>
               )}
 
@@ -326,17 +369,20 @@ export function RegisterRobot() {
                 <>
                   <h2>The robot&apos;s own wallet</h2>
                   <p className="muted">
-                    Paste the public address of the wallet that belongs to this robot. Its unique id comes from this address. A separate
-                    account in your wallet works well. Never paste a private key.
+                    Read from the robot when you connected: it proved it holds this wallet&apos;s key. Its unique id comes from this address.
+                    The key never leaves the robot.
                   </p>
-                  <label className="field">
-                    <span className="t-label muted">Robot wallet address</span>
-                    <input className="mono" value={robotWallet} spellCheck={false} placeholder="0x…" onChange={(e) => setRobotWallet(e.target.value.trim())} />
-                    <span className="field__hint">
-                      {!robotWallet ? "40 hex characters after 0x" : !walletOk ? "That is not a valid address" : checking ? "Checking Arkiv…" : check?.takenByOther ? "Another owner already registered this robot wallet" : `Robot id ${robotId}${check && check.nextVersion > 1 ? ` · this will be profile version ${check.nextVersion}` : " · new on Arkiv"}`}
-                    </span>
-                  </label>
-                  {sameAsOwner && <p className="soft-warn">This is the same as your owner wallet. It works, but a separate robot wallet keeps the robot&apos;s identity apart from yours.</p>}
+                  <div className="pub-checks">
+                    <div className={`pub-check ${walletOk ? "is-ok" : ""}`}>
+                      <span>Robot wallet</span>
+                      <b className="mono">{walletOk ? robotWallet : "Connect the robot first"}</b>
+                    </div>
+                    <div className={`pub-check ${walletOk && !check?.takenByOther && !checking ? "is-ok" : ""}`}>
+                      <span>On Arkiv</span>
+                      <b>{!walletOk ? "…" : checking ? "Checking…" : check?.takenByOther ? "Another owner already registered this robot" : `${robotId}${check && check.nextVersion > 1 ? ` · profile version ${check.nextVersion}` : " · new"}`}</b>
+                    </div>
+                  </div>
+                  {sameAsOwner && <p className="soft-warn">The robot&apos;s wallet is the same as your owner wallet. A separate robot wallet keeps the robot&apos;s identity apart from yours.</p>}
                 </>
               )}
 

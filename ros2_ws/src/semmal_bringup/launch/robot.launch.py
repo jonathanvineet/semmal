@@ -16,6 +16,7 @@ from launch_ros.actions import Node
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from world_config import resolve  # noqa: E402
+from hardware_config import body_for  # noqa: E402
 
 
 def _setup(context):
@@ -23,6 +24,8 @@ def _setup(context):
     x, y, yaw = w['spawn']
     params = os.path.join(get_package_share_directory('semmal_bringup'), 'config', 'semmal.yaml')
     robot_id = LaunchConfiguration('robot_id').perform(context)
+    hardware = LaunchConfiguration('hardware').perform(context)
+    world = LaunchConfiguration('world').perform(context)
     common = {'use_sim_time': True}
     origin = {'odom_origin_x': x, 'odom_origin_y': y, 'odom_origin_yaw': yaw}
 
@@ -43,6 +46,9 @@ def _setup(context):
         node('semmal_mission', 'mission_executor', [{'waypoints_file': w['waypoints_file']}]),
         # localhost-only bridge to the robot master agent (state file + mission/hold/keyframe API)
         node('semmal_gateway', 'gateway_node', [{'waypoints_file': w['waypoints_file']}]),
+        # which supported robot this is, for the device identity service (signed with the robot's key)
+        node('semmal_identity', 'identity_node', [{'hardware_model': hardware, 'body': body_for(hardware), 'world': world,
+                                                   'runtime': LaunchConfiguration('runtime').perform(context)}]),
         Node(package='semmal_sim_faults', executable='fault_injector', output='screen',
              parameters=[common], condition=IfCondition(LaunchConfiguration('use_fault_injector'))),
     ]
@@ -50,7 +56,9 @@ def _setup(context):
 
 def generate_launch_description():
     return LaunchDescription([
-        DeclareLaunchArgument('world', default_value='warehouse', description='warehouse | house'),
+        DeclareLaunchArgument('world', default_value='warehouse', description='warehouse | house | forest'),
+        DeclareLaunchArgument('hardware', default_value='turtlebot4', description='create3 | turtlebot4 | jackal'),
+        DeclareLaunchArgument('runtime', default_value='gazebo', description='gazebo (this PC runs the robot in Gazebo) | hardware'),
         DeclareLaunchArgument('robot_id', default_value=EnvironmentVariable('ROBOT_ID', default_value='robot-demo-001')),
         DeclareLaunchArgument('use_fault_injector',
                               default_value=EnvironmentVariable('SIM_FAULT_INJECTION_ENABLED', default_value='false')),

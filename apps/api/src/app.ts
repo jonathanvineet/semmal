@@ -15,6 +15,7 @@ import { fetchBundle, verifyEpisode, verifyIncident } from "./verify";
 import { Gateway, LinkStore, MAX_MESSAGE_BYTES } from "./gateway";
 import websocket from "@fastify/websocket";
 import { GALILEO_RPC, galileoClient, verifyTransfer } from "@semmal/zerog-pay";
+import { connectRobot } from "./connect";
 
 type Deps = { registry: ArkivRegistry; router: ZeroGRouter; config: ReturnType<typeof loadConfig>; admin: AdminStore; auth: WalletAuth; runner?: AgentRunner; gateway?: Gateway };
 
@@ -172,6 +173,19 @@ export function buildApp(deps: Deps = defaultDeps()) {
    * Before registering: is this robot wallet already on Arkiv, and by whom?
    * Same creator -> the next profile version (an update). Another creator -> taken.
    */
+  /** Registration: connect to a robot on the local network and check its signed identity. */
+  const connectBucket = new Map<string, { n: number; at: number }>();
+  app.post<{ Body: { host?: string; port?: number } }>("/api/robots/connect", async (req, reply) => {
+    const b = connectBucket.get(req.ip);
+    const now = Date.now();
+    if (!b || now - b.at > 60_000) connectBucket.set(req.ip, { n: 1, at: now });
+    else if (++b.n > 12) return reply.code(429).send({ ok: false, error: "too many connect attempts; wait a minute" });
+    const host = String(req.body?.host ?? "").trim();
+    const port = Number(req.body?.port ?? 8770);
+    const r = await connectRobot(host, port);
+    return reply.code(r.ok ? 200 : 400).send(r);
+  });
+
   app.get<{ Querystring: { wallet?: string; owner?: string } }>("/api/robots/check", async (req, reply) => {
     const { wallet, owner } = req.query;
     if (!wallet || !/^0x[0-9a-fA-F]{40}$/.test(wallet)) return reply.code(400).send({ error: "wallet must be a 0x address" });

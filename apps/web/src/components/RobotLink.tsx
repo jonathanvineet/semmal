@@ -81,24 +81,8 @@ export function RobotLink({ robotId, capabilities }: { robotId: string; capabili
 
   // the robot PC must reach this machine over the network, so never "localhost"
   const host = hosts[0] ?? "<this-mac-ip>";
-  const cmd = token
-    ? [
-        "cd services/robot-master",
-        "pnpm install",
-        "KEY=~/.semmal/robot-key   # the device key whose address you registered as this robot's wallet",
-        `cat > .env.robot.${robotId} <<'EOF'`,
-        `SEMMAL_ROBOT_ID=${robotId}`,
-        `SEMMAL_LINK_TOKEN=${token}`,
-        `SEMMAL_PLATFORM_URL=http://${host}:${port}`,
-        `SEMMAL_GATEWAY_URL=ws://${host}:${port}/api/gateway`,
-        "SEMMAL_LOCAL_API=http://127.0.0.1:8765",
-        "ARKIV_ACCESS_KEY=",
-        "EOF",
-        `echo "SEMMAL_ROBOT_KEY_FILE=$KEY" >> .env.robot.${robotId}`,
-        `echo "SEMMAL_DATA_DIR=$(cd ../.. && pwd)/data" >> .env.robot.${robotId}`,
-        `SEMMAL_ENV_FILE=.env.robot.${robotId} pnpm start`,
-      ].join("\n")
-    : "";
+  // the robot saves the token in its own profile (pnpm setup <name> on the robot PC; hidden input)
+  const cmd = token ? token : "";
 
   return (
     <div className="rl">
@@ -121,11 +105,11 @@ export function RobotLink({ robotId, capabilities }: { robotId: string; capabili
 
       {token && (
         <div className="rl__token">
-          <p className="t-small"><b>Shown once.</b> Run this in the repo on the robot PC, with the ROS stack started with <span className="mono">ROBOT_ID={robotId}</span>. The token is revocable and not a wallet key; anyone with it can speak as this robot until you revoke it.</p>
+          <p className="t-small"><b>Shown once.</b> On the robot PC run <span className="mono">pnpm setup &lt;name&gt;</span> in services/robot-master and paste this token when it asks. A running <span className="mono">pnpm start &lt;name&gt;</span> picks it up and links within seconds. The token is revocable and not a wallet key; anyone with it can speak as this robot until you revoke it.</p>
           {hosts.length === 0 && <p className="t-small soft-warn">This API only listens on this machine. Set <span className="mono">API_HOST=0.0.0.0</span> in .env and restart it, then click New token, so the robot PC can reach it.</p>}
-          {hosts.length > 1 && <p className="t-small muted">Other addresses for this machine: {hosts.slice(1).join(", ")}</p>}
+          {hosts.length > 0 && <p className="t-small muted">When setup asks for the platform address, use <span className="mono">http://{host}:{port}</span>{hosts.length > 1 ? ` (other addresses for this machine: ${hosts.slice(1).join(", ")})` : ""}.</p>}
           <pre className="mono">{cmd}</pre>
-          <button type="button" className="btn btn--secondary btn--sm" onClick={async () => { await navigator.clipboard.writeText(cmd); setCopied(true); }}>{copied ? "Copied" : "Copy command"}</button>
+          <button type="button" className="btn btn--secondary btn--sm" onClick={async () => { await navigator.clipboard.writeText(cmd); setCopied(true); }}>{copied ? "Copied" : "Copy token"}</button>
         </div>
       )}
 

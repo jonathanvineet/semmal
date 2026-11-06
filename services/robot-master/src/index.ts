@@ -2,6 +2,10 @@
  * robot-master: the robot's own agent, running on the robot PC next to ROS 2.
  * Talks to ROS only through the local gateway node; to the platform through the gateway link and
  * the agent runner; signs its own evidence with its device key.
+ *
+ *   pnpm start <name>   first run: asks for everything (setup.ts) and saves it; later runs use it.
+ *                       Always serves the device identity (for registration); links to the platform
+ *                       once a link token is saved (pnpm setup <name> to paste it; picked up live).
  */
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -14,8 +18,22 @@ import { httpPlatform } from "./platform";
 import { TaskStore } from "./store";
 import { toWei } from "@semmal/quote";
 
-// One robot PC can host several robots (one at a time): SEMMAL_ENV_FILE=.env.robot.house pnpm start
-if (process.env.SEMMAL_ENV_FILE) process.loadEnvFile(process.env.SEMMAL_ENV_FILE);
+import { identityFile, serveIdentity } from "./identify";
+import { loadProfile, paths, readEnv } from "./profile";
+import { runSetup } from "./setup";
+
+// One robot PC can host several robots (one at a time): pnpm start house
+const NAME = process.argv[2] || process.env.SEMMAL_ROBOT_NAME;
+if (NAME) {
+  if (!loadProfile(NAME)) {
+    if (!process.stdin.isTTY) {
+      console.error(`robot "${NAME}" is not set up yet; run it once in a terminal: pnpm start ${NAME}`);
+      process.exit(2);
+    }
+    await runSetup(NAME);
+    loadProfile(NAME);
+  }
+} else if (process.env.SEMMAL_ENV_FILE) process.loadEnvFile(process.env.SEMMAL_ENV_FILE); // older single-file setups
 
 const env = (k: string, d?: string) => {
   const v = process.env[k] ?? d;
@@ -27,6 +45,9 @@ const DATA = env("SEMMAL_DATA_DIR", join(homedir(), ".semmal"));
 // each robot keeps its own task store and evidence queue, so robots never sign each other's records
 const OWN = join(DATA, "robot-master", ROBOT_ID);
 const log = (m: string) => console.log(`${new Date().toISOString().slice(11, 19)} ${m}`);
+
+// registration needs this before the robot is linked, so it always runs
+serveIdentity({ keyPath: env("SEMMAL_ROBOT_KEY_FILE", join(homedir(), ".semmal", "robot-key")), file: identityFile(), port: Number(process.env.SEMMAL_IDENTITY_PORT || 8770), log });
 
 const device = new Device({
   keyPath: env("SEMMAL_ROBOT_KEY_FILE", join(homedir(), ".semmal", "robot-key")),
@@ -43,6 +64,23 @@ const device = new Device({
   maxPaymentFeeWei: toWei(env("ROBOT_MAX_PAYMENT_FEE_0G", "0.001")),
 });
 const local = httpLocal(env("SEMMAL_LOCAL_API", "http://127.0.0.1:8765"));
+
+// not registered and linked yet: keep serving the identity, wait for the token to be saved
+if (!process.env.SEMMAL_LINK_TOKEN) {
+  log(`robot ${ROBOT_ID} (wallet ${device.address}) is not linked yet.`);
+  log(`Register it at /robots/new, click Link robot in the dashboard, then paste the token here: pnpm setup ${NAME ?? "<name>"}`);
+  await new Promise<void>((ok) => {
+    const t = setInterval(() => {
+      const v = NAME ? readEnv(paths(NAME).env).SEMMAL_LINK_TOKEN : "";
+      if (v) {
+        process.env.SEMMAL_LINK_TOKEN = v;
+        clearInterval(t);
+        log("link token saved; linking to the platform");
+        ok();
+      }
+    }, 5000);
+  });
+}
 const platform = httpPlatform(env("SEMMAL_PLATFORM_URL", "http://127.0.0.1:3001"), env("SEMMAL_LINK_TOKEN"));
 const store = new TaskStore(OWN);
 

@@ -1,13 +1,14 @@
 # Three test scenarios: house cleaning, warehouse inspection, forest patrol
 
-Each scenario is one world, one robot body and one robot registered on Arkiv with its own device key.
-They run one at a time on the robot PC (Ubuntu 24.04, ROS 2 Jazzy, Gazebo Harmonic).
+Each scenario is one supported robot, running in Gazebo on the Ubuntu PC as a stand-in for the real
+hardware, with its own wallet and its own identity. They run one at a time on the robot PC
+(Ubuntu 24.04, ROS 2 Jazzy, Gazebo Harmonic).
 
-| Scenario | World | Body | Skill | Stops the robot picks | What the camera should find |
+| Scenario | Hardware | World | Skill | Stops the robot picks | What the camera should find |
 |---|---|---|---|---|---|
-| House | `house` | `cleaner` (round white disc, blue bumper) | `home.cleaning` | kitchen → living_room → bedroom → dock | coffee spill (kitchen), toys (living room), nothing (bedroom: the clean control) |
-| Warehouse | `warehouse` | `rover` (graphite + orange) | `warehouse.inspection` | inspection_point_A | carton blocking the machine panel's lower vent |
-| Forest | `forest` | `field` (olive, roll bar, amber beacon) | `outdoor.patrol` | creek_crossing → log_check → fire_lookout → dock | nothing (creek), fallen log across the path, smouldering campfire with smoke |
+| House | iRobot Create 3 | `house` | `home.cleaning` | kitchen → living_room → bedroom → dock | coffee spill (kitchen), toys (living room), nothing (bedroom: the clean control) |
+| Warehouse | Clearpath TurtleBot 4 | `warehouse` | `warehouse.inspection` | inspection_point_A | carton blocking the machine panel's lower vent |
+| Forest | Clearpath Jackal | `forest` | `outdoor.patrol` | creek_crossing → log_check → fire_lookout → dock | nothing (creek), fallen log across the path, smouldering campfire with smoke |
 
 What the robot does with a finding depends on the job:
 - **cleaning**: it makes a cleaning stop at that spot, then goes to the next room. The body has no brush or vacuum modelled, so the cleaning stop is an 8 s hold on the spot, and the evidence says exactly that.
@@ -37,49 +38,61 @@ No image bytes, prompts or personal data go into the bundle.
 2. In /admin there is a **vision** agent published with trust mode **private**, priced in **0G**, on a 0G model that accepts images. Agents published before this change are priced in USDC; robots skip them, so publish the vision agent again. Test it once in "Run an agent". A **navigation** agent is optional; if one exists, the robot hires it to order its stops.
 3. Restart the API after pulling: `pnpm --filter @semmal/api dev`.
 
-## On the robot PC
+## How a robot proves who it is
+
+- **Identity node** (`semmal_identity`, starts with the robot stack). It reports which robot this is: the model, the runtime (Gazebo here), the robot description actually loaded and its sensors, ROS and OS, and a salted machine hash. No serials, MACs or hostnames.
+- **Device identity service** (inside `pnpm start <name>`, port 8770). When the platform connects, it sends a fresh challenge. The robot answers with those facts, signed with its own wallet key.
+- **The platform checks four things:**
+  - the signature belongs to the wallet;
+  - the challenge is fresh, not a replay;
+  - the facts were not edited;
+  - the facts match a supported robot: the right description body with the expected sensors.
+
+  Only then does the wizard fill in the model and the wallet, and lock them.
+- **What it does not prove:** the facts come from the robot's own software, so they are not a hardware attestation (that would need a TPM). Running as real hardware is refused until its on-board check has been tested.
+
+## On the robot PC: set up each robot once
 
 ```bash
-git pull && scripts/robot/build.sh            # builds the forest world and the new bodies
+git pull && scripts/robot/build.sh            # builds the worlds, the bodies and semmal_identity
 cd services/robot-master && pnpm install
-
-# one device key per robot. Each prints its address.
-SEMMAL_ROBOT_KEY_FILE=~/.semmal/robot-key-house     pnpm keygen
-SEMMAL_ROBOT_KEY_FILE=~/.semmal/robot-key-warehouse pnpm keygen
-SEMMAL_ROBOT_KEY_FILE=~/.semmal/robot-key-forest    pnpm keygen
+pnpm setup house                              # then: pnpm setup warehouse, pnpm setup forest
 ```
 
-Fund **each** address with test tGLM (https://hub.arkiv.network/faucet) for Arkiv writes, and 0G (https://faucet.0g.ai, about 0.1 0G a day) for Storage uploads, gas and owner test tasks. Each robot prints its 0G balance when it starts.
+Setup asks, in the terminal:
+1. Which hardware: house → Create 3, warehouse → TurtleBot 4, forest → Jackal.
+2. The robot's wallet: **[g]** generates a new one, or **[i]** imports a private key you created (typed hidden).
+3. The platform address, `http://<mac-ip>:<api-port>`.
+4. Your Arkiv access key (hidden).
+5. The link token (leave it empty for now).
 
-You also need 0G in your own wallet (the customer), on the 0G Galileo network. The app adds the network to your wallet the first time you pay.
+Everything is saved in `~/.semmal/robots/<name>/`, owner-only. Run setup again any time to change something; the wallet is never replaced. Never paste a private key anywhere else, including a chat.
 
-## Register the three robots (browser, owner wallet)
+Fund **each** robot wallet with tGLM (https://hub.arkiv.network/faucet) for Arkiv writes, and 0G (https://faucet.0g.ai, about 0.1 0G a day) for Storage, gas and owner test tasks. You also need 0G in your own wallet (the customer) on 0G Galileo; the app adds the network the first time you pay.
 
-At /robots/new, once per robot:
-
-| | Model | Skills | Robot wallet |
-|---|---|---|---|
-| House | Home cleaning robot | Home cleaning | robot-key-house address |
-| Warehouse | Compact rover | Inspection | robot-key-warehouse address |
-| Forest | Field rover | Outdoor patrol | robot-key-forest address |
-
-Guardrails, in 0G (the defaults fit testnet amounts): minimum fee **0.01**, maximum quote **0.15**, max spend per task **0.1**. A vision job costs about 0.02 0G (its 0G inference plus the agent's margin, about 1,500 input and 800 output tokens), so the house run (three jobs) costs about 0.065 0G in agents and quotes about 0.08 0G. Keep the maximum quote at or below the robot's `ROBOT_MAX_PAYMENT_0G` (0.15), since the margin goes back to you as one payment. Note each robot's `rbt-…` id.
-
-Robots registered before this change are priced in USDC and decline paid tasks. Delete them in /admin and register them again.
-
-Then in /admin → Your robots → **Link robot** for each. Copy the command, change the `KEY=` line to that robot's key file, fill in `ARKIV_ACCESS_KEY=`, and run it on the robot PC. It writes `services/robot-master/.env.robot.<rbt-id>` (git-ignored). Stop it with Ctrl-C once it says it is linked; you start it per scenario below.
-
-## Run a scenario (repeat for each)
+## Register and link each robot
 
 ```bash
-# terminal 1: world + body + ROS stack
-scripts/robot/scenario.sh house rbt-xxxxxxxxxx          # or warehouse / forest with that robot's id
-
-# terminal 2: the robot's own agent
-cd services/robot-master && SEMMAL_ENV_FILE=.env.robot.rbt-xxxxxxxxxx pnpm start
+scripts/robot/scenario.sh house     # terminal 1: Gazebo + robot stack (+ identity node); the world follows the hardware
+cd services/robot-master && pnpm start house    # terminal 2: identity service, then the robot's agent once linked
 ```
 
-In /admin, that robot shows **Online**. There are two ways to start a job:
+Terminal 2 prints the robot wallet and "register at /robots/new by connecting to <ip>". In the browser, at /robots/new:
+1. Nickname.
+2. **Connect**: enter that IP, then Connect. Expect four ✓ checks and "Supported robot: iRobot Create 3", with its facts listed.
+3. Skills (from that robot's list), area, then pricing. Defaults in 0G: minimum fee **0.01**, maximum quote **0.15**, max spend per task **0.1**. A vision job costs about 0.02 0G, so the house run quotes about 0.08.
+4. Robot wallet: already filled in from the robot.
+5. Publish (your wallet signs).
+
+Then /admin → Your robots → **Link robot** → copy the token. In a third terminal on the robot PC run `pnpm setup house`, press Enter through the answers, and paste the token. Terminal 2 picks it up within 5 seconds and links. The robot shows **Online** in /admin.
+
+Repeat for warehouse and forest, one at a time (Ctrl-C both terminals, or `scripts/robot/stop_sim.sh`, in between).
+
+**As an installed service:** after setup, `scripts/robot/install_service.sh house` runs `pnpm start house` as the systemd user service `semmal-robot@house`. It starts with the PC and restarts on failure; installing one robot stops the others. Logs: `journalctl --user -u semmal-robot@house -f`.
+
+## Run a scenario
+
+Start the robot as above: `scenario.sh <name>` plus `pnpm start <name>` (or the installed service). Then there are two ways to start a job:
 
 - **As a customer (the full payment flow):** on /quote, pick the robot and the job, then **Book**. The booking is signed on Arkiv by your wallet. The robot replies with a signed offer, and you click **Pay X 0G to the robot**, which your wallet confirms on Galileo. The robot checks the payment on chain, then pays each agent's owner before each job. At the end it sends the margin to you as the owner, or refunds the customer if it could not finish.
 - **As the owner (quick test):** click **Send task: home.cleaning** (or `warehouse.inspection` or `outdoor.patrol`). No customer pays; the robot pays its agents from its own balance, up to max spend per task.
@@ -87,10 +100,8 @@ In /admin, that robot shows **Online**. There are two ways to start a job:
 Then:
 
 1. **Gazebo:** the robot drives to each stop, stops, looks, and either makes a cleaning stop, holds, or carries on.
-2. **Terminal 2:** the robot's own log: quote, hires, 0G answers, actions, evidence stages (LOCAL_DURABLE → STORAGE_CONFIRMED → ARKIV_CONFIRMED).
+2. **Terminal 2 (or the service log):** the robot's own log: quote, hires, 0G answers, actions, evidence stages (LOCAL_DURABLE → STORAGE_CONFIRMED → ARKIV_CONFIRMED).
 3. **/admin → that robot → Evidence log:** the episode appears once it is on Arkiv. Click it to download it from 0G Storage with proof. Four checks should be green, followed by the sections above.
-
-Ctrl-C both terminals (or `scripts/robot/stop_sim.sh`) before the next scenario.
 
 **Optional fault:** during a run, `scripts/robot/inject_fault.sh left_motor_overcurrent`. The robot stops at once, with no network or AI involved. The episode ends `SAFE_STOP`, and an incident appears in the evidence log too. Recover with `scripts/robot/recover.sh <your-name> "checked motor"`.
 
@@ -101,4 +112,5 @@ Ctrl-C both terminals (or `scripts/robot/stop_sim.sh`) before the next scenario.
 - The vision model sees rendered Gazebo frames. The models may misjudge a flat spill or call the smoke a pillar; that is a real result and is shown as such. A low-confidence answer is rejected.
 - Payments are real 0G transfers on the Galileo testnet. There is no escrow contract, so the customer trusts the robot between paying and completion. The robot refunds what it did not spend if it cannot finish.
 - With a management key, each agent has its own capped 0G key, but all keys draw on one Router deposit (yours). It is a per-agent spend cap and usage record, not a separate wallet.
+- The identity proves the robot holds its wallet key and runs a supported robot's stack. The facts are self-reported (no TPM), and real Create 3, TurtleBot 4 and Jackal hardware is not accepted until its on-board check is tested.
 - One simulation at a time per PC. Each robot keeps its own task store and evidence queue (`data/robot-master/<rbt-id>`) and only signs incidents carrying its own robot id.

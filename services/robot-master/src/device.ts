@@ -6,6 +6,7 @@
  * - It signs only: EIP-191 manifest hashes, Arkiv creates of SEMMAL's robot-written schemas
  *   (quote, job claim, episode, incident), 0G Storage uploads, and native 0G payments on Galileo
  *   (agent jobs, the owner's payout, customer refunds) under per-payment and daily caps. Nothing else.
+ *   It also signs SEMMAL robot identity messages (a fresh challenge at registration; see identify.ts).
  *   Who may be paid is decided by the mission (agent owners on Arkiv, its own owner, the paying
  *   customer); the device enforces the chain, the caps and exactly-once sending.
  * - Every Arkiv write goes through the one-shot guarded writer (gas bounds, fresh nonce, receipt
@@ -19,6 +20,7 @@ import { rabdi } from "@arkiv-network/sdk/chains";
 import { createPublicClient as createViemClient, getAddress, http, keccak256, parseEther, type Hex } from "viem";
 import { GALILEO_CHAIN_ID, galileo, memo, verifyTransfer, type PayKind } from "@semmal/zerog-pay";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
+import { identityMessage } from "@semmal/contracts";
 import { EpisodeSchema, guardedWalletClient, IncidentSchema, JobClaimSchema, QuoteSchema, RABDI_CHAIN_ID } from "@semmal/arkiv-adapter";
 import { Indexer, MemData } from "@0gfoundation/0g-storage-ts-sdk";
 import { ethers } from "ethers";
@@ -211,3 +213,17 @@ export class Device {
 }
 
 export const defaultFeeCapWei = parseEther("0.01");
+
+/**
+ * Only what registration needs: the address, and an EIP-191 signature over a SEMMAL identity message
+ * it builds itself from fixed fields (it never signs caller-supplied text).
+ */
+export function identitySigner(keyPath: string) {
+  const account = privateKeyToAccount(loadKey(keyPath));
+  return {
+    address: account.address,
+    signIdentity: (d: { hardwareModel: string; factsHash: string; nonce: string; issuedAt: string }) =>
+      account.signMessage({ message: identityMessage({ wallet: account.address, ...d }) }),
+  };
+}
+
