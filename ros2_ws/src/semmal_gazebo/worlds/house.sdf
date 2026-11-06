@@ -736,6 +736,16 @@
         </visual>
       </link>
     </model>
+    <model name="toy_bin">
+      <static>true</static>
+      <pose>4.9 -2.9 0.12 0 0 0</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry><box><size>0.36 0.36 0.24</size></box></geometry>
+          <material><ambient>0.35 0.36 0.4 1</ambient><diffuse>0.35 0.36 0.4 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
     <model name="sign_garage_floor">
       <static>true</static>
       <pose>-8.5 -3.3 0.0035 0 0 0</pose>

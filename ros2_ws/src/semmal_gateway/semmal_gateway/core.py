@@ -4,6 +4,7 @@
 - zone: a coarse place name (nearest named waypoint), never coordinates
 - availability: what the platform may know about whether the robot can take work
 - path safety: only files inside the keyframe directory can be read
+- clearing: which props a clearing step may move, and where to (allowlisted per world, per stop)
 """
 import base64
 import json
@@ -102,9 +103,20 @@ def availability(safety_state, mission_phase, sensors_ready=True):
     return 'available'
 
 
-def state_doc(*, safety_state, battery_pct, x, y, waypoints, mission_phase, task_id, executor_ready, hold, world=None):
+def clearing_summary(clearing):
+    """What the robot master needs to plan a clearing: per stop, where to go and what kind of job it is."""
+    out = {}
+    for stop, spot in sorted((clearing or {}).items()):
+        items, marks = spot.get('items') or [], spot.get('wipe') or []
+        out[stop] = {'approach': spot.get('approach'), 'dropAt': spot.get('drop_at') if items else None,
+                     'pick': [i['name'] for i in items], 'wipe': [m['name'] for m in marks]}
+    return out
+
+
+def state_doc(*, safety_state, battery_pct, x, y, waypoints, mission_phase, task_id, executor_ready, hold, world=None, clearing=None):
     return {
         'world': world,
+        'clearing': clearing_summary(clearing),
         'waypoints': sorted((waypoints or {}).keys()),
         'safetyState': safety_state or 'DEGRADED',
         'batteryPct': max(0.0, min(100.0, float(battery_pct if battery_pct is not None else 0.0))),
@@ -152,3 +164,68 @@ def validate_mission(body, allowed):
         'dwell_s': max(0.0, min(dwell, 60.0)),
         'capture_keyframe': bool(body.get('captureKeyframe', False)),
     }, None
+
+
+# ---------------------------------------------------------------- clearing
+CLEAR_STEPS = ('reset', 'pick', 'drop', 'wipe')
+REACH_M = 1.0            # the robot must be this close to the spot to pick up or wipe
+STASH_Z = -2.0           # a picked-up item rides with the robot: it leaves the floor until it is dropped
+
+
+def _pose(p):
+    return {'x': float(p['x']), 'y': float(p['y']), 'z': float(p.get('z', 0.0))}
+
+
+def clear_plan(clearing, waypoints, stop, step, robot_xy):
+    """Return (list of {name, pose}, error) for one clearing step at one stop.
+
+    Only props named in the world's `clearing` config can move, only to the places it names:
+      reset  every listed prop back where the world put it (start of a job; any robot position)
+      pick   the stop's items leave the floor (the robot must be at the stop's `approach` waypoint)
+      drop   the picked items go into the bin (the robot must be at the stop's `drop_at` waypoint)
+      wipe   the stop's spill marks are removed (the robot must be at the `approach` waypoint)
+    """
+    if step not in CLEAR_STEPS:
+        return None, f'step must be one of {CLEAR_STEPS}'
+    clearing = clearing or {}
+    if step == 'reset':
+        moves = []
+        for spot in clearing.values():
+            for it in (spot.get('items') or []) + (spot.get('wipe') or []):
+                moves.append({'name': it['name'], 'pose': _pose(it)})
+        return moves, None
+    spot = clearing.get(stop)
+    if spot is None:
+        return None, f'nothing to clear at {stop!r} in this world'
+    at = spot.get('drop_at') if step == 'drop' else spot.get('approach')
+    wp = (waypoints or {}).get(at)
+    if wp is None:
+        return None, f'clearing config for {stop!r} names an unknown waypoint {at!r}'
+    if robot_xy is None or math.hypot(robot_xy[0] - wp['x'], robot_xy[1] - wp['y']) > REACH_M:
+        return None, f'the robot is not at {at} (must be within {REACH_M} m)'
+    if step == 'pick':
+        items = spot.get('items') or []
+        if not items:
+            return None, f'no items to pick up at {stop!r}'
+        return [{'name': it['name'], 'pose': {'x': float(it['x']), 'y': float(it['y']), 'z': STASH_Z}} for it in items], None
+    if step == 'drop':
+        items, b = spot.get('items') or [], spot.get('bin')
+        if not items or not b:
+            return None, f'no items or bin for {stop!r}'
+        out = []
+        for i, it in enumerate(items):  # side by side in the bin, resting on its rim height
+            dx = (i % 2) * 0.12 - 0.06
+            dy = (i // 2) * 0.12 - 0.06
+            out.append({'name': it['name'], 'pose': {'x': float(b['x']) + dx, 'y': float(b['y']) + dy, 'z': float(b['z']) + float(it.get('z', 0.05))}})
+        return out, None
+    marks = spot.get('wipe') or []
+    if not marks:
+        return None, f'nothing to wipe at {stop!r}'
+    return [{'name': m['name'], 'pose': {'x': float(m['x']), 'y': float(m['y']), 'z': STASH_Z}} for m in marks], None
+
+
+def gz_set_pose_args(world, name, pose):
+    """argv for `gz service` that moves one model (gz-sim UserCommands, /world/<world>/set_pose)."""
+    req = f'name: "{name}" position: {{ x: {pose["x"]:.3f} y: {pose["y"]:.3f} z: {pose["z"]:.3f} }}'
+    return ['gz', 'service', '-s', f'/world/{world}/set_pose', '--reqtype', 'gz.msgs.Pose',
+            '--reptype', 'gz.msgs.Boolean', '--timeout', '3000', '--req', req]

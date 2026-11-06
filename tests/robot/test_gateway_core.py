@@ -77,3 +77,75 @@ def test_mission_validation_allowlist_and_limits():
     assert validate_mission({'taskId': 't1', 'waypoints': ['kitchen']}, WPS)[1].startswith('not in the waypoint allowlist')
     assert validate_mission({'waypoints': ['dock']}, WPS)[1] == 'taskId required'
     assert validate_mission({'taskId': 't', 'waypoints': []}, WPS)[1] == 'waypoints must be 1-10 names'
+
+
+# ------------------------------------------------------------------ clearing
+import yaml as _yaml
+from semmal_gateway.core import clear_plan, gz_set_pose_args, STASH_Z, state_doc as _state_doc
+
+_HOUSE = os.path.join(os.path.dirname(__file__), '..', '..', 'ros2_ws', 'src', 'semmal_navigation', 'config', 'waypoints', 'house.yaml')
+
+
+def _house():
+    with open(_HOUSE) as f:
+        d = _yaml.safe_load(f)
+    return d['clearing'], d['waypoints']
+
+
+def test_house_clearing_config_is_consistent():
+    clearing, wps = _house()
+    for stop, spot in clearing.items():
+        assert stop in wps and spot['approach'] in wps
+        if spot.get('items'):
+            assert spot['drop_at'] in wps and spot['bin']
+
+
+def test_pick_needs_the_robot_at_the_spot():
+    clearing, wps = _house()
+    far = clear_plan(clearing, wps, 'living_room', 'pick', (wps['dock']['x'], wps['dock']['y']))
+    assert far[0] is None and 'not at living_room_toys' in far[1]
+    assert clear_plan(clearing, wps, 'living_room', 'pick', None)[0] is None
+    at = wps['living_room_toys']
+    moves, err = clear_plan(clearing, wps, 'living_room', 'pick', (at['x'], at['y']))
+    assert err is None and {m['name'] for m in moves} == {'toy_block_red', 'toy_block_blue', 'toy_ball'}
+    assert all(m['pose']['z'] == STASH_Z for m in moves)
+
+
+def test_drop_puts_items_in_the_bin_from_the_drop_spot():
+    clearing, wps = _house()
+    at = wps['living_room']
+    moves, err = clear_plan(clearing, wps, 'living_room', 'drop', (at['x'], at['y']))
+    b = clearing['living_room']['bin']
+    assert err is None and len(moves) == 3
+    for m in moves:
+        assert abs(m['pose']['x'] - b['x']) <= 0.1 and abs(m['pose']['y'] - b['y']) <= 0.1 and m['pose']['z'] > b['z']
+    assert clear_plan(clearing, wps, 'living_room', 'drop', (wps['living_room_toys']['x'] + 2, wps['living_room_toys']['y']))[0] is None
+
+
+def test_wipe_and_reset():
+    clearing, wps = _house()
+    at = wps['kitchen_spill']
+    moves, err = clear_plan(clearing, wps, 'kitchen', 'wipe', (at['x'], at['y']))
+    assert err is None and [m['name'] for m in moves] == ['spill_kitchen'] and moves[0]['pose']['z'] == STASH_Z
+    reset, err = clear_plan(clearing, wps, '', 'reset', None)
+    assert err is None and {m['name'] for m in reset} == {'toy_block_red', 'toy_block_blue', 'toy_ball', 'spill_kitchen'}
+    assert all(m['pose']['z'] > 0 for m in reset)
+
+
+def test_only_listed_stops_and_steps():
+    clearing, wps = _house()
+    assert clear_plan(clearing, wps, 'bedroom', 'pick', (0, 0))[0] is None
+    assert clear_plan(clearing, wps, 'living_room', 'explode', (0, 0))[0] is None
+    assert clear_plan({}, wps, 'living_room', 'pick', (0, 0))[0] is None
+
+
+def test_set_pose_command_and_clearable_in_state():
+    argv = gz_set_pose_args('house', 'toy_ball', {'x': 1, 'y': -2.5, 'z': 0.3})
+    assert argv[:4] == ['gz', 'service', '-s', '/world/house/set_pose'] and 'name: "toy_ball"' in argv[-1]
+    clearing, wps = _house()
+    doc = _state_doc(safety_state='NORMAL', battery_pct=90, x=0, y=0, waypoints=wps, mission_phase='IDLE', task_id=None,
+                     executor_ready=True, hold=False, world='house', clearing=clearing)
+    assert sorted(doc['clearing']) == ['kitchen', 'living_room']
+    assert doc['clearing']['living_room'] == {'approach': 'living_room_toys', 'dropAt': 'living_room',
+                                              'pick': ['toy_block_red', 'toy_block_blue', 'toy_ball'], 'wipe': []}
+    assert doc['clearing']['kitchen']['dropAt'] is None and doc['clearing']['kitchen']['wipe'] == ['spill_kitchen']

@@ -29,7 +29,9 @@ Customer books (wallet-signed booking on Arkiv; the address goes to the robot on
   → robot assesses the site: drives to each stop, takes a camera frame
   → robot hires and pays its vision agent (0G on Galileo); the agent's runner checks the payment on chain
   → 0G Private Computer: the frame is analysed in PRIVATE mode, inside a TEE; request ID and receipt come back
-  → robot checks the answer (format, allowed action, confidence) and acts within bounds (clean, hold, report)
+  → robot checks the answer (format, allowed action, confidence) and acts within bounds (clear, hold, report)
+  → in a house, clutter and spills are the robot's own job: it drives to the toys, picks them up, puts them
+    in the toy bin and wipes the kitchen spill (Gazebo moves the props: the body has no gripper); nobody is asked
   → robot settles: margin to the owner if done, the unspent rest back to the customer if not
   → evidence: signed episode bundle → 0G Storage (root) → Arkiv episode record
   → scores: robot and agents are scored on the evidence; bad ones are excluded from booking and hiring

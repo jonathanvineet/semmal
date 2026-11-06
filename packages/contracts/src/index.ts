@@ -337,7 +337,7 @@ export const VisionInspectionOutput = z.object({
   anomaly_detected: z.boolean(),
   anomaly_type: z.string().max(60).nullable(),
   confidence: z.number().min(0).max(1),
-  recommended_action: z.enum(["continue_mission", "pause_and_request_inspection", "return_to_dock", "abort_mission"]),
+  recommended_action: z.enum(["continue_mission", "clear_and_continue", "pause_and_request_inspection", "return_to_dock", "abort_mission"]),
 });
 export type VisionInspectionOutput = z.infer<typeof VisionInspectionOutput>;
 

@@ -9,6 +9,8 @@
     POST /mission/cancel       cancel the active goal
     POST /hold                 {"hold": true|false} -> /safety/stop_request (soft, non-latching ramp)
     GET  /keyframe?path=...    one saved keyframe as a small PNG data URL (keyframe dir only)
+    POST /clear                {"stop": name, "step": reset|pick|drop|wipe} moves only the props the world's
+                               `clearing` config lists, only to the places it names, only with the robot there
   No topic passthrough, no velocity commands, no safety overrides. Recovery stays an operator
   service on /safety/request_recovery.
 HTTP handlers never touch rclpy: they queue work that a 20 Hz timer runs on the executor thread.
@@ -16,6 +18,7 @@ HTTP handlers never touch rclpy: they queue work that a 20 Hz timer runs on the 
 import json
 import os
 import queue
+import subprocess
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
@@ -29,7 +32,7 @@ from semmal_interfaces.action import ExecuteMission
 from semmal_interfaces.msg import RobotState, SafetyState
 from std_msgs.msg import Bool, String
 
-from .core import keyframe_data_url, safe_keyframe_path, state_doc, validate_mission, write_atomic
+from .core import clear_plan, gz_set_pose_args, keyframe_data_url, safe_keyframe_path, state_doc, validate_mission, write_atomic
 
 
 class GatewayNode(Node):
@@ -41,10 +44,14 @@ class GatewayNode(Node):
         self.keyframe_dir = self.declare_parameter('keyframe_dir', os.path.join(data, 'robot', 'keyframes')).value
         wp_file = self.declare_parameter('waypoints_file', '').value
         self.waypoints = {}
+        self.clearing = {}
         self.world = os.path.splitext(os.path.basename(wp_file))[0] if wp_file else None
         if wp_file:
             with open(wp_file) as f:
-                self.waypoints = (yaml.safe_load(f) or {}).get('waypoints', {}) or {}
+                doc = yaml.safe_load(f) or {}
+            self.waypoints = doc.get('waypoints', {}) or {}
+            self.clearing = doc.get('clearing', {}) or {}
+        self.clear_lock = threading.Lock()
 
         latched = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE, durability=DurabilityPolicy.TRANSIENT_LOCAL)
         self.safety = None
@@ -85,6 +92,7 @@ class GatewayNode(Node):
             executor_ready=self.mission_client.server_is_ready(),
             hold=self.hold,
             world=self.world,
+            clearing=self.clearing,
         )
 
     def _write_state(self):
@@ -151,6 +159,25 @@ class GatewayNode(Node):
         self.stop_pub.publish(Bool(data=self.hold))
         return {'hold': self.hold}
 
+    def clear(self, stop, step):
+        """One clearing step. Runs on an HTTP thread: `gz service` blocks, the ROS thread must not."""
+        r = self.robot
+        moves, err = clear_plan(self.clearing, self.waypoints, stop, step, (r.x, r.y) if r else None)
+        if err:
+            return 409, {'error': err}
+        if self.safety is not None and self.safety.state not in ('NORMAL', 'DEGRADED'):
+            return 409, {'error': f'safety state {self.safety.state}: no clearing'}
+        moved, failed = [], []
+        with self.clear_lock:
+            for m in moves:
+                try:
+                    out = subprocess.run(gz_set_pose_args(self.world, m['name'], m['pose']), capture_output=True, text=True, timeout=6)
+                    (moved if out.returncode == 0 and 'true' in out.stdout else failed).append(m['name'])
+                except (OSError, subprocess.TimeoutExpired):
+                    failed.append(m['name'])
+        code = 200 if not failed else 502
+        return code, {'step': step, 'stop': stop, 'moved': moved, 'failed': failed}
+
     # ----------------------------------------------------------------- http
     def _serve(self):
         node = self
@@ -202,6 +229,9 @@ class GatewayNode(Node):
                     return self._send(200 if r.get('accepted') else 409, r)
                 if u.path == '/mission/cancel':
                     return self._send(200, node.run_on_ros(node.cancel))
+                if u.path == '/clear':
+                    code, doc = node.clear(str(body.get('stop', ''))[:64], str(body.get('step', '')))
+                    return self._send(code, doc)
                 if u.path == '/hold':
                     return self._send(200, node.run_on_ros(lambda: node.set_hold(body.get('hold', True))))
                 return self._send(404, {'error': 'not found'})

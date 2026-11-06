@@ -186,6 +186,46 @@ test("house cleaning: visits rooms, cleans where the camera finds mess, skips cl
   assert.equal(ep.purchases.length, 3);
 });
 
+test("house cleaning: the robot picks the toys up and puts them in the bin, wipes the spill, asks nobody", async () => {
+  const clears: string[] = [];
+  const clearing = {
+    living_room: { approach: "living_room_toys", dropAt: "living_room", pick: ["toy_block_red", "toy_ball"], wipe: [] },
+    kitchen: { approach: "kitchen_spill", dropAt: null, pick: [], wipe: ["spill_kitchen"] },
+  };
+  const { calls, deps } = harness({
+    state: { ...house, clearing },
+    profile: cleaner,
+    job: async (input) => (/kitchen|living room/.test(input.context ?? "") ? ok("clear_and_continue") : ok("continue_mission")),
+  });
+  deps.local.clear = async (stop, step) => {
+    clears.push(`${step}:${stop}`);
+    const moved = step === "reset" ? ["toy_block_red", "toy_ball", "spill_kitchen"] : step === "wipe" ? ["spill_kitchen"] : ["toy_block_red", "toy_ball"];
+    return { ok: true, moved, failed: [] };
+  };
+  const ep = (await runTask(task({ skill: "home.cleaning", plan: { waypoints: 3, distanceM: 60, privacy: "private" } }), deps))!;
+  assert.equal(ep.outcome, "COMPLETED");
+  assert.deepEqual(clears, ["reset:", "wipe:kitchen", "pick:living_room", "drop:living_room"]);
+  assert.deepEqual(calls.missions, [["kitchen"], ["kitchen_spill"], ["living_room"], ["living_room_toys"], ["living_room"], ["bedroom"], ["dock"]]);
+  assert.ok(!calls.holds.includes(true));
+  const acts = ep.actions.map((x) => `${x.stop}: ${x.action}`);
+  assert.ok(acts.includes("kitchen: wiped spill_kitchen with a 8 s pass"));
+  assert.ok(acts.includes("living_room: picked up toy_block_red, toy_ball"));
+  assert.ok(acts.includes("living_room: put toy_block_red, toy_ball in the bin"));
+  assert.ok(!acts.some((x) => /human/.test(x)));
+});
+
+test("house cleaning: if the gateway cannot move the toys, the episode says so and the robot carries on", async () => {
+  const { deps } = harness({
+    state: { ...house, clearing: { living_room: { approach: "living_room_toys", dropAt: "living_room", pick: ["toy_ball"], wipe: [] } } },
+    profile: cleaner,
+    job: async (input) => (/living room/.test(input.context ?? "") ? ok("clear_and_continue") : ok("continue_mission")),
+  });
+  deps.local.clear = async (_stop, step) => (step === "pick" ? { ok: false, moved: [], failed: ["toy_ball"], error: "the robot is not at living_room_toys" } : { ok: true, moved: [], failed: [] });
+  const ep = (await runTask(task({ skill: "home.cleaning", plan: { waypoints: 3, distanceM: 60, privacy: "private" } }), deps))!;
+  assert.equal(ep.outcome, "COMPLETED");
+  assert.ok(ep.actions.some((x) => x.action === "could not pick up toy_ball"));
+});
+
 test("forest patrol: hazards are reported and the patrol continues to every stop", async () => {
   const { calls, deps } = harness({
     state: { world: "forest", waypoints: ["creek_crossing", "dock", "fire_lookout", "log_check"] },

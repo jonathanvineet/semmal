@@ -714,7 +714,7 @@ export function buildApp(deps: Deps = defaultDeps()) {
       decisions: t?.decisions ?? [],
       method: {
         instructions: PROMPTS.vision,
-        outputFormat: { observation: "short noun phrase", anomaly_detected: "true or false", anomaly_type: "short phrase or null", confidence: "0 to 1", recommended_action: "continue_mission | pause_and_request_inspection | return_to_dock | abort_mission" },
+        outputFormat: { observation: "short noun phrase", anomaly_detected: "true or false", anomaly_type: "short phrase or null", confidence: "0 to 1", recommended_action: "continue_mission | clear_and_continue | pause_and_request_inspection | return_to_dock | abort_mission" },
         robotChecks: ["the answer is one JSON object in that exact format", "the action is one of the four allowed actions", "confidence is at least 0.6", "a failed, late or rejected answer is never replaced by a guess: the robot holds, retries once, then stops safely"],
         docs: [
           { label: "0G Compute Network overview", url: "https://docs.0g.ai/developer-hub/building-on-0g/compute-network/overview" },

@@ -18,6 +18,9 @@ waypoints:
   office:             { x: -1.0,  y: 4.5,  yaw: 1.5708 }
   bedroom:            { x: 4.0,   y: 4.5,  yaw: 1.5708 }
   guest_room:         { x: 9.5,   y: 3.8,  yaw: 1.5708 }
+  # clearing spots (used by the clearing routine; never chosen as a stop on their own)
+  living_room_toys:   { x: 6.0,   y: -4.0, yaw: -0.7854 }   # beside the toys, close enough to pick them up
+  kitchen_spill:      { x: -2.5,  y: -5.4, yaw: -1.5708 }   # on the spill: the wiping pass
 
 nodes:
   # hallway centreline (y = -0.25), one node per doorway column
@@ -60,12 +63,31 @@ edges:
   - [o_door, office]
   - [h_mid, k_door]
   - [k_door, kitchen]
+  - [kitchen, kitchen_spill]
   # bedroom
   - [h_bed, bd_door]
   - [bd_door, bedroom]
   # living room
   - [h_living, l_door]
   - [l_door, living_room]
+  - [living_room, living_room_toys]
   # guest room
   - [h_guest, gu_door]
   - [gu_door, guest_room]
+
+# Clearing: what the robot may tidy at a stop, and where it puts it. The gateway's POST /clear moves only
+# these props (Gazebo set_pose), only to these places, and only with the robot at the named waypoint.
+# Prop positions match semmal_gazebo/config/worlds/house.yaml `markers` (they are where `reset` puts them).
+clearing:
+  living_room:
+    approach: living_room_toys
+    drop_at: living_room
+    bin: { x: 4.90, y: -2.90, z: 0.24 }
+    items:
+      - { name: toy_block_red,  x: 6.40, y: -4.40, z: 0.06 }
+      - { name: toy_block_blue, x: 6.65, y: -4.55, z: 0.05 }
+      - { name: toy_ball,       x: 6.55, y: -4.25, z: 0.07 }
+  kitchen:
+    approach: kitchen_spill
+    wipe:
+      - { name: spill_kitchen, x: -2.5, y: -5.4, z: 0.003 }

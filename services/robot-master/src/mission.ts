@@ -19,7 +19,7 @@ import { randomUUID } from "node:crypto";
 import { NavigationPlanOutput, VisionInspectionOutput, type AgentListing, type JobClaim, type TaskQuote } from "@semmal/contracts";
 import { quoteTask, rankSpecialists, toWei, weiToMicro, type SpecialistOffer, type TaskPlan } from "@semmal/quote";
 import type { TransferCheck } from "@semmal/zerog-pay";
-import type { LocalApi } from "./local";
+import type { ClearStep, LocalApi } from "./local";
 import type { PlatformApi, TravelRoute } from "./platform";
 import { coarse, distanceM } from "@semmal/contracts";
 import type { TaskState, TaskStore } from "./store";
@@ -128,7 +128,7 @@ export const SKILL_PLANS: Record<string, SkillPlan> = {
 const CONFIDENCE_FLOOR = 0.6;
 /** 0G Router error codes that mean "this agent cannot serve right now", not "the input was bad". */
 const AGENT_CANNOT_SERVE = new Set(["no_provider_for_trust_mode", "credit_limit_exceeded"]);
-const ACTIONS = new Set(["continue_mission", "pause_and_request_inspection", "return_to_dock", "abort_mission"]);
+const ACTIONS = new Set(["continue_mission", "clear_and_continue", "pause_and_request_inspection", "return_to_dock", "abort_mission"]);
 const CLEANING_PASS_S = 8;
 const micro = (a: string) => {
   const [i, f = ""] = a.split(".");
@@ -287,6 +287,12 @@ export async function runTask(a: Assignment, d: Deps): Promise<EpisodeRecord | n
   // ---- plan the stops from this world's waypoints
   const here = new Set(st.waypoints ?? []);
   stops = sp.candidates.filter((c) => here.has(c)).slice(0, Math.max(1, a.plan.waypoints));
+  const clearing = sp.onFinding === "clean_and_continue" && local.clear ? (st.clearing ?? {}) : {};
+  if (Object.keys(clearing).length) {
+    // each cleaning job starts from the same house: toys back on the floor, the spill back in the kitchen
+    const r = await local.clear!("", "reset").catch((e) => ({ ok: false, moved: [] as string[], failed: [] as string[], error: (e as Error).message }));
+    touch("house props", "ROS gateway (local)", r.ok ? `placed for this job: ${r.moved.join(", ")}` : `could not place: ${r.error ?? r.failed.join(", ")}`);
+  }
   if (!stops.length) return decline(`this world (${world ?? "unknown"}) has none of the stops ${a.skill} needs`);
   move("PLANNING", `${stops.length} stop(s) in ${world ?? "this world"}: ${stops.join(", ")}`);
 
@@ -614,13 +620,41 @@ export async function runTask(a: Assignment, d: Deps): Promise<EpisodeRecord | n
       const back = await drive([sp.home], false);
       return finish(back.ok ? "COMPLETED" : back.safety ? "SAFE_STOP" : "FAILED", back.ok ? `returned to ${sp.home} from ${stop}` : back.why);
     }
-    if (answer.found || answer.action === "pause_and_request_inspection") {
+    if (answer.found || answer.action === "pause_and_request_inspection" || answer.action === "clear_and_continue") {
       if (sp.onFinding === "hold_and_finish") {
         await local.hold(true);
         actions.push({ at: now(), stop, action: "hold for a human", why: answer.anomaly ?? "finding" });
         return finish("COMPLETED", `finding at ${stop} (${answer.anomaly ?? "issue"}); holding for a human inspection`);
       }
-      if (sp.onFinding === "clean_and_continue") {
+      if (sp.onFinding === "clean_and_continue" && clearing[stop]) {
+        // the robot tidies it itself: drive to the mess, pick it up (or wipe it), put it away, carry on
+        const spot = clearing[stop]!;
+        const what = answer.anomaly ?? "mess";
+        const step = async (name: ClearStep, at: string) => {
+          const r = await local.clear!(stop, name).catch((e) => ({ ok: false, moved: [], failed: [], error: (e as Error).message }));
+          touch("clearing", "ROS gateway (local)", `${name} at ${at}: ${r.ok ? `moved ${r.moved.join(", ")}` : r.error ?? `could not move ${r.failed.join(", ")}`}`, false);
+          return r;
+        };
+        move("EXECUTING", `clearing ${what} at ${stop}`);
+        const reach = await drive([spot.approach], false, spot.dropAt ? 0 : CLEANING_PASS_S);
+        if (!reach.ok) return finish(reach.safety ? "SAFE_STOP" : "FAILED", reach.why);
+        if (spot.dropAt) {
+          const picked = await step("pick", spot.approach);
+          if (!picked.ok) {
+            actions.push({ at: now(), stop, action: `could not pick up ${spot.pick.join(", ")}`, why: picked.error ?? what });
+          } else {
+            actions.push({ at: now(), stop, action: `picked up ${picked.moved.join(", ")}`, why: what });
+            move("EXECUTING", `carrying ${picked.moved.length} item(s) to the bin by ${spot.dropAt}`);
+            const toBin = await drive([spot.dropAt], false);
+            if (!toBin.ok) return finish(toBin.safety ? "SAFE_STOP" : "FAILED", toBin.why);
+            const dropped = await step("drop", spot.dropAt);
+            actions.push({ at: now(), stop, action: dropped.ok ? `put ${dropped.moved.join(", ")} in the bin` : `could not put the items in the bin`, why: dropped.ok ? "floor cleared" : dropped.error ?? "drop failed" });
+          }
+        } else {
+          const wiped = await step("wipe", spot.approach);
+          actions.push({ at: now(), stop, action: wiped.ok ? `wiped ${wiped.moved.join(", ")} with a ${CLEANING_PASS_S} s pass` : `wiping pass of ${CLEANING_PASS_S} s; the spill did not clear`, why: wiped.ok ? what : wiped.error ?? what });
+        }
+      } else if (sp.onFinding === "clean_and_continue") {
         move("EXECUTING", `cleaning stop at ${stop} (${answer.anomaly ?? "mess"})`);
         const clean = await drive([stop], false, CLEANING_PASS_S);
         if (!clean.ok) return finish(clean.safety ? "SAFE_STOP" : "FAILED", clean.why);

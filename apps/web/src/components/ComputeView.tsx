@@ -34,7 +34,7 @@ const TRUST: Record<string, string> = {
 const short = (s?: string, n = 10) => (s && s.length > n * 2 ? `${s.slice(0, n)}…${s.slice(-6)}` : s ?? "—");
 const og = (neuron?: string) => (neuron ? `${(Number(neuron) / 1e18).toFixed(6)} 0G` : "—");
 const ACTION: Record<string, string> = {
-  continue_mission: "carry on", pause_and_request_inspection: "stop and ask for a human / clean the spot", return_to_dock: "go back", abort_mission: "stop the job", hold: "hold position",
+  continue_mission: "carry on", clear_and_continue: "clear it and carry on", pause_and_request_inspection: "pause and inspect", return_to_dock: "go back", abort_mission: "stop the job", hold: "hold position",
 };
 
 export function ComputeView({ taskId }: { taskId: string }) {

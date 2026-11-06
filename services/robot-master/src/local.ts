@@ -1,5 +1,9 @@
 /** Client for the robot-host gateway node (semmal_gateway, 127.0.0.1 only). */
-export type LocalState = { safetyState: string; batteryPct: number; zone: string; availability: string; executor: boolean; missionPhase: string; activeTask: string | null; hold: boolean; world?: string | null; waypoints?: string[] };
+/** A stop the robot can tidy itself: where to approach, where to drop what it picks up (null: a wipe). */
+export type ClearingSpot = { approach: string; dropAt: string | null; pick: string[]; wipe: string[] };
+export type LocalState = { safetyState: string; batteryPct: number; zone: string; availability: string; executor: boolean; missionPhase: string; activeTask: string | null; hold: boolean; world?: string | null; waypoints?: string[]; clearing?: Record<string, ClearingSpot> };
+export type ClearStep = "reset" | "pick" | "drop" | "wipe";
+export type ClearResult = { ok: boolean; moved: string[]; failed: string[]; error?: string };
 export type MissionResult = { success: boolean; outcome: string; message: string; reached: string[]; keyframePaths: string[] };
 
 export interface LocalApi {
@@ -8,6 +12,8 @@ export interface LocalApi {
   waitMission(timeoutMs: number): Promise<MissionResult | null>;
   cancel(): Promise<void>;
   hold(on: boolean): Promise<void>;
+  /** One allowlisted clearing step (the gateway checks the robot is at the spot and moves only listed props). */
+  clear?(stop: string, step: ClearStep): Promise<ClearResult>;
   keyframe(path: string): Promise<{ dataUrl: string; width: number; height: number }>;
 }
 
@@ -40,6 +46,11 @@ export function httpLocal(base: string): LocalApi {
     },
     async hold(on) {
       await call("/hold", { method: "POST", body: JSON.stringify({ hold: on }) });
+    },
+    async clear(stop, step) {
+      const r = await fetch(`${base}/clear`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ stop, step }), signal: AbortSignal.timeout(30_000) });
+      const d = await r.json().catch(() => ({}));
+      return { ok: r.ok, moved: d.moved ?? [], failed: d.failed ?? [], error: d.error };
     },
     async keyframe(path) {
       const { ok, d } = await call(`/keyframe?path=${encodeURIComponent(path)}`);

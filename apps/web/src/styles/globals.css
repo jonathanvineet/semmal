@@ -1241,3 +1241,33 @@ main > section.statement { display: flex; align-items: center; min-height: 100sv
 @media (max-width: 400px) { .hero-brand__name { flex-wrap: wrap; row-gap: 8px; } .hero-brand__ta { font-size: 40px; } }
 /* the footer name: Tamil letters need their full height; sized so the whole word fits the width */
 .close-word__name { font-size: clamp(56px, 14vw, 230px); line-height: 1.25; overflow-x: clip; overflow-y: visible; padding-bottom: 0.04em; }
+
+/* ================= fit every screen, every page =================
+   The kit fixes each section (and the footer) at exactly N screens on phones and wide desktops, so
+   anything taller spilled under the next section. Here every section is at least its screens and
+   grows when its content needs more. (The home world and statement keep their own !important rules.) */
+main > :is(section, .section):not(.world), footer.closing { height: auto; min-height: calc(var(--h, 1) * 100svh); }
+main > :is(section, .section):not(.world) > :is(.wrap, .container), footer.closing > .wrap { height: auto; }
+
+/* agent cards: the Arkiv tag shortens instead of being clipped */
+.agent-card__top { min-width: 0; }
+.agent-card__top > * { min-width: 0; }
+.agent-card__top .badge { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex-shrink: 1; }
+.agent-card__top > :first-child { flex-shrink: 0; }
+
+@media (max-width: 767px) {
+  /* agent filters: one row that scrolls sideways (no orphan pill on a second row) */
+  .tabs { display: flex; max-width: 100%; overflow-x: auto; scrollbar-width: none; }
+  .tabs::-webkit-scrollbar { display: none; }
+  .tab { flex: none; padding: 0 14px; font-size: 14px; }
+
+  /* quote: robots stack as a list, the selected one always whole */
+  .wb__robots .wb__scroll { grid-auto-flow: row; grid-auto-columns: auto; overflow-x: visible; overflow-y: visible; }
+
+  /* register: the form first, the live preview after it; the step strip shows numbers, the current step named */
+  .reg-preview { order: 1; }
+  .reg-rail { justify-content: space-between; overflow-x: visible; }
+  .reg-rail li { flex: none; }
+  .reg-rail button { padding: 6px; gap: 8px; }
+  .reg-rail button:not(.is-on) .reg-rail__txt { display: none; }
+}
