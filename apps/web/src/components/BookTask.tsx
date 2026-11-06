@@ -55,6 +55,8 @@ export function BookTask({ robotId, robotName, robotBase, site, area, plan, quot
   // delivery: how long the drive takes decides the earliest time the robot can be on site
   const [drive, setDrive] = useState<{ durationS: number; distanceM: number; source: string } | null>(null);
   const [startAt, setStartAt] = useState("");
+  // as soon as possible: no on-site time, the robot leaves the moment its owner approves
+  const [asap, setAsap] = useState(false);
   const [track, setTrack] = useState<Track | null>(null);
   const earliest = Date.now() + ((drive?.durationS ?? 0) + 15 * 60) * 1000; // drive + offer, payment and loading
   useEffect(() => {
@@ -124,8 +126,8 @@ export function BookTask({ robotId, robotName, robotBase, site, area, plan, quot
     setErr(null);
     try {
       const id = `task-${crypto.randomUUID().slice(0, 18)}`;
-      const start = startAt ? new Date(startAt).getTime() : Date.now();
-      if (site && robotBase && start < earliest - 60_000) throw new Error("Pick a later time: the robot cannot be there that soon.");
+      const start = !asap && startAt ? new Date(startAt).getTime() : Date.now();
+      if (!asap && site && robotBase && start < earliest - 60_000) throw new Error("Pick a later time, or choose As soon as possible.");
       const args = taskRequestCreateArgs({
         schemaVersion: "1.0",
         taskId: id,
@@ -137,7 +139,7 @@ export function BookTask({ robotId, robotName, robotBase, site, area, plan, quot
         maxBudget: quote,
         deadline: new Date(start + hours * 3_600_000).toISOString(),
         createdAt: new Date().toISOString(),
-        ...(startAt ? { startAt: new Date(start).toISOString() } : {}),
+        ...(!asap && startAt ? { startAt: new Date(start).toISOString() } : {}),
       });
       await ark.publish(`task:${id}`, w.account, args, "0.01");
       setTaskId(id);
@@ -251,9 +253,13 @@ export function BookTask({ robotId, robotName, robotBase, site, area, plan, quot
       {site && robotBase && (
         <label className="field">
           <span className="t-label muted">On site at</span>
-          <input type="datetime-local" value={startAt} min={localInput(earliest)} onChange={(e) => setStartAt(e.target.value)} />
+          <span className="chip-row">
+            <button type="button" className={`pill-opt ${asap ? "is-on" : ""}`} aria-pressed={asap} onClick={() => setAsap(true)}>As soon as possible</button>
+            <button type="button" className={`pill-opt ${!asap ? "is-on" : ""}`} aria-pressed={!asap} onClick={() => setAsap(false)}>At a time</button>
+          </span>
+          {!asap && <input type="datetime-local" value={startAt} min={localInput(earliest)} onChange={(e) => setStartAt(e.target.value)} />}
           <span className="field__hint">
-            {drive ? `${(drive.distanceM / 1000).toFixed(1)} km away, about ${Math.round(drive.durationS / 60)} min by road${drive.source === "straight-line" ? " (direct estimate)" : ""}. Earliest ${new Date(earliest).toLocaleTimeString(undefined, { timeStyle: "short" })}.` : "Working out the drive…"}
+            {drive ? `${(drive.distanceM / 1000).toFixed(1)} km away, about ${Math.round(drive.durationS / 60)} min by road${drive.source === "straight-line" ? " (direct estimate)" : ""}. ${asap ? "It leaves as soon as its owner approves." : `Earliest ${new Date(earliest).toLocaleTimeString(undefined, { timeStyle: "short" })}.`}` : "Working out the drive…"}
           </span>
         </label>
       )}

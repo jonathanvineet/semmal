@@ -68,7 +68,7 @@ def encode_png(w, h, rgb):
             + chunk(b'IDAT', zlib.compress(raw, 6)) + chunk(b'IEND', b''))
 
 
-def keyframe_data_url(path, max_side=384):
+def keyframe_data_url(path, max_side=512):
     w, h, rgb = read_ppm(path)
     w, h, rgb = downscale(w, h, rgb, max_side)
     return {'dataUrl': 'data:image/png;base64,' + base64.b64encode(encode_png(w, h, rgb)).decode('ascii'), 'width': w, 'height': h}

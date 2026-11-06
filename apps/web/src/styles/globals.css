@@ -1132,3 +1132,6 @@ main > section.workbench > .wrap { height: auto; display: grid; gap: 18px; }
 .cv__method { display: grid; gap: 6px; }
 .cv__method ul { margin: 0; padding-left: 18px; display: grid; gap: 3px; }
 @media (max-width: 640px) { .cv__steps > li { grid-template-columns: 1fr; gap: 2px; } }
+.cv__framebox { display: block; margin-top: 6px; }
+.cv__frame { display: block; width: 100%; max-width: 420px; margin-top: 6px; border-radius: 12px; box-shadow: 0 0 0 1px var(--soft-line); }
+.cv__money { display: block; margin-top: 4px; }

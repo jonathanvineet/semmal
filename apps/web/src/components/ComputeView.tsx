@@ -14,7 +14,7 @@ type Receipt = {
 };
 type Decision = {
   at: string; stop: string; attempt: number; agentId: string; agentName: string; agentPrice0G: string; paymentTx?: string; question: string; frame: string;
-  model: string; trustMode: string; receipt?: Receipt; output?: Record<string, unknown>;
+  model: string; trustMode: string; receipt?: Receipt; output?: Record<string, unknown>; frameIndex?: number;
   checks: { format: boolean; actionAllowed: boolean; confidence: number | null; confidenceFloor: number };
   outcome: string; action: string; reason?: string;
 };
@@ -34,6 +34,27 @@ const og = (neuron?: string) => (neuron ? `${(Number(neuron) / 1e18).toFixed(6)}
 const ACTION: Record<string, string> = {
   continue_mission: "carry on", pause_and_request_inspection: "stop and ask for a human / clean the spot", return_to_dock: "go back", abort_mission: "stop the job", hold: "hold position",
 };
+
+/** The exact picture the robot sent to 0G, loaded on request (kept in the platform's memory only). */
+function Frame({ taskId, index }: { taskId: string; index: number }) {
+  const [src, setSrc] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const show = () =>
+    fetch(`/api/tasks/${taskId}/frames/${index}`, { credentials: "same-origin" })
+      .then(async (r) => {
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error ?? "unavailable");
+        setSrc(d.dataUrl);
+      })
+      .catch((e) => setErr((e as Error).message));
+  if (src) return <img className="cv__frame" src={src} alt="The camera frame the robot sent to 0G" />;
+  return (
+    <span>
+      <button type="button" className="link t-small" onClick={show}>Show the picture sent to 0G</button>
+      {err && <span className="t-small muted"> ({err})</span>}
+    </span>
+  );
+}
 
 export function ComputeView({ taskId }: { taskId: string }) {
   const [c, setC] = useState<Compute | null>(null);
@@ -70,8 +91,23 @@ export function ComputeView({ taskId }: { taskId: string }) {
             <span className={`cv__badge cv__badge--${d.outcome}`}>{d.outcome}</span>
           </header>
           <ol className="cv__steps">
-            <li><span className="cv__k">1 · Looked</span><span>Camera frame ({d.frame}). The robot asked: <q>{d.question}</q></span></li>
-            <li><span className="cv__k">2 · Hired</span><span>{d.agentName} for {d.agentPrice0G} 0G{d.paymentTx ? <>, paid in tx <span className="mono">{short(d.paymentTx, 8)}</span></> : ""}. The agent runs the model; the robot never holds a model key.</span></li>
+            <li>
+              <span className="cv__k">1 · Looked</span>
+              <span>
+                Camera frame ({d.frame}). The robot asked: <q>{d.question}</q>
+                {d.frameIndex !== undefined && <span className="cv__framebox"><Frame taskId={taskId} index={d.frameIndex} /></span>}
+              </span>
+            </li>
+            <li>
+              <span className="cv__k">2 · Hired</span>
+              <span>
+                {d.agentName} for {d.agentPrice0G} 0G{d.paymentTx ? <>, paid in tx <span className="mono">{short(d.paymentTx, 8)}</span></> : ""}. The agent runs the model; the robot never holds a model key.
+                <span className="cv__money t-small muted">
+                  Who paid for this 0G call: your payment to the robot funds its agent budget; the robot paid {d.agentName} {d.agentPrice0G} 0G; that price covers the agent&apos;s 0G
+                  inference{d.receipt?.inferenceCostNeuron ? ` (${og(d.receipt.inferenceCostNeuron)} for this call)` : ""}, billed to its own capped 0G key.
+                </span>
+              </span>
+            </li>
             <li>
               <span className="cv__k">3 · 0G</span>
               <span>

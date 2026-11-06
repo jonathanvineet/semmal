@@ -553,6 +553,37 @@ export function buildApp(deps: Deps = defaultDeps()) {
     return r.ok ? { taskId: r.taskId, dispatched: true } : reply.code(409).send({ error: r.reason });
   });
 
+  // ---------------------------------------------------------------- camera frames (memory only)
+  /**
+   * The robot hands over each frame it sent to 0G, so the customer can see exactly what was looked at.
+   * Kept in memory with the trip (never on disk, Arkiv or 0G Storage); gone when the API restarts.
+   */
+  app.post<{ Params: { taskId: string }; Body: { stop?: string; dataUrl?: string } }>("/api/tasks/:taskId/frames", { bodyLimit: 3 * 1024 * 1024 }, async (req, reply) => {
+    const bearer = (req.headers.authorization ?? "").replace(/^Bearer\s+/i, "");
+    const link = bearer.startsWith("slk_") ? gateway?.links.verify(bearer) : null;
+    if (!link) return reply.code(401).send({ error: "robot link token required" });
+    const t = gateway!.trips.get(req.params.taskId);
+    if (!t || t.robotId !== link.robotId) return reply.code(404).send({ error: "no such task for this robot" });
+    const dataUrl = String(req.body?.dataUrl ?? "");
+    if (!/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(dataUrl) || dataUrl.length > 2_500_000) return reply.code(400).send({ error: "dataUrl must be a base64 PNG, JPEG or WebP" });
+    t.frames ??= [];
+    t.frames.push({ at: new Date().toISOString(), stop: String(req.body?.stop ?? "").slice(0, 40), dataUrl });
+    if (t.frames.length > 12) t.frames.splice(0, t.frames.length - 12);
+    return { index: t.frames.length - 1 };
+  });
+
+  /** One frame, for the booking's customer only (it is their site). On an owner test task, for the owner. */
+  app.get<{ Params: { taskId: string; index: string } }>("/api/tasks/:taskId/frames/:index", async (req, reply) => {
+    const address = sessionAddress(req)?.toLowerCase();
+    if (!address) return reply.code(401).send({ error: "sign in with the wallet that booked" });
+    const t = gateway?.trips.get(req.params.taskId);
+    const f = t?.frames?.[Number(req.params.index)];
+    if (!t || !f) return reply.code(404).send({ error: "frame not available (frames are kept in memory only)" });
+    const viewer = t.meta.customerWallet ?? t.meta.ownerWallet;
+    if (!viewer || viewer.toLowerCase() !== address) return reply.code(403).send({ error: "only the customer who booked can see the pictures of their site" });
+    return { at: f.at, stop: f.stop, dataUrl: f.dataUrl };
+  });
+
   // ---------------------------------------------------------------- the booking flow: approve, arrive, confirm
   /** The robot's owner approves or declines a booking. Only then does the robot move. */
   app.post<{ Params: { taskId: string }; Body: { approved?: boolean; reason?: string } }>("/api/tasks/:taskId/approve", async (req, reply) => {

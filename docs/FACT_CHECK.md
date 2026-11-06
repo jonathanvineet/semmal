@@ -239,3 +239,17 @@ Tests: `apps/api/src/gateway.test.ts` against a real WebSocket server.
 - Privacy: Arkiv robot profiles carry only a 2-decimal (~1 km) base and a service radius. The exact base stays on the robot;
   the customer's site goes from the browser to the platform (in memory) to the robot, never to Arkiv or into evidence
   bundles (episodes keep ~1 km points). Live positions are kept in platform memory only.
+
+## Camera and pictures (added 2026-11-06)
+
+- Camera mounts (Gazebo, per body; the mast starts above the lidar's 0.20 m scan plane so the lidar never sees it):
+  cleaner 0.45 m, 0.35 rad down; rover 0.30 m, 0.15 rad up; field 0.50 m, 0.12 rad down; 640x480, 1.2 rad horizontal FOV.
+  Each scenario's target was projected into the image from its stop (all in view; house targets near the centre row).
+- Frames go to the vision agent at 512 px on the long side (PNG). Image token use per call is an estimate until measured.
+- Pictures: kept on the robot; one copy to the vision agent for the 0G call; one copy in the platform's memory (not disk, not
+  Arkiv, not 0G Storage) so the booking's customer can see what was looked at. Only the customer can view them (owner on
+  their own test tasks); they are gone when the API restarts. This is a deliberate, disclosed exception to "no retained
+  images by default" for the customer's own site.
+- Who pays for 0G: the customer pays the robot; the robot pays the agent per job; the agent's price covers its own 0G
+  inference, billed to its capped Router key (one platform deposit). The customer does not hold 0G compute credits directly;
+  Privy/iAI credit use is not implemented (needs organiser confirmation).

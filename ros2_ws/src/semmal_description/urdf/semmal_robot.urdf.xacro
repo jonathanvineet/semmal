@@ -212,6 +212,30 @@
   </gazebo>
 
   <!-- RGB camera (optical frame follows REP-103: z forward, x right, y down) -->
+  <!-- Camera mount per body: a mast standing on top of the lidar housing (above the lidar's scan plane,
+       so the lidar never sees its own mast), camera at the top. Heights above the ground, pitch down +.
+         cleaner: 0.45 m, 0.35 rad down: the floor 0.5 m to the far wall, spills and clutter near the middle
+         rover:   0.30 m, 0.15 rad up:   a machine panel 0.4-1.1 m high at ~1.3 m, and its lower vent
+         field:   0.50 m, 0.12 rad down: the trail, a fallen trunk and a fire ring 2-5 m ahead -->
+  <xacro:property name="cam_h" value="${0.45 if variant == 'cleaner' else (0.50 if variant == 'field' else 0.30)}"/>
+  <xacro:property name="cam_pitch" value="${0.35 if variant == 'cleaner' else (0.12 if variant == 'field' else -0.15)}"/>
+  <xacro:property name="cam_x" value="0.05"/>
+  <xacro:property name="mast_bottom" value="${base_z_offset + base_z/2 + 0.03 + 0.025}"/>
+  <xacro:property name="mast_top" value="${cam_h - wheel_radius - 0.02}"/>
+  <link name="camera_mast">
+    <visual>
+      <origin xyz="0 0 ${(mast_top - mast_bottom)/2}"/>
+      <geometry><cylinder radius="0.012" length="${mast_top - mast_bottom}"/></geometry>
+      <material name="graphite"/>
+    </visual>
+    <inertial><mass value="0.05"/><xacro:cylinder_inertia m="0.05" r="0.012" h="${mast_top - mast_bottom}"/></inertial>
+  </link>
+  <joint name="camera_mast_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="camera_mast"/>
+    <origin xyz="${cam_x} 0 ${mast_bottom}"/>
+  </joint>
+
   <link name="camera_link">
     <visual>
       <geometry><box size="0.03 0.08 0.03"/></geometry>
@@ -222,8 +246,7 @@
   <joint name="camera_joint" type="fixed">
     <parent link="base_link"/>
     <child link="camera_link"/>
-    <!-- slight upward pitch so a machine panel ~0.4-1.1 m high is in view from ~1.3 m -->
-    <origin xyz="${base_x/2 + 0.01} 0 ${base_z_offset + 0.03}" rpy="0 -0.30 0"/>
+    <origin xyz="${cam_x} 0 ${cam_h - wheel_radius}" rpy="0 ${cam_pitch} 0"/>
   </joint>
   <link name="camera_optical_frame"/>
   <joint name="camera_optical_joint" type="fixed">
