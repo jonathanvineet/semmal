@@ -17,8 +17,9 @@ import { Gateway, LinkStore, MAX_MESSAGE_BYTES } from "./gateway";
 import websocket from "@fastify/websocket";
 import { GALILEO_RPC, galileoClient, verifyTransfer } from "@semmal/zerog-pay";
 import { connectRobot } from "./connect";
+import { notesFor, NotificationStore } from "./notifications";
 
-type Deps = { registry: ArkivRegistry; router: ZeroGRouter; config: ReturnType<typeof loadConfig>; admin: AdminStore; auth: WalletAuth; runner?: AgentRunner; gateway?: Gateway };
+type Deps = { registry: ArkivRegistry; router: ZeroGRouter; config: ReturnType<typeof loadConfig>; admin: AdminStore; auth: WalletAuth; runner?: AgentRunner; gateway?: Gateway; notes?: NotificationStore };
 
 export function defaultDeps(): Deps {
   const config = loadConfig();
@@ -33,7 +34,8 @@ export function defaultDeps(): Deps {
     (want) => verifyTransfer(galileoClient(process.env.ZEROG_PAY_RPC_URL || GALILEO_RPC), want),
   );
   const gateway = new Gateway(new LinkStore(process.env.ROBOT_LINKS_PATH || "../../data/robot-links.json"));
-  return { config, admin, auth: new WalletAuth(new URL(config.WEB_ORIGIN).host), registry, router, runner, gateway };
+  const notes = new NotificationStore(process.env.NOTIFICATIONS_DB || "../../data/notifications.db");
+  return { config, admin, auth: new WalletAuth(new URL(config.WEB_ORIGIN).host), registry, router, runner, gateway, notes };
 }
 
 const SID = "semmal_sid";
@@ -52,7 +54,9 @@ function cached<T>(ttlMs: number, fn: (key: string) => Promise<T>) {
 }
 
 export function buildApp(deps: Deps = defaultDeps()) {
-  const { registry, router, config, admin, auth, runner, gateway } = deps;
+  const { registry, router, config, admin, auth, runner, gateway, notes } = deps;
+  // robot events become notifications for the robot's owner and the customer who booked
+  if (gateway && notes) gateway.onTaskEvent = (meta, e) => notesFor(meta, e).forEach((n) => notes.add(n));
   const app = Fastify({
     logger: {
       level: "info",
@@ -91,6 +95,20 @@ export function buildApp(deps: Deps = defaultDeps()) {
   app.post("/api/auth/logout", async (req, reply) => {
     auth.end(readCookie(req.headers.cookie, SID));
     reply.header("set-cookie", `${SID}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0`);
+    return { ok: true };
+  });
+
+  /** The signed-in wallet's notifications (owner of robots, or customer of bookings). */
+  app.get("/api/notifications", async (req, reply) => {
+    const address = sessionAddress(req);
+    if (!address) return reply.code(401).send({ error: "sign in with your wallet to see notifications" });
+    return notes ? notes.list(address) : { items: [], unread: 0 };
+  });
+  app.post<{ Body: { ids?: number[] } }>("/api/notifications/read", async (req, reply) => {
+    const address = sessionAddress(req);
+    if (!address) return reply.code(401).send({ error: "sign in first" });
+    const ids = Array.isArray(req.body?.ids) ? req.body.ids.filter((x) => Number.isInteger(x)) : undefined;
+    notes?.markRead(address, ids);
     return { ok: true };
   });
 
@@ -430,7 +448,7 @@ export function buildApp(deps: Deps = defaultDeps()) {
       .safeParse(req.body);
     if (!body.success) return reply.code(400).send({ error: "invalid task", issues: body.error.issues });
     if (!own.robot.data.capabilities.includes(body.data.skill)) return reply.code(409).send({ error: "this robot does not offer that skill" });
-    const r = gateway.assign(req.params.robotId, { skill: body.data.skill, plan: { waypoints: body.data.waypoints, distanceM: body.data.distanceM, privacy: body.data.privacy } });
+    const r = gateway.assign(req.params.robotId, { skill: body.data.skill, plan: { waypoints: body.data.waypoints, distanceM: body.data.distanceM, privacy: body.data.privacy } }, { robotName: own.robot.data.displayName, ownerWallet: own.robot.data.ownerWallet });
     return r.ok ? { taskId: r.taskId } : reply.code(409).send({ error: r.reason });
   });
 
@@ -480,7 +498,7 @@ export function buildApp(deps: Deps = defaultDeps()) {
       maxBudget: task.data.maxBudget,
       deadline: task.data.deadline,
       customerWallet: task.data.customerWallet,
-    });
+    }, { robotName: robot.data.displayName, ownerWallet: robot.data.ownerWallet });
     return r.ok ? { taskId: r.taskId, dispatched: true } : reply.code(409).send({ error: r.reason });
   });
 

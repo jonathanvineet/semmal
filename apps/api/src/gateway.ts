@@ -15,6 +15,7 @@ import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypt
 import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import type { WebSocket } from "ws";
+import type { TaskEvent, TripMeta } from "./notifications";
 import { RobotToPlatform, type PlatformToRobot } from "@semmal/contracts";
 
 const HEARTBEAT_S = 5;
@@ -93,7 +94,18 @@ type Session = { id: string; socket: WebSocket; robotId: string; lastSeq: number
 export class Gateway {
   private live = new Map<string, LiveRobot>();
   /** Live travel per task (positions, the customer's site). In memory only, never on Arkiv. */
-  readonly trips = new Map<string, { robotId: string; site?: { lat: number; lon: number }; startAt?: string; points: { at: string; lat: number; lon: number; phase: string; etaAt?: string; remainingM?: number }[] }>();
+  readonly trips = new Map<string, { robotId: string; site?: { lat: number; lon: number }; startAt?: string; meta: TripMeta; points: { at: string; lat: number; lon: number; phase: string; etaAt?: string; remainingM?: number }[] }>();
+  /** Called for every task event the robot reports, with who is involved (for notifications). */
+  onTaskEvent?: (meta: TripMeta, e: TaskEvent) => void;
+  private emit(taskId: string | undefined, robotId: string, e: TaskEvent) {
+    const t = taskId ? this.trips.get(taskId) : [...this.trips.values()].reverse().find((x) => x.robotId === robotId);
+    if (!t || t.robotId !== robotId) return;
+    try {
+      this.onTaskEvent?.(t.meta, e);
+    } catch {
+      /* notifications never break the robot link */
+    }
+  }
   private sessions = new Map<string, Session>();
   private sweeper: NodeJS.Timeout;
 
@@ -175,9 +187,11 @@ export class Gateway {
           break;
         case "mission_progress":
           this.event(robotId, "mission", `${m.taskId}: ${m.state}${m.detail ? ` · ${m.detail}` : ""}`);
+          this.emit(m.taskId, robotId, { kind: "progress", state: m.state, detail: m.detail });
           break;
         case "incident_notice":
           this.event(robotId, "incident", `${m.faultCode} (${m.severity}) · ${m.safetyAction} · ${m.persistence}`);
+          this.emit(undefined, robotId, { kind: "incident", faultCode: m.faultCode, safetyAction: m.safetyAction });
           break;
         case "position": {
           const t = this.trips.get(m.taskId);
@@ -186,10 +200,12 @@ export class Gateway {
           t.points.push({ at: m.ts, lat: m.lat, lon: m.lon, phase: m.phase, etaAt: m.etaAt, remainingM: m.remainingM });
           if (t.points.length > 500) t.points.splice(0, t.points.length - 500);
           if (m.phase !== prev?.phase) this.event(robotId, "mission", `${m.taskId}: ${m.phase}${m.etaAt ? ` · ETA ${m.etaAt.slice(11, 16)}` : ""}`);
+          this.emit(m.taskId, robotId, { kind: "position", phase: m.phase, remainingM: m.remainingM, etaAt: m.etaAt });
           break;
         }
         case "task_ack":
           this.event(robotId, "task", `${m.taskId} ${m.accepted ? "accepted" : `declined${m.reason ? `: ${m.reason}` : ""}`}`);
+          this.emit(m.taskId, robotId, { kind: "ack", accepted: m.accepted, reason: m.reason });
           break;
       }
       this.send(s, { type: "ack", seq: m.seq });
@@ -251,14 +267,20 @@ export class Gateway {
   }
 
   /** Send a task to a connected robot. The robot validates it and answers with task_ack. */
-  assign(robotId: string, task: Omit<Extract<PlatformToRobot, { type: "task_assignment" }>, "type" | "assignedAt" | "taskId"> & { taskId?: string }) {
+  assign(robotId: string, task: Omit<Extract<PlatformToRobot, { type: "task_assignment" }>, "type" | "assignedAt" | "taskId"> & { taskId?: string }, who: { robotName?: string; ownerWallet?: string } = {}) {
     const s = this.sessions.get(robotId);
     if (!s?.hello) return { ok: false as const, reason: "The robot is not connected" };
     const r = this.state(robotId);
     if (r.safetyState && r.safetyState !== "NORMAL") return { ok: false as const, reason: `The robot reports ${r.safetyState}; tasks wait until it is NORMAL` };
     const taskId = task.taskId ?? `task-${randomUUID().slice(0, 12)}`;
     this.send(s, { ...task, type: "task_assignment", taskId, assignedAt: new Date().toISOString() });
-    this.trips.set(taskId, { robotId, site: task.site, startAt: task.startAt, points: [] });
+    const meta: TripMeta = { taskId, robotId, robotName: who.robotName ?? robotId, ownerWallet: who.ownerWallet, customerWallet: task.customerWallet, skill: task.skill, startAt: task.startAt };
+    this.trips.set(taskId, { robotId, site: task.site, startAt: task.startAt, meta, points: [] });
+    try {
+      this.onTaskEvent?.(meta, { kind: "dispatched" });
+    } catch {
+      /* never block a dispatch */
+    }
     this.event(robotId, "task", `${taskId} sent: ${task.skill}, ${task.plan.waypoints} stops`);
     return { ok: true as const, taskId };
   }

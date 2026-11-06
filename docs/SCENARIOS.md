@@ -110,6 +110,17 @@ Then:
 
 **0G failure test:** unplug the platform's internet mid-run. The robot holds, retries once, then `SAFE_STOP`. The "What 0G told it" table shows `failed` or `timeout` with no made-up answer.
 
+## Notifications
+
+The bell in the top dock works for any wallet once it's signed in.
+- **The robot's owner hears about:** new bookings and test tasks, a declined booking, payment received, the robot leaving, arriving on site, finishing or stopping, and safety stops.
+- **The customer hears about:**
+  - the booking being sent, the robot's offer (with the amount to pay), the payment being confirmed;
+  - the robot setting off, about 2 minutes from arrival, arrived;
+  - done or could not finish (with the refund note), or the offer expiring.
+
+Click **Turn on desktop alerts** to also get browser notifications while the site is open. To see both sides, use two browsers or two wallets: one owns the robot, one books it.
+
 ## Known limits
 
 - The vision model sees rendered Gazebo frames. The models may misjudge a flat spill or call the smoke a pillar; that is a real result and is shown as such. A low-confidence answer is rejected.
@@ -117,4 +128,5 @@ Then:
 - With a management key, each agent has its own capped 0G key, but all keys draw on one Router deposit (yours). It is a per-agent spend cap and usage record, not a separate wallet.
 - Getting to the customer is a drive along a real road route (OSRM demo server, cached, at most 1 request a second; a direct line if it's unreachable, and the map says so). The robot reports its position along that route; Gazebo then runs the job at the site. In production this is a real vehicle and GPS.
 - The identity proves the robot holds its wallet key and runs a supported robot's stack. The facts are self-reported (no TPM), and real Create 3, TurtleBot 4 and Jackal hardware is not accepted until its on-board check is tested.
+- Notifications and live trips are made from what the robot reports while the API is running; if the API restarts mid-trip, that trip sends no more notifications.
 - One simulation at a time per PC. Each robot keeps its own task store and evidence queue (`data/robot-master/<rbt-id>`) and only signs incidents carrying its own robot id.

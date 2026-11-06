@@ -5,6 +5,7 @@
  * Reduced motion and touch: no magnification.
  */
 import Link from "next/link";
+import { NotificationBell } from "./NotificationBell";
 import { usePathname } from "next/navigation";
 import { motion, useMotionValue, useSpring, useTransform, type MotionValue } from "motion/react";
 import { useEffect, useRef, useState } from "react";
@@ -123,6 +124,7 @@ export function Dock() {
         {OPS.map((it) => (
           <DockIcon key={it.id} item={it} mouseX={mouseX} active={isActive(it)} magnify={magnify} />
         ))}
+        <NotificationBell />
         <Link href="/agents" className="btn btn--primary dock__cta">Browse agents</Link>
       </nav>
     </header>

@@ -1064,3 +1064,20 @@ main > section.workbench > .wrap { height: auto; display: grid; gap: 18px; }
 .bk__map { height: 240px; }
 .conn__where { display: grid; gap: 6px; }
 .conn__map { height: 180px; min-height: 180px; }
+
+/* notifications */
+.nb { position: relative; display: inline-flex; }
+.nb__btn { position: relative; width: 44px; height: 44px; display: grid; place-items: center; border: 0; cursor: pointer; }
+.nb__count { position: absolute; top: 4px; right: 4px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px; background: var(--p-accent); color: var(--p-bg); font-size: 11px; font-weight: 700; line-height: 18px; text-align: center; }
+.nb__panel { position: absolute; top: calc(100% + 12px); right: 0; width: min(380px, 92vw); max-height: min(70svh, 560px); display: flex; flex-direction: column; border-radius: 22px; background: color-mix(in oklab, #111215 92%, transparent); backdrop-filter: blur(18px) saturate(1.2); box-shadow: 0 0 0 1px var(--soft-line), 0 24px 60px rgb(0 0 0 / 0.5); z-index: 60; overflow: hidden; }
+.nb__head, .nb__foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 14px 16px; }
+.nb__head { border-bottom: 1px solid var(--soft-line); }
+.nb__foot { border-top: 1px solid var(--soft-line); }
+.nb__empty { display: grid; gap: 10px; justify-items: start; padding: 16px; margin: 0; }
+.nb__list { list-style: none; margin: 0; padding: 6px; overflow-y: auto; display: grid; gap: 2px; }
+.nb__item { all: unset; box-sizing: border-box; cursor: pointer; width: 100%; display: grid; gap: 3px; padding: 10px 12px; border-radius: 14px; transition: background 0.2s; }
+.nb__item:hover { background: var(--soft-fill); }
+.nb__item:focus-visible { outline: 2px solid var(--ice); outline-offset: -2px; }
+.nb__list li.is-new .nb__item { background: color-mix(in oklab, var(--p-accent) 8%, transparent); }
+.nb__list li.is-new .nb__item b::before { content: ""; display: inline-block; width: 7px; height: 7px; margin-right: 7px; border-radius: 50%; background: var(--p-accent); vertical-align: middle; }
+.nb__who { font-size: 11.5px; color: var(--p-muted); }
