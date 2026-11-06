@@ -344,7 +344,7 @@ main > section.world { position: relative; height: 500svh !important; padding: 0
 .close-word__head p { margin: 0; }
 .close-word__name {
   margin: 0; font-family: var(--font-display); font-weight: var(--display-weight); letter-spacing: -0.06em; line-height: 0.82;
-  font-size: clamp(88px, 19.5vw, 300px); color: transparent; -webkit-text-stroke: 1px color-mix(in oklab, var(--p-ink) 22%, transparent);
+  font-size: clamp(64px, 18vw, 300px); color: transparent; max-width: 100%; overflow: hidden; white-space: nowrap; -webkit-text-stroke: 1px color-mix(in oklab, var(--p-ink) 22%, transparent);
   user-select: none;
 }
 .footer-row { display: grid; gap: 32px; padding-top: 40px; margin-top: 24px; border-top: 1px solid var(--hair); }
@@ -385,13 +385,13 @@ h2 { font-weight: 500; letter-spacing: -0.02em; }
 /* ------------------------------------------------------------- the dock */
 .dock-wrap { position: fixed; top: 14px; left: 0; right: 0; z-index: 30; display: flex; justify-content: center; pointer-events: none; padding: 0 12px; }
 .dock {
-  pointer-events: auto; display: flex; align-items: flex-end; gap: 6px; height: 60px; padding: 0 10px 9px;
+  pointer-events: auto; display: flex; align-items: flex-end; gap: 5px; height: 52px; padding: 0 8px 8px;
   border-radius: 24px; background: color-mix(in oklab, #15161a 94%, transparent);
   box-shadow: 0 0 0 1px rgb(255 255 255 / 0.06), 0 18px 50px -18px rgb(0 0 0 / 0.9), inset 0 1px 0 rgb(255 255 255 / 0.05);
 }
-.dock__brand { display: inline-flex; align-items: center; gap: 9px; height: 42px; padding: 0 10px 0 6px; border-radius: 14px; font: 600 16px var(--font-text); letter-spacing: -0.01em; color: var(--p-ink); align-self: flex-end; }
+.dock__brand { display: inline-flex; align-items: center; gap: 9px; height: 36px; padding: 0 10px 0 6px; border-radius: 14px; font: 600 16px var(--font-text); letter-spacing: -0.01em; color: var(--p-ink); align-self: flex-end; }
 .dock__mark { width: 24px; height: 24px; color: var(--p-ink); }
-.dock__sep { width: 1px; height: 26px; margin: 0 4px 8px; background: var(--soft-line); align-self: flex-end; }
+.dock__sep { width: 1px; height: 20px; margin: 0 3px 8px; background: var(--soft-line); align-self: flex-end; }
 .dock__cell { position: relative; display: flex; align-items: flex-end; justify-content: center; flex: none; }
 .dock__btn {
   position: relative; width: 100%; height: 100%; display: grid; place-items: center; border-radius: 30%;
@@ -413,11 +413,10 @@ h2 { font-weight: 500; letter-spacing: -0.02em; }
 .dock__cta { align-self: flex-end; height: 42px; margin-left: 2px; }
 @media (max-width: 1100px) { .dock__sim { display: none; } }
 @media (max-width: 760px) {
-  .dock { gap: 4px; padding: 0 8px 8px; height: 56px; }
-  .dock__cta, .dock__sep:nth-of-type(2) { display: none; }
+  .dock { gap: 4px; padding: 0 6px 7px; height: 50px; }
   .dock__label { display: none; }
 }
-@media (max-width: 420px) { .dock__cell:nth-last-of-type(-n+2) { display: none; } }
+
 
 /* ------------------------------------------------------------- softer world */
 .world__hero { padding-top: 96px; }
@@ -466,7 +465,7 @@ h2 { font-weight: 500; letter-spacing: -0.02em; }
 .choose__controls fieldset { border: 0; margin: 0; padding: 0; display: grid; gap: 10px; }
 .choose__controls fieldset p { margin: 0; }
 .seg { display: flex; padding: 4px; border-radius: 999px; background: #0d0d10; box-shadow: inset 0 0 0 1px var(--soft-line); }
-.seg__opt { position: relative; flex: 1; height: 40px; border: 0; background: none; color: var(--p-muted); font: 500 14px var(--font-text); cursor: pointer; border-radius: 999px; white-space: nowrap; padding: 0 10px; }
+.seg__opt { position: relative; flex: 1 1 0; min-width: 0; min-height: 40px; border: 0; background: none; color: var(--p-muted); font: 500 14px/1.2 var(--font-text); cursor: pointer; border-radius: 999px; padding: 6px 10px; text-wrap: balance; }
 .seg__opt[aria-checked="true"] { color: var(--p-bg); }
 .seg__opt:hover:not([aria-checked="true"]) { color: var(--p-ink); }
 .seg__opt > span:last-child { position: relative; }
@@ -1067,7 +1066,7 @@ main > section.workbench > .wrap { height: auto; display: grid; gap: 18px; }
 
 /* notifications */
 .nb { position: relative; display: inline-flex; }
-.nb__btn { position: relative; width: 44px; height: 44px; display: grid; place-items: center; border: 0; cursor: pointer; }
+.nb__btn { position: relative; width: 36px; height: 36px; display: grid; place-items: center; border: 0; cursor: pointer; }
 .nb__count { position: absolute; top: 4px; right: 4px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px; background: var(--p-accent); color: var(--p-bg); font-size: 11px; font-weight: 700; line-height: 18px; text-align: center; }
 .nb__panel { position: absolute; top: calc(100% + 12px); right: 0; width: min(380px, 92vw); max-height: min(70svh, 560px); display: flex; flex-direction: column; border-radius: 22px; background: color-mix(in oklab, #111215 92%, transparent); backdrop-filter: blur(18px) saturate(1.2); box-shadow: 0 0 0 1px var(--soft-line), 0 24px 60px rgb(0 0 0 / 0.5); z-index: 60; overflow: hidden; }
 .nb__head, .nb__foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 14px 16px; }
@@ -1168,7 +1167,7 @@ a.xl { white-space: nowrap; }
 .brand__ta { font: 700 17px/1 var(--f-tamil), sans-serif; color: var(--p-ink); letter-spacing: 0; padding-top: 2px; }
 .brand__rule { width: 1px; height: 15px; background: color-mix(in oklab, var(--p-ink) 22%, transparent); }
 .brand__en { font: 600 15px/1 var(--font-text); letter-spacing: -0.01em; color: var(--p-muted); }
-.dock__brand { padding: 0 14px 0 12px; }
+.dock__brand { padding: 0 12px 0 10px; }
 
 
 /* hero: the name as one confident line, then the heading */
@@ -1196,3 +1195,49 @@ a.xl { white-space: nowrap; }
   .dock::-webkit-scrollbar { display: none; }
   .dock > * { flex: none; }
 }
+
+/* compact dock controls */
+.dock .acct__btn { height: 36px; padding: 0 14px; font-size: 13px; }
+.dock .acct, .dock .nb { align-self: flex-end; }
+
+/* ---------- fit every screen: grids may never grow past their container */
+.close-word, .footer-row, .choose__grid > *, .trust-grid > * { min-width: 0; }
+.close-word { grid-template-columns: minmax(0, 1fr); }
+@media (max-width: 1023px) {
+  .choose__grid, .trust-grid { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 480px) {
+  .seg__opt { font-size: 13px; padding: 6px 6px; }
+  .choose__controls, .choose__result { padding: 20px; }
+  .footer-cols { gap: 28px 40px; }
+}
+@media (max-width: 640px) {
+  .dock-wrap { justify-content: center; }
+  .dock { width: 100%; min-width: 0; }
+  .dock .acct__btn { padding: 0 12px; }
+}
+
+/* ---------- the statement: one line on wide screens, balanced rows on narrow ones */
+main > section.statement { display: flex; align-items: center; min-height: 100svh; height: auto !important; background: var(--p-bg); }
+.statement__inner { display: grid; gap: clamp(20px, 2.4vw, 36px); }
+.statement__line {
+  margin: 0; font-family: var(--font-display); font-weight: var(--display-weight); letter-spacing: var(--display-tracking-xl, -0.03em);
+  font-size: clamp(44px, 8.6vw, 168px); line-height: 1.02; text-wrap: balance; overflow-wrap: anywhere;
+}
+.statement__stop { color: var(--p-accent); }
+.statement__sub { margin: 0; max-width: 52ch; font-size: clamp(16px, 0.5vw + 14px, 20px); line-height: 1.5; color: var(--p-muted); }
+
+/* the privacy panels: width from the card, height from the shape */
+.trust-card__panel { width: 100%; min-width: 0; min-height: 0; }
+.trust-card__panel .dg { max-width: 100%; }
+
+/* phones: the dock fits the screen with no sideways scroll; owner links live in the footer */
+@media (max-width: 480px) {
+  .dock { gap: 4px; justify-content: space-between; overflow: visible; }
+  .dock__ops { display: none; }
+  .dock__brand { padding: 0 4px 0 6px; }
+  .dock__brand .brand__ta { display: none; }
+}
+@media (max-width: 400px) { .hero-brand__name { flex-wrap: wrap; row-gap: 8px; } .hero-brand__ta { font-size: 40px; } }
+/* the footer name: Tamil letters need their full height; sized so the whole word fits the width */
+.close-word__name { font-size: clamp(56px, 14vw, 230px); line-height: 1.25; overflow-x: clip; overflow-y: visible; padding-bottom: 0.04em; }
