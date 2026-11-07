@@ -15,6 +15,15 @@ acts within strict safety limits. Everything it saw, bought and decided is signe
   [Running on a real TurtleBot](#running-on-a-real-turtlebot).
 - **Chains:** Arkiv Rabdi (chain 7794095) for records, 0G Galileo (chain 16602) for payments and Storage, 0G Router for inference.
 
+## Screenshots
+
+| | |
+|---|---|
+| ![Home](media/app-1-home.png) **Home** · the marketplace | ![Robot quote](media/app-2-robot-quote.png) **Book a robot** · the robot prices the job itself, from live Arkiv and 0G prices |
+| ![Booking on Arkiv](media/app-3-booking-on-arkiv.png) **The booking** · signed by your wallet onto Arkiv, the robot's route on the map | ![What went to Arkiv](media/app-4-what-went-to-arkiv.png) **What went to Arkiv** · the job's entity read back, with the score worked through |
+| ![Register a robot](media/app-5-register-robot.png) **Register a robot** · its identity checked by a signed challenge | |
+| ![Simulation: living room](media/sim-1-living-room-toys.png) **The robot at work** · Gazebo, with the mission log and the robot agent's terminal | ![Simulation: record to 0G Storage](media/sim-2-dock-0g-storage-upload.png) **Back on its dock** · the robot uploads its signed record to 0G Storage, then Arkiv |
+
 ## ETHGlobal Mumbai submission
 
 Built at ETHGlobal Mumbai (Nov 5–7, 2026); the repository's first commit is 2026-11-05 23:03 IST, after hacking began.

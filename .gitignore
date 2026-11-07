@@ -52,12 +52,31 @@ __pycache__/
 .venv/
 venv/
 
-# ---------------------------------------------------------------- installed agent skills
-# Reinstall with: npx skills add Leonxlnx/taste-skill (see skills-lock.json)
+# ---------------------------------------------------------------- AI tooling (kept local, never pushed)
+.claude/
 .agents/
-.claude/skills/
-.claude/settings.local.json
 .taste-skill/
+.hyperframes/
+skills-lock.json
+CLAUDE.md
+AGENTS.md
+agent/
+.aider-desk/
+.cursor/
+.windsurf/
+.codex/
+.gemini/
+.opencode/
+.continue/
+.roo/
+.cline/
+.kilocode/
+.augment/
+.junie/
+.trae/
+.goose/
+.amp/
+.crush/
 design-system/
 shots/
 
@@ -71,3 +90,6 @@ Thumbs.db
 npm-debug.log*
 pnpm-debug.log*
 .vercel
+
+# ---------------------------------------------------------------- media: screenshots, recordings and the demo video (kept local)
+media/
